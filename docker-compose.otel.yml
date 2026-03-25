@@ -1,0 +1,62 @@
+version: "3.9"
+
+services:
+  # ---------------------------------------------------------------
+  # OpenTelemetry Collector — receives spans/metrics/logs via OTLP
+  # ---------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Collector metrics
+      - "8889:8889"   # Prometheus exporter
+    depends_on:
+      - jaeger
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------
+  # Jaeger v2 — distributed tracing backend
+  # ---------------------------------------------------------------
+  jaeger:
+    image: jaegertracing/jaeger:2.4.0
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14250:14250"  # gRPC (collector)
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------
+  # Prometheus — metrics storage and querying
+  # ---------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------
+  # Grafana — dashboards and visualization
+  # ---------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.0
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - jaeger
+    restart: unless-stopped
