@@ -1,0 +1,93 @@
+# Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+"""RL metric instruments (rl.* namespace)."""
+
+from __future__ import annotations
+
+import logging
+import weakref
+from typing import Optional
+
+from opentelemetry import metrics
+
+_logger = logging.getLogger(__name__)
+_RL_INSTRUMENTS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _get_rl_instruments(meter: metrics.Meter) -> dict:
+    instruments = _RL_INSTRUMENTS.get(meter)
+    if instruments is None:
+        instruments = {
+            'reward_mean': meter.create_gauge(
+                name='rl.reward.mean',
+                description='Mean reward across rollout batch.',
+            ),
+            'kl_divergence': meter.create_gauge(
+                name='rl.kl_divergence',
+                description='KL divergence between policy and reference.',
+            ),
+            'policy_loss': meter.create_gauge(
+                name='rl.policy_loss',
+                description='Policy gradient loss.',
+            ),
+            'value_loss': meter.create_gauge(
+                name='rl.value_loss',
+                description='Value function loss.',
+            ),
+            'entropy': meter.create_gauge(
+                name='rl.entropy',
+                description='Policy entropy.',
+            ),
+            'response_length_mean': meter.create_gauge(
+                name='rl.response_length.mean',
+                description='Mean generated response length (tokens).',
+            ),
+            'generation_duration_ms': meter.create_histogram(
+                name='rl.generation.duration_ms',
+                unit='ms',
+                description='Duration of text generation in milliseconds.',
+            ),
+            'rollout_duration_ms': meter.create_histogram(
+                name='rl.rollout.duration_ms',
+                unit='ms',
+                description='Duration of rollout collection in milliseconds.',
+            ),
+        }
+        _RL_INSTRUMENTS[meter] = instruments
+    return instruments
+
+
+def record_rl_metrics(
+    meter: metrics.Meter,
+    reward_mean: Optional[float] = None,
+    kl_divergence: Optional[float] = None,
+    policy_loss: Optional[float] = None,
+    value_loss: Optional[float] = None,
+    entropy: Optional[float] = None,
+    response_length_mean: Optional[float] = None,
+    generation_duration_ms: Optional[float] = None,
+    rollout_duration_ms: Optional[float] = None,
+) -> None:
+    """Record RL training metrics. All arguments optional; None values skipped."""
+    try:
+        instruments = _get_rl_instruments(meter)
+    except Exception:
+        _logger.warning("Failed to create RL metric instruments", exc_info=True)
+        return
+
+    if reward_mean is not None:
+        instruments['reward_mean'].set(reward_mean)
+    if kl_divergence is not None:
+        instruments['kl_divergence'].set(kl_divergence)
+    if policy_loss is not None:
+        instruments['policy_loss'].set(policy_loss)
+    if value_loss is not None:
+        instruments['value_loss'].set(value_loss)
+    if entropy is not None:
+        instruments['entropy'].set(entropy)
+    if response_length_mean is not None:
+        instruments['response_length_mean'].set(response_length_mean)
+    if generation_duration_ms is not None:
+        instruments['generation_duration_ms'].record(generation_duration_ms)
+    if rollout_duration_ms is not None:
+        instruments['rollout_duration_ms'].record(rollout_duration_ms)
