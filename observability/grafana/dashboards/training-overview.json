@@ -1,0 +1,143 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Training Loss",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "nemo_dl_training_loss",
+          "legendFormat": "rank={{dl_rank}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2 },
+          "unit": "none",
+          "displayName": "Loss"
+        }
+      }
+    },
+    {
+      "title": "Throughput (TFLOP/s/GPU)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "nemo_dl_training_throughput_tflops",
+          "legendFormat": "rank={{dl_rank}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2 },
+          "unit": "TFLOP/s"
+        }
+      }
+    },
+    {
+      "title": "Step Duration (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(nemo_dl_training_step_duration_ms_sum[5m]) / rate(nemo_dl_training_step_duration_ms_count[5m])",
+          "legendFormat": "avg step duration"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2 },
+          "unit": "ms"
+        }
+      }
+    },
+    {
+      "title": "Gradient Norm",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "nemo_dl_training_grad_norm",
+          "legendFormat": "rank={{dl_rank}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2 },
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "title": "Skipped Iterations",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "nemo_dl_training_skipped_iters",
+          "legendFormat": "total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none" }
+      }
+    },
+    {
+      "title": "Learning Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "nemo_dl_training_learning_rate",
+          "legendFormat": "LR"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2 },
+          "unit": "none",
+          "decimals": 8
+        }
+      }
+    },
+    {
+      "title": "Tokens/sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "nemo_dl_training_tokens_per_sec",
+          "legendFormat": "rank={{dl_rank}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2 },
+          "unit": "tokens/s"
+        }
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["nemo", "training", "otel"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "NeMo Training Overview",
+  "uid": "nemo-training-overview"
+}
