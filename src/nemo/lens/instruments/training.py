@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import logging
 import weakref
-from typing import Optional
 
 from opentelemetry import metrics
 
@@ -18,34 +17,34 @@ def _get_training_instruments(meter: metrics.Meter) -> dict:
     instruments = _TRAINING_INSTRUMENTS.get(meter)
     if instruments is None:
         instruments = {
-            'step_duration_ms': meter.create_histogram(
-                name='dl.training.step_duration_ms',
-                unit='ms',
-                description='Duration of one training step in milliseconds.',
+            "step_duration_ms": meter.create_histogram(
+                name="dl.training.step_duration_ms",
+                unit="ms",
+                description="Duration of one training step in milliseconds.",
             ),
-            'loss': meter.create_gauge(
-                name='dl.training.loss',
-                description='Training loss value at each log interval.',
+            "loss": meter.create_gauge(
+                name="dl.training.loss",
+                description="Training loss value at each log interval.",
             ),
-            'throughput_tflops': meter.create_gauge(
-                name='dl.training.throughput_tflops',
-                description='Training throughput in TFLOP/s/GPU.',
+            "throughput_tflops": meter.create_gauge(
+                name="dl.training.throughput_tflops",
+                description="Training throughput in TFLOP/s/GPU.",
             ),
-            'grad_norm': meter.create_gauge(
-                name='dl.training.grad_norm',
-                description='Global gradient norm.',
+            "grad_norm": meter.create_gauge(
+                name="dl.training.grad_norm",
+                description="Global gradient norm.",
             ),
-            'skipped_iters': meter.create_counter(
-                name='dl.training.skipped_iters',
-                description='Number of training iterations skipped.',
+            "skipped_iters": meter.create_counter(
+                name="dl.training.skipped_iters",
+                description="Number of training iterations skipped.",
             ),
-            'learning_rate': meter.create_gauge(
-                name='dl.training.learning_rate',
-                description='Current learning rate.',
+            "learning_rate": meter.create_gauge(
+                name="dl.training.learning_rate",
+                description="Current learning rate.",
             ),
-            'tokens_per_sec': meter.create_gauge(
-                name='dl.training.tokens_per_sec',
-                description='Training throughput in tokens/second.',
+            "tokens_per_sec": meter.create_gauge(
+                name="dl.training.tokens_per_sec",
+                description="Training throughput in tokens/second.",
             ),
         }
         _TRAINING_INSTRUMENTS[meter] = instruments
@@ -54,13 +53,13 @@ def _get_training_instruments(meter: metrics.Meter) -> dict:
 
 def record_training_metrics(
     meter: metrics.Meter,
-    step_duration_ms: Optional[float] = None,
-    loss: Optional[float] = None,
-    throughput_tflops: Optional[float] = None,
-    grad_norm: Optional[float] = None,
-    skipped_iters: Optional[int] = None,
-    learning_rate: Optional[float] = None,
-    tokens_per_sec: Optional[float] = None,
+    step_duration_ms: float | None = None,
+    loss: float | None = None,
+    throughput_tflops: float | None = None,
+    grad_norm: float | None = None,
+    skipped_iters: int | None = None,
+    learning_rate: float | None = None,
+    tokens_per_sec: float | None = None,
 ) -> None:
     """Record training metrics to the OTel meter.
 
@@ -74,16 +73,16 @@ def record_training_metrics(
         return
 
     if step_duration_ms is not None:
-        instruments['step_duration_ms'].record(step_duration_ms)
+        instruments["step_duration_ms"].record(step_duration_ms)
     if loss is not None:
-        instruments['loss'].set(loss)
+        instruments["loss"].set(loss)
     if throughput_tflops is not None:
-        instruments['throughput_tflops'].set(throughput_tflops)
+        instruments["throughput_tflops"].set(throughput_tflops)
     if grad_norm is not None:
-        instruments['grad_norm'].set(float(grad_norm))
+        instruments["grad_norm"].set(float(grad_norm))
     if skipped_iters is not None and skipped_iters > 0:
-        instruments['skipped_iters'].add(skipped_iters)
+        instruments["skipped_iters"].add(skipped_iters)
     if learning_rate is not None:
-        instruments['learning_rate'].set(learning_rate)
+        instruments["learning_rate"].set(learning_rate)
     if tokens_per_sec is not None:
-        instruments['tokens_per_sec'].set(tokens_per_sec)
+        instruments["tokens_per_sec"].set(tokens_per_sec)

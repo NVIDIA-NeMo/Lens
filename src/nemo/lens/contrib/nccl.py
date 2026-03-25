@@ -9,7 +9,6 @@ alongside activation tensor transfers in pipeline parallel training.
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 from nemo.lens.propagation import extract_context, inject_context
 
@@ -22,10 +21,10 @@ def serialize_context() -> bytes:
     """
     carrier: dict = {}
     inject_context(carrier)
-    return json.dumps(carrier).encode('utf-8')
+    return json.dumps(carrier).encode("utf-8")
 
 
-def deserialize_context(data: bytes) -> Optional[dict]:
+def deserialize_context(data: bytes) -> dict | None:
     """Deserialize trace context from bytes received via NCCL.
 
     Args:
@@ -35,7 +34,7 @@ def deserialize_context(data: bytes) -> Optional[dict]:
         A carrier dict, or None if deserialization fails.
     """
     try:
-        return json.loads(data.decode('utf-8'))
+        return json.loads(data.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None
 
@@ -54,5 +53,6 @@ def extract_nccl_context(data: bytes):
     carrier = deserialize_context(data)
     if carrier is None:
         from opentelemetry.context import get_current
+
         return get_current()
     return extract_context(carrier)

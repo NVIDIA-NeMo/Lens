@@ -31,19 +31,34 @@ class MegatronSpanGroup(SpanGroup):
     # All groups and presets
     # ------------------------------------------------------------------ #
 
-    ALL_GROUPS: Final[frozenset] = SpanGroup.ALL_GROUPS | frozenset([
-        MICROBATCH, INFERENCE,
-    ])
+    ALL_GROUPS: Final[frozenset] = SpanGroup.ALL_GROUPS | frozenset(
+        [
+            MICROBATCH,
+            INFERENCE,
+        ]
+    )
 
     _PRESETS: ClassVar[dict] = {
-        "default": frozenset([
-            SpanGroup.JOB, SpanGroup.CHECKPOINT, SpanGroup.EVALUATE, INFERENCE,
-        ]),
-        "per_step": frozenset([
-            SpanGroup.JOB, SpanGroup.CHECKPOINT, SpanGroup.EVALUATE,
-            SpanGroup.MODEL_INIT, SpanGroup.LOAD_CHECKPOINT,
-            SpanGroup.STEP, SpanGroup.FORWARD_BACKWARD, SpanGroup.OPTIMIZER,
-            INFERENCE,
-        ]),
+        "default": frozenset(
+            [
+                SpanGroup.JOB,
+                SpanGroup.CHECKPOINT,
+                SpanGroup.EVALUATE,
+                INFERENCE,
+            ]
+        ),
+        "per_step": frozenset(
+            [
+                SpanGroup.JOB,
+                SpanGroup.CHECKPOINT,
+                SpanGroup.EVALUATE,
+                SpanGroup.MODEL_INIT,
+                SpanGroup.LOAD_CHECKPOINT,
+                SpanGroup.STEP,
+                SpanGroup.FORWARD_BACKWARD,
+                SpanGroup.OPTIMIZER,
+                INFERENCE,
+            ]
+        ),
         "all": ALL_GROUPS,
     }

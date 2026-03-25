@@ -31,14 +31,16 @@ Quick start
 3. Use ``managed_span``, ``trace_fn``, or ``span_cm`` at instrumentation sites.
 """
 
+from opentelemetry import metrics as _metrics_mod
+from opentelemetry import trace as _trace_mod
+
 from nemo.lens._version import __version__
 from nemo.lens.config import NemoLensConfig
 from nemo.lens.groups import SpanGroup
+from nemo.lens.groups_gym import GymSpanGroup
 from nemo.lens.groups_megatron import MegatronSpanGroup
 from nemo.lens.groups_rl import RLSpanGroup
-from nemo.lens.groups_gym import GymSpanGroup
 from nemo.lens.handle import TelemetryHandle, setup_telemetry
-from nemo.lens.state import is_span_group_enabled, set_enabled_span_groups
 from nemo.lens.helpers import (
     DEFAULT_REDACT_KEYS,
     managed_span,
@@ -48,39 +50,38 @@ from nemo.lens.helpers import (
     trace_fn,
 )
 from nemo.lens.propagation import extract_context, inject_context
+from nemo.lens.state import is_span_group_enabled, set_enabled_span_groups
 
-from opentelemetry import metrics as _metrics_mod, trace as _trace_mod
 
-
-def get_tracer(name: str = 'nemo.lens') -> _trace_mod.Tracer:
+def get_tracer(name: str = "nemo.lens") -> _trace_mod.Tracer:
     """Return the globally registered tracer."""
     return _trace_mod.get_tracer(name)
 
 
-def get_meter(name: str = 'nemo.lens') -> _metrics_mod.Meter:
+def get_meter(name: str = "nemo.lens") -> _metrics_mod.Meter:
     """Return the globally registered meter."""
     return _metrics_mod.get_meter(name)
 
 
 __all__ = [
-    '__version__',
-    'NemoLensConfig',
-    'SpanGroup',
-    'MegatronSpanGroup',
-    'RLSpanGroup',
-    'GymSpanGroup',
-    'TelemetryHandle',
-    'setup_telemetry',
-    'span_cm',
-    'managed_span',
-    'trace_fn',
-    'safe_set_span_attributes',
-    'redact_value',
-    'DEFAULT_REDACT_KEYS',
-    'inject_context',
-    'extract_context',
-    'get_tracer',
-    'get_meter',
-    'is_span_group_enabled',
-    'set_enabled_span_groups',
+    "__version__",
+    "NemoLensConfig",
+    "SpanGroup",
+    "MegatronSpanGroup",
+    "RLSpanGroup",
+    "GymSpanGroup",
+    "TelemetryHandle",
+    "setup_telemetry",
+    "span_cm",
+    "managed_span",
+    "trace_fn",
+    "safe_set_span_attributes",
+    "redact_value",
+    "DEFAULT_REDACT_KEYS",
+    "inject_context",
+    "extract_context",
+    "get_tracer",
+    "get_meter",
+    "is_span_group_enabled",
+    "set_enabled_span_groups",
 ]

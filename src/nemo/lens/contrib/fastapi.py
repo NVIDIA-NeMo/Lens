@@ -4,13 +4,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    pass
-
-
-def instrument_fastapi(app, service_name: str = 'nemo-gym') -> None:
+def instrument_fastapi(app, service_name: str = "nemo-gym") -> None:
     """Apply OpenTelemetry auto-instrumentation to a FastAPI app.
 
     Requires ``opentelemetry-instrumentation-fastapi >= 0.40b0``.
@@ -21,10 +16,10 @@ def instrument_fastapi(app, service_name: str = 'nemo-gym') -> None:
     """
     try:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-    except ImportError:
+    except ImportError as exc:
         raise ImportError(
             "FastAPI instrumentation requires opentelemetry-instrumentation-fastapi. "
             "Install with: pip install 'nemo-lens[fastapi]'"
-        )
+        ) from exc
 
     FastAPIInstrumentor.instrument_app(app)

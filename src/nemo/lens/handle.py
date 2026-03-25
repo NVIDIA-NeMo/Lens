@@ -5,14 +5,14 @@
 from __future__ import annotations
 
 import hashlib
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from opentelemetry import metrics, trace
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
 
-_INSTRUMENTATION_SCOPE = 'nemo.lens'
+_INSTRUMENTATION_SCOPE = "nemo.lens"
 
 
 class TelemetryHandle:
@@ -40,27 +40,27 @@ class TelemetryHandle:
     def shutdown(self, timeout_ms: int = 5000) -> None:
         """Flush pending spans/metrics and shut down providers."""
         tracer_provider = trace.get_tracer_provider()
-        if hasattr(tracer_provider, 'force_flush'):
+        if hasattr(tracer_provider, "force_flush"):
             tracer_provider.force_flush(timeout_millis=timeout_ms)
-        if hasattr(tracer_provider, 'shutdown'):
+        if hasattr(tracer_provider, "shutdown"):
             tracer_provider.shutdown()
 
         meter_provider = metrics.get_meter_provider()
-        if hasattr(meter_provider, 'force_flush'):
+        if hasattr(meter_provider, "force_flush"):
             meter_provider.force_flush(timeout_millis=timeout_ms)
-        if hasattr(meter_provider, 'shutdown'):
+        if hasattr(meter_provider, "shutdown"):
             meter_provider.shutdown()
 
 
 def _should_export(
-    config: 'NemoLensConfig',
+    config: NemoLensConfig,
     rank: int,
     world_size: int,
 ) -> bool:
     """Determine if this rank should export telemetry data."""
-    if config.export_strategy == 'all_ranks':
+    if config.export_strategy == "all_ranks":
         return True
-    elif config.export_strategy == 'sampled':
+    elif config.export_strategy == "sampled":
         # Deterministic hash-based sampling
         h = hashlib.md5(str(rank).encode()).hexdigest()
         return (int(h, 16) % 10000) / 10000.0 < config.export_sample_rate
@@ -71,10 +71,10 @@ def _should_export(
 
 
 def setup_telemetry(
-    config: 'NemoLensConfig',
+    config: NemoLensConfig,
     rank: int = 0,
     world_size: int = 1,
-    resource_attributes: Optional[dict] = None,
+    resource_attributes: dict | None = None,
 ) -> TelemetryHandle:
     """Initialise OTel providers and return a TelemetryHandle.
 

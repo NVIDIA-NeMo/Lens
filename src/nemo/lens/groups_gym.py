@@ -30,18 +30,34 @@ class GymSpanGroup(SpanGroup):
     # All groups and presets
     # ------------------------------------------------------------------ #
 
-    ALL_GROUPS: Final[frozenset] = SpanGroup.ALL_GROUPS | frozenset([
-        SERVER, ROLLOUT_COLLECTION, VERIFY, AGGREGATE_METRICS,
-    ])
+    ALL_GROUPS: Final[frozenset] = SpanGroup.ALL_GROUPS | frozenset(
+        [
+            SERVER,
+            ROLLOUT_COLLECTION,
+            VERIFY,
+            AGGREGATE_METRICS,
+        ]
+    )
 
     _PRESETS: ClassVar[dict] = {
-        "default": frozenset([
-            SpanGroup.JOB, SpanGroup.CHECKPOINT, SpanGroup.EVALUATE,
-            SERVER,
-        ]),
-        "per_step": frozenset([
-            SpanGroup.JOB, SpanGroup.CHECKPOINT, SpanGroup.EVALUATE,
-            SERVER, ROLLOUT_COLLECTION, VERIFY, AGGREGATE_METRICS,
-        ]),
+        "default": frozenset(
+            [
+                SpanGroup.JOB,
+                SpanGroup.CHECKPOINT,
+                SpanGroup.EVALUATE,
+                SERVER,
+            ]
+        ),
+        "per_step": frozenset(
+            [
+                SpanGroup.JOB,
+                SpanGroup.CHECKPOINT,
+                SpanGroup.EVALUATE,
+                SERVER,
+                ROLLOUT_COLLECTION,
+                VERIFY,
+                AGGREGATE_METRICS,
+            ]
+        ),
         "all": ALL_GROUPS,
     }

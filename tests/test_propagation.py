@@ -3,16 +3,15 @@
 """Unit tests for W3C context propagation."""
 
 import pytest
-
-from opentelemetry import trace, propagate
+from opentelemetry import propagate, trace
+from opentelemetry.baggage.propagation import W3CBaggagePropagator
+from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from opentelemetry.propagators.composite import CompositePropagator
-from opentelemetry.baggage.propagation import W3CBaggagePropagator
 
+from nemo.lens.propagation import extract_context, inject_context
 from tests.conftest import InMemorySpanExporter
-from nemo.lens.propagation import inject_context, extract_context
 
 
 @pytest.fixture
@@ -28,24 +27,24 @@ def tracer():
     exporter = InMemorySpanExporter()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
-    yield trace.get_tracer('test')
+    yield trace.get_tracer("test")
     provider.shutdown()
 
 
 class TestInjectContext:
     def test_injects_traceparent(self, setup_propagator, tracer):
-        with tracer.start_as_current_span('root'):
+        with tracer.start_as_current_span("root"):
             carrier = {}
             inject_context(carrier)
-            assert 'traceparent' in carrier
-            parts = carrier['traceparent'].split('-')
+            assert "traceparent" in carrier
+            parts = carrier["traceparent"].split("-")
             assert len(parts) == 4
-            assert parts[0] == '00'
+            assert parts[0] == "00"
 
 
 class TestExtractContext:
     def test_extract_valid_context(self, setup_propagator, tracer):
-        with tracer.start_as_current_span('root') as span:
+        with tracer.start_as_current_span("root") as span:
             carrier = {}
             inject_context(carrier)
             trace_id = span.get_span_context().trace_id
@@ -55,7 +54,7 @@ class TestExtractContext:
         assert remote_span.get_span_context().trace_id == trace_id
 
     def test_roundtrip_preserves_ids(self, setup_propagator, tracer):
-        with tracer.start_as_current_span('root') as span:
+        with tracer.start_as_current_span("root") as span:
             original_ctx = span.get_span_context()
             carrier = {}
             inject_context(carrier)

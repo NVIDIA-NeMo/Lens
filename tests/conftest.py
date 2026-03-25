@@ -2,14 +2,11 @@
 
 """Shared fixtures for nemo-lens unit tests."""
 
-import pytest
-
-from opentelemetry import metrics, trace
-from opentelemetry.util._once import Once
-from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
-
-import opentelemetry.trace as _trace_mod
 import opentelemetry.metrics._internal as _metrics_mod
+import opentelemetry.trace as _trace_mod
+import pytest
+from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
+from opentelemetry.util._once import Once
 
 
 class InMemorySpanExporter(SpanExporter):
@@ -58,6 +55,7 @@ def reset_otel_providers():
 def reset_span_groups():
     """Reset span group state before and after each test."""
     from nemo.lens.state import set_enabled_span_groups
+
     set_enabled_span_groups(frozenset())
     yield
     set_enabled_span_groups(frozenset())

@@ -10,17 +10,17 @@ code paths that never reach this module.
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
 
 
 def build_providers(
-    config: 'NemoLensConfig',
+    config: NemoLensConfig,
     rank: int = 0,
     world_size: int = 1,
-    resource_attributes: Optional[dict] = None,
+    resource_attributes: dict | None = None,
 ) -> None:
     """Initialise TracerProvider, MeterProvider, and optionally LoggerProvider.
 
@@ -46,19 +46,20 @@ def build_providers(
     from nemo.lens._version import __version__
 
     attrs = {
-        'service.name': config.service_name,
-        'service.version': __version__,
-        'dl.rank': rank,
-        'dl.world_size': world_size,
+        "service.name": config.service_name,
+        "service.version": __version__,
+        "dl.rank": rank,
+        "dl.world_size": world_size,
     }
-    env_name = os.environ.get('DEPLOYMENT_ENV', os.environ.get('ENVIRONMENT', ''))
+    env_name = os.environ.get("DEPLOYMENT_ENV", os.environ.get("ENVIRONMENT", ""))
     if env_name:
-        attrs['deployment.environment'] = env_name
+        attrs["deployment.environment"] = env_name
     if resource_attributes:
         attrs.update(resource_attributes)
 
     # Detect deployment environment
     from nemo.lens.resources import detect_resource
+
     detected = detect_resource()
     attrs.update(detected)
 
@@ -86,7 +87,7 @@ def build_providers(
         from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
         metric_exporter = _build_metric_exporter(config)
-        _export_interval = int(os.environ.get('OTEL_METRIC_EXPORT_INTERVAL', '10000'))
+        _export_interval = int(os.environ.get("OTEL_METRIC_EXPORT_INTERVAL", "10000"))
         reader = PeriodicExportingMetricReader(
             metric_exporter, export_interval_millis=_export_interval
         )
@@ -119,59 +120,59 @@ def build_noop_providers() -> None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-_VALID_EXPORTERS = ('otlp', 'console')
+_VALID_EXPORTERS = ("otlp", "console")
 
 
-def _build_span_exporter(config: 'NemoLensConfig'):
+def _build_span_exporter(config: NemoLensConfig):
     if config.exporter not in _VALID_EXPORTERS:
         raise ValueError(
-            f"Unknown exporter type: {config.exporter!r}. "
-            f"Expected one of: {_VALID_EXPORTERS}"
+            f"Unknown exporter type: {config.exporter!r}. Expected one of: {_VALID_EXPORTERS}"
         )
 
-    if config.exporter == 'console':
+    if config.exporter == "console":
         from opentelemetry.sdk.trace.export import ConsoleSpanExporter
+
         return ConsoleSpanExporter()
 
     try:
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
         return OTLPSpanExporter()
     except ImportError:
         pass
     try:
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
         return OTLPSpanExporter()
     except ImportError:
         pass
-    raise ImportError(
-        "No OTLP span exporter found. Install with: pip install 'nemo-lens[sdk]'"
-    )
+    raise ImportError("No OTLP span exporter found. Install with: pip install 'nemo-lens[sdk]'")
 
 
-def _build_metric_exporter(config: 'NemoLensConfig'):
+def _build_metric_exporter(config: NemoLensConfig):
     if config.exporter not in _VALID_EXPORTERS:
         raise ValueError(
-            f"Unknown exporter type: {config.exporter!r}. "
-            f"Expected one of: {_VALID_EXPORTERS}"
+            f"Unknown exporter type: {config.exporter!r}. Expected one of: {_VALID_EXPORTERS}"
         )
 
-    if config.exporter == 'console':
+    if config.exporter == "console":
         from opentelemetry.sdk.metrics.export import ConsoleMetricExporter
+
         return ConsoleMetricExporter()
 
     try:
         from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+
         return OTLPMetricExporter()
     except ImportError:
         pass
     try:
         from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+
         return OTLPMetricExporter()
     except ImportError:
         pass
-    raise ImportError(
-        "No OTLP metric exporter found. Install with: pip install 'nemo-lens[sdk]'"
-    )
+    raise ImportError("No OTLP metric exporter found. Install with: pip install 'nemo-lens[sdk]'")
 
 
 def _set_propagator() -> None:
@@ -186,22 +187,25 @@ def _set_propagator() -> None:
     )
 
 
-def _setup_log_provider(config: 'NemoLensConfig', resource) -> None:
+def _setup_log_provider(config: NemoLensConfig, resource) -> None:
     """Set up the OTel LoggerProvider for log bridging."""
     try:
         from opentelemetry._logs import set_logger_provider
         from opentelemetry.sdk._logs import LoggerProvider
         from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 
-        if config.exporter == 'console':
+        if config.exporter == "console":
             from opentelemetry.sdk._logs.export import ConsoleLogExporter
+
             exporter = ConsoleLogExporter()
         else:
             try:
                 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+
                 exporter = OTLPLogExporter()
             except ImportError:
                 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+
                 exporter = OTLPLogExporter()
 
         logger_provider = LoggerProvider(resource=resource)
