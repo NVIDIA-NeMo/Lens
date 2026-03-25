@@ -42,19 +42,42 @@ class RLSpanGroup(SpanGroup):
     # All groups and presets
     # ------------------------------------------------------------------ #
 
-    ALL_GROUPS: Final[frozenset] = SpanGroup.ALL_GROUPS | frozenset([
-        ROLLOUT, GENERATION, LOGPROB, REWARD, ADVANTAGE,
-        POLICY_UPDATE, REFERENCE_POLICY, DATA_PROCESSING,
-    ])
+    ALL_GROUPS: Final[frozenset] = SpanGroup.ALL_GROUPS | frozenset(
+        [
+            ROLLOUT,
+            GENERATION,
+            LOGPROB,
+            REWARD,
+            ADVANTAGE,
+            POLICY_UPDATE,
+            REFERENCE_POLICY,
+            DATA_PROCESSING,
+        ]
+    )
 
     _PRESETS: ClassVar[dict] = {
-        "default": frozenset([
-            SpanGroup.JOB, SpanGroup.CHECKPOINT, SpanGroup.EVALUATE,
-        ]),
-        "per_step": frozenset([
-            SpanGroup.JOB, SpanGroup.CHECKPOINT, SpanGroup.EVALUATE,
-            SpanGroup.STEP, ROLLOUT, GENERATION, LOGPROB, REWARD,
-            ADVANTAGE, POLICY_UPDATE, REFERENCE_POLICY, DATA_PROCESSING,
-        ]),
+        "default": frozenset(
+            [
+                SpanGroup.JOB,
+                SpanGroup.CHECKPOINT,
+                SpanGroup.EVALUATE,
+            ]
+        ),
+        "per_step": frozenset(
+            [
+                SpanGroup.JOB,
+                SpanGroup.CHECKPOINT,
+                SpanGroup.EVALUATE,
+                SpanGroup.STEP,
+                ROLLOUT,
+                GENERATION,
+                LOGPROB,
+                REWARD,
+                ADVANTAGE,
+                POLICY_UPDATE,
+                REFERENCE_POLICY,
+                DATA_PROCESSING,
+            ]
+        ),
         "all": ALL_GROUPS,
     }

@@ -2,45 +2,38 @@
 
 """End-to-end integration tests for nemo-lens."""
 
-import pytest
-
 from opentelemetry import trace
 
 from nemo.lens import (
-    NemoLensConfig,
-    SpanGroup,
-    MegatronSpanGroup,
-    RLSpanGroup,
     GymSpanGroup,
+    MegatronSpanGroup,
+    NemoLensConfig,
+    RLSpanGroup,
+    SpanGroup,
     TelemetryHandle,
-    setup_telemetry,
-    managed_span,
-    span_cm,
-    trace_fn,
-    get_tracer,
-    get_meter,
-    is_span_group_enabled,
-    inject_context,
     extract_context,
+    get_tracer,
+    inject_context,
+    is_span_group_enabled,
+    managed_span,
+    setup_telemetry,
 )
 from nemo.lens.instruments.training import record_training_metrics
-from nemo.lens.instruments.rl import record_rl_metrics
-from nemo.lens.instruments.gym import record_gym_metrics
 
 
 class TestE2EConsoleExporter:
     def test_full_lifecycle(self):
         """Test complete setup -> use -> shutdown lifecycle."""
-        cfg = NemoLensConfig(enabled=True, exporter='console', span_groups='all')
+        cfg = NemoLensConfig(enabled=True, exporter="console", span_groups="all")
         handle = setup_telemetry(cfg, rank=0, world_size=1)
 
         assert isinstance(handle, TelemetryHandle)
         assert handle.is_exporting is True
 
         # Create spans
-        with managed_span(SpanGroup.JOB, 'test.job', tracer=handle.tracer) as span:
+        with managed_span(SpanGroup.JOB, "test.job", tracer=handle.tracer) as span:
             assert span is not None
-            with managed_span(SpanGroup.STEP, 'test.step', tracer=handle.tracer) as step_span:
+            with managed_span(SpanGroup.STEP, "test.step", tracer=handle.tracer) as step_span:
                 assert step_span is not None
 
         # Record metrics
@@ -50,12 +43,12 @@ class TestE2EConsoleExporter:
 
     def test_disabled_zero_overhead(self):
         """When disabled, no spans should be created."""
-        cfg = NemoLensConfig(enabled=False, span_groups='all')
+        cfg = NemoLensConfig(enabled=False, span_groups="all")
         handle = setup_telemetry(cfg, rank=0, world_size=1)
 
         assert handle.is_exporting is False
 
-        with managed_span(SpanGroup.JOB, 'test.job') as span:
+        with managed_span(SpanGroup.JOB, "test.job") as span:
             assert span is None
 
         handle.shutdown(timeout_ms=100)
@@ -64,8 +57,10 @@ class TestE2EConsoleExporter:
 class TestE2EExportStrategies:
     def test_all_ranks_strategy(self):
         cfg = NemoLensConfig(
-            enabled=True, exporter='console',
-            export_strategy='all_ranks', span_groups='default',
+            enabled=True,
+            exporter="console",
+            export_strategy="all_ranks",
+            span_groups="default",
         )
         for rank in range(4):
             handle = setup_telemetry(cfg, rank=rank, world_size=4)
@@ -74,8 +69,11 @@ class TestE2EExportStrategies:
 
     def test_single_rank_strategy(self):
         cfg = NemoLensConfig(
-            enabled=True, exporter='console',
-            export_strategy='single_rank', export_rank=0, span_groups='default',
+            enabled=True,
+            exporter="console",
+            export_strategy="single_rank",
+            export_rank=0,
+            span_groups="default",
         )
         h0 = setup_telemetry(cfg, rank=0, world_size=4)
         assert h0.is_exporting is True
@@ -89,7 +87,9 @@ class TestE2EExportStrategies:
 class TestE2ELibrarySpecificGroups:
     def test_megatron_groups(self):
         cfg = NemoLensConfig(
-            enabled=True, exporter='console', span_groups='all',
+            enabled=True,
+            exporter="console",
+            span_groups="all",
             _span_group_cls=MegatronSpanGroup,
         )
         handle = setup_telemetry(cfg, rank=0, world_size=1)
@@ -99,7 +99,9 @@ class TestE2ELibrarySpecificGroups:
 
     def test_rl_groups(self):
         cfg = NemoLensConfig(
-            enabled=True, exporter='console', span_groups='per_step',
+            enabled=True,
+            exporter="console",
+            span_groups="per_step",
             _span_group_cls=RLSpanGroup,
         )
         handle = setup_telemetry(cfg, rank=0, world_size=1)
@@ -110,7 +112,9 @@ class TestE2ELibrarySpecificGroups:
 
     def test_gym_groups(self):
         cfg = NemoLensConfig(
-            enabled=True, exporter='console', span_groups='default',
+            enabled=True,
+            exporter="console",
+            span_groups="default",
             _span_group_cls=GymSpanGroup,
         )
         handle = setup_telemetry(cfg, rank=0, world_size=1)
@@ -121,14 +125,18 @@ class TestE2ELibrarySpecificGroups:
 
 class TestE2ESpanHierarchy:
     def test_nested_spans(self):
-        cfg = NemoLensConfig(enabled=True, exporter='console', span_groups='all')
+        cfg = NemoLensConfig(enabled=True, exporter="console", span_groups="all")
         handle = setup_telemetry(cfg, rank=0, world_size=1)
 
-        with managed_span(SpanGroup.JOB, 'dl.train', tracer=handle.tracer) as job:
+        with managed_span(SpanGroup.JOB, "dl.train", tracer=handle.tracer) as job:
             assert job is not None
-            with managed_span(SpanGroup.STEP, 'dl.train_step', tracer=handle.tracer, iteration=1) as step:
+            with managed_span(
+                SpanGroup.STEP, "dl.train_step", tracer=handle.tracer, iteration=1
+            ) as step:
                 assert step is not None
-                with managed_span(SpanGroup.FORWARD_BACKWARD, 'dl.forward_backward', tracer=handle.tracer) as fb:
+                with managed_span(
+                    SpanGroup.FORWARD_BACKWARD, "dl.forward_backward", tracer=handle.tracer
+                ) as fb:
                     assert fb is not None
 
         handle.shutdown(timeout_ms=100)
@@ -136,14 +144,14 @@ class TestE2ESpanHierarchy:
 
 class TestE2EContextPropagation:
     def test_inject_extract_roundtrip(self):
-        cfg = NemoLensConfig(enabled=True, exporter='console', span_groups='default')
+        cfg = NemoLensConfig(enabled=True, exporter="console", span_groups="default")
         handle = setup_telemetry(cfg, rank=0, world_size=1)
 
         tracer = get_tracer()
-        with tracer.start_as_current_span('origin') as span:
+        with tracer.start_as_current_span("origin") as span:
             carrier = {}
             inject_context(carrier)
-            assert 'traceparent' in carrier
+            assert "traceparent" in carrier
 
         ctx = extract_context(carrier)
         remote_span = trace.get_current_span(ctx)

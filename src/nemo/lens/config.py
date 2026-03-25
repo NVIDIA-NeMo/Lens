@@ -4,7 +4,6 @@
 
 import os
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -21,10 +20,10 @@ class NemoLensConfig:
     enabled: bool = False
 
     #: Human-readable service name for the OTLP backend.
-    service_name: str = 'nemo'
+    service_name: str = "nemo"
 
     #: Export strategy: ``"all_ranks"``, ``"sampled"``, ``"single_rank"``.
-    export_strategy: str = 'single_rank'
+    export_strategy: str = "single_rank"
 
     #: For ``single_rank``: which rank exports (-1 = last rank).
     export_rank: int = -1
@@ -42,28 +41,29 @@ class NemoLensConfig:
     logs_enabled: bool = False
 
     #: Comma-separated span-group spec (preset or individual group names).
-    span_groups: str = 'default'
+    span_groups: str = "default"
 
     #: Exporter backend: ``"otlp"`` or ``"console"``.
-    exporter: str = 'otlp'
+    exporter: str = "otlp"
 
     #: Span group class used for resolution. Set by library-specific subclasses.
-    _span_group_cls: Optional[type] = field(default=None, repr=False)
+    _span_group_cls: type | None = field(default=None, repr=False)
 
     @property
     def resolved_span_groups(self) -> frozenset:
         """Resolve :attr:`span_groups` to a frozenset of group names."""
         from nemo.lens.groups import SpanGroup
+
         cls = self._span_group_cls or SpanGroup
         return cls.resolve(self.span_groups)
 
     @classmethod
     def from_env(
         cls,
-        prefix: str = 'NEMO_LENS',
-        fallback_prefix: Optional[str] = None,
-        span_group_cls: Optional[type] = None,
-    ) -> 'NemoLensConfig':
+        prefix: str = "NEMO_LENS",
+        fallback_prefix: str | None = None,
+        span_group_cls: type | None = None,
+    ) -> "NemoLensConfig":
         """Build config from environment variables.
 
         Args:
@@ -72,19 +72,19 @@ class NemoLensConfig:
             span_group_cls: SpanGroup subclass for resolution.
         """
 
-        def _env(key: str, default: str = '') -> str:
-            val = os.environ.get(f'{prefix}_{key}', '').strip()
+        def _env(key: str, default: str = "") -> str:
+            val = os.environ.get(f"{prefix}_{key}", "").strip()
             if not val and fallback_prefix:
-                val = os.environ.get(f'{fallback_prefix}_{key}', '').strip()
+                val = os.environ.get(f"{fallback_prefix}_{key}", "").strip()
             return val if val else default
 
         def _bool(key: str, default: bool) -> bool:
             val = _env(key).lower()
             if not val:
                 return default
-            if val in ('1', 'true', 'yes', 'on'):
+            if val in ("1", "true", "yes", "on"):
                 return True
-            if val in ('0', 'false', 'no', 'off'):
+            if val in ("0", "false", "no", "off"):
                 return False
             raise ValueError(
                 f"Invalid boolean for {prefix}_{key}: {val!r}. "
@@ -97,8 +97,8 @@ class NemoLensConfig:
                 return default
             try:
                 return int(val)
-            except ValueError:
-                raise ValueError(f"Invalid integer for {prefix}_{key}: {val!r}.")
+            except ValueError as exc:
+                raise ValueError(f"Invalid integer for {prefix}_{key}: {val!r}.") from exc
 
         def _float(key: str, default: float) -> float:
             val = _env(key)
@@ -106,21 +106,21 @@ class NemoLensConfig:
                 return default
             try:
                 return float(val)
-            except ValueError:
-                raise ValueError(f"Invalid float for {prefix}_{key}: {val!r}.")
+            except ValueError as exc:
+                raise ValueError(f"Invalid float for {prefix}_{key}: {val!r}.") from exc
 
-        service_name = os.environ.get('OTEL_SERVICE_NAME', '').strip() or 'nemo'
+        service_name = os.environ.get("OTEL_SERVICE_NAME", "").strip() or "nemo"
 
         return cls(
-            enabled=_bool('ENABLED', False),
+            enabled=_bool("ENABLED", False),
             service_name=service_name,
-            export_strategy=_env('EXPORT_STRATEGY', 'single_rank'),
-            export_rank=_int('EXPORT_RANK', -1),
-            export_sample_rate=_float('EXPORT_SAMPLE_RATE', 1.0),
-            traces_enabled=_bool('TRACES_ENABLED', True),
-            metrics_enabled=_bool('METRICS_ENABLED', True),
-            logs_enabled=_bool('LOGS_ENABLED', False),
-            span_groups=_env('SPAN_GROUPS', 'default'),
-            exporter=_env('EXPORTER', 'otlp'),
+            export_strategy=_env("EXPORT_STRATEGY", "single_rank"),
+            export_rank=_int("EXPORT_RANK", -1),
+            export_sample_rate=_float("EXPORT_SAMPLE_RATE", 1.0),
+            traces_enabled=_bool("TRACES_ENABLED", True),
+            metrics_enabled=_bool("METRICS_ENABLED", True),
+            logs_enabled=_bool("LOGS_ENABLED", False),
+            span_groups=_env("SPAN_GROUPS", "default"),
+            exporter=_env("EXPORTER", "otlp"),
             _span_group_cls=span_group_cls,
         )

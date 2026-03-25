@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import logging
 import weakref
-from typing import Optional
 
 from opentelemetry import metrics
 
@@ -18,39 +17,39 @@ def _get_rl_instruments(meter: metrics.Meter) -> dict:
     instruments = _RL_INSTRUMENTS.get(meter)
     if instruments is None:
         instruments = {
-            'reward_mean': meter.create_gauge(
-                name='rl.reward.mean',
-                description='Mean reward across rollout batch.',
+            "reward_mean": meter.create_gauge(
+                name="rl.reward.mean",
+                description="Mean reward across rollout batch.",
             ),
-            'kl_divergence': meter.create_gauge(
-                name='rl.kl_divergence',
-                description='KL divergence between policy and reference.',
+            "kl_divergence": meter.create_gauge(
+                name="rl.kl_divergence",
+                description="KL divergence between policy and reference.",
             ),
-            'policy_loss': meter.create_gauge(
-                name='rl.policy_loss',
-                description='Policy gradient loss.',
+            "policy_loss": meter.create_gauge(
+                name="rl.policy_loss",
+                description="Policy gradient loss.",
             ),
-            'value_loss': meter.create_gauge(
-                name='rl.value_loss',
-                description='Value function loss.',
+            "value_loss": meter.create_gauge(
+                name="rl.value_loss",
+                description="Value function loss.",
             ),
-            'entropy': meter.create_gauge(
-                name='rl.entropy',
-                description='Policy entropy.',
+            "entropy": meter.create_gauge(
+                name="rl.entropy",
+                description="Policy entropy.",
             ),
-            'response_length_mean': meter.create_gauge(
-                name='rl.response_length.mean',
-                description='Mean generated response length (tokens).',
+            "response_length_mean": meter.create_gauge(
+                name="rl.response_length.mean",
+                description="Mean generated response length (tokens).",
             ),
-            'generation_duration_ms': meter.create_histogram(
-                name='rl.generation.duration_ms',
-                unit='ms',
-                description='Duration of text generation in milliseconds.',
+            "generation_duration_ms": meter.create_histogram(
+                name="rl.generation.duration_ms",
+                unit="ms",
+                description="Duration of text generation in milliseconds.",
             ),
-            'rollout_duration_ms': meter.create_histogram(
-                name='rl.rollout.duration_ms',
-                unit='ms',
-                description='Duration of rollout collection in milliseconds.',
+            "rollout_duration_ms": meter.create_histogram(
+                name="rl.rollout.duration_ms",
+                unit="ms",
+                description="Duration of rollout collection in milliseconds.",
             ),
         }
         _RL_INSTRUMENTS[meter] = instruments
@@ -59,14 +58,14 @@ def _get_rl_instruments(meter: metrics.Meter) -> dict:
 
 def record_rl_metrics(
     meter: metrics.Meter,
-    reward_mean: Optional[float] = None,
-    kl_divergence: Optional[float] = None,
-    policy_loss: Optional[float] = None,
-    value_loss: Optional[float] = None,
-    entropy: Optional[float] = None,
-    response_length_mean: Optional[float] = None,
-    generation_duration_ms: Optional[float] = None,
-    rollout_duration_ms: Optional[float] = None,
+    reward_mean: float | None = None,
+    kl_divergence: float | None = None,
+    policy_loss: float | None = None,
+    value_loss: float | None = None,
+    entropy: float | None = None,
+    response_length_mean: float | None = None,
+    generation_duration_ms: float | None = None,
+    rollout_duration_ms: float | None = None,
 ) -> None:
     """Record RL training metrics. All arguments optional; None values skipped."""
     try:
@@ -76,18 +75,18 @@ def record_rl_metrics(
         return
 
     if reward_mean is not None:
-        instruments['reward_mean'].set(reward_mean)
+        instruments["reward_mean"].set(reward_mean)
     if kl_divergence is not None:
-        instruments['kl_divergence'].set(kl_divergence)
+        instruments["kl_divergence"].set(kl_divergence)
     if policy_loss is not None:
-        instruments['policy_loss'].set(policy_loss)
+        instruments["policy_loss"].set(policy_loss)
     if value_loss is not None:
-        instruments['value_loss'].set(value_loss)
+        instruments["value_loss"].set(value_loss)
     if entropy is not None:
-        instruments['entropy'].set(entropy)
+        instruments["entropy"].set(entropy)
     if response_length_mean is not None:
-        instruments['response_length_mean'].set(response_length_mean)
+        instruments["response_length_mean"].set(response_length_mean)
     if generation_duration_ms is not None:
-        instruments['generation_duration_ms'].record(generation_duration_ms)
+        instruments["generation_duration_ms"].record(generation_duration_ms)
     if rollout_duration_ms is not None:
-        instruments['rollout_duration_ms'].record(rollout_duration_ms)
+        instruments["rollout_duration_ms"].record(rollout_duration_ms)

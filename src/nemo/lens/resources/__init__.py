@@ -2,9 +2,9 @@
 
 """Resource detection: auto-detect SLURM, K8s, and local environment attributes."""
 
-from nemo.lens.resources.slurm import detect_slurm
 from nemo.lens.resources.kubernetes import detect_kubernetes
 from nemo.lens.resources.local import detect_local
+from nemo.lens.resources.slurm import detect_slurm
 
 
 def detect_resource() -> dict:
@@ -20,4 +20,4 @@ def detect_resource() -> dict:
     return attrs
 
 
-__all__ = ['detect_resource', 'detect_slurm', 'detect_kubernetes', 'detect_local']
+__all__ = ["detect_resource", "detect_slurm", "detect_kubernetes", "detect_local"]

@@ -9,7 +9,7 @@ linked spans that reference remote contexts.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from opentelemetry import trace
 
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 def broadcast_trace_context(
     rank: int,
     src_rank: int = 0,
-) -> Optional[dict]:
+) -> dict | None:
     """Broadcast W3C trace context from src_rank to all other ranks.
 
     Must be called after ``torch.distributed.init_process_group()``.
@@ -43,14 +43,15 @@ def broadcast_trace_context(
     if not dist.is_initialized():
         return None
 
-    from nemo.lens.propagation import inject_context, extract_context
+    from nemo.lens.propagation import inject_context
 
     if rank == src_rank:
         carrier: dict = {}
         inject_context(carrier)
         # Serialize to string for broadcast
         import json
-        data = json.dumps(carrier).encode('utf-8')
+
+        data = json.dumps(carrier).encode("utf-8")
     else:
         data = None
 
@@ -78,15 +79,16 @@ def broadcast_trace_context(
     dist.broadcast(data_tensor, src=src_rank)
 
     import json
-    carrier = json.loads(bytes(data_tensor.cpu().tolist()).decode('utf-8'))
+
+    carrier = json.loads(bytes(data_tensor.cpu().tolist()).decode("utf-8"))
     return carrier
 
 
 def create_linked_span(
     tracer: trace.Tracer,
     name: str,
-    remote_context: Optional['context.Context'] = None,
-    remote_carrier: Optional[dict] = None,
+    remote_context: context.Context | None = None,
+    remote_carrier: dict | None = None,
     **attributes,
 ) -> trace.Span:
     """Create a span with a link to a remote span context.
@@ -108,6 +110,7 @@ def create_linked_span(
     links = []
     if remote_carrier is not None and remote_context is None:
         from nemo.lens.propagation import extract_context
+
         remote_context = extract_context(remote_carrier)
 
     if remote_context is not None:
@@ -119,6 +122,7 @@ def create_linked_span(
     span = tracer.start_span(name, links=links)
     if attributes:
         from nemo.lens.helpers import safe_set_span_attributes
+
         safe_set_span_attributes(span, attributes)
 
     return span

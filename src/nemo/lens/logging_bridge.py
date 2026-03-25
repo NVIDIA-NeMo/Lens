@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 
 
-def setup_logging_bridge(logger_name: str = '', level: int = logging.INFO) -> None:
+def setup_logging_bridge(logger_name: str = "", level: int = logging.INFO) -> None:
     """Bridge Python logging to the OTel LoggerProvider.
 
     Adds an OTel log handler to the specified Python logger so that log
@@ -39,6 +39,4 @@ def setup_logging_bridge(logger_name: str = '', level: int = logging.INFO) -> No
         pass
     except Exception:
         # Don't break the application if logging bridge setup fails
-        logging.getLogger(__name__).debug(
-            "Failed to set up OTel logging bridge", exc_info=True
-        )
+        logging.getLogger(__name__).debug("Failed to set up OTel logging bridge", exc_info=True)

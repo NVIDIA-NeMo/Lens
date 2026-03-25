@@ -38,10 +38,37 @@ dev = [
     "nemo-lens[sdk]",
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "pre-commit>=3.0",
+    "ruff>=0.11.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "SIM",   # flake8-simplify
+    "TCH",   # flake8-type-checking
+]
+ignore = [
+    "E501",  # line length handled by formatter
+    "TC002", # runtime imports used in function signatures
+    "TC003", # runtime imports used in function signatures
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["nemo.lens"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -38,17 +38,33 @@ class SpanGroup:
     # All groups and presets
     # ------------------------------------------------------------------ #
 
-    ALL_GROUPS: Final[frozenset] = frozenset([
-        JOB, CHECKPOINT, EVALUATE,
-        MODEL_INIT, LOAD_CHECKPOINT, STEP, FORWARD_BACKWARD, OPTIMIZER,
-    ])
+    ALL_GROUPS: Final[frozenset] = frozenset(
+        [
+            JOB,
+            CHECKPOINT,
+            EVALUATE,
+            MODEL_INIT,
+            LOAD_CHECKPOINT,
+            STEP,
+            FORWARD_BACKWARD,
+            OPTIMIZER,
+        ]
+    )
 
     _PRESETS: ClassVar[dict] = {
         "default": frozenset([JOB, CHECKPOINT, EVALUATE]),
-        "per_step": frozenset([
-            JOB, CHECKPOINT, EVALUATE,
-            MODEL_INIT, LOAD_CHECKPOINT, STEP, FORWARD_BACKWARD, OPTIMIZER,
-        ]),
+        "per_step": frozenset(
+            [
+                JOB,
+                CHECKPOINT,
+                EVALUATE,
+                MODEL_INIT,
+                LOAD_CHECKPOINT,
+                STEP,
+                FORWARD_BACKWARD,
+                OPTIMIZER,
+            ]
+        ),
         "all": ALL_GROUPS,
     }
 
@@ -68,15 +84,12 @@ class SpanGroup:
             ValueError: If an unknown keyword or group name is encountered.
         """
         result: set = set()
-        for part in (p.strip().lower() for p in spec.split(',') if p.strip()):
+        for part in (p.strip().lower() for p in spec.split(",") if p.strip()):
             if part in cls._PRESETS:
                 result |= cls._PRESETS[part]
             elif part in cls.ALL_GROUPS:
                 result.add(part)
             else:
                 valid = sorted(cls.ALL_GROUPS | set(cls._PRESETS))
-                raise ValueError(
-                    f"Unknown span group or preset: {part!r}. "
-                    f"Valid options: {valid}"
-                )
+                raise ValueError(f"Unknown span group or preset: {part!r}. Valid options: {valid}")
         return frozenset(result)

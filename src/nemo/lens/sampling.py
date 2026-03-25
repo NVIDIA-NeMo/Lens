@@ -10,7 +10,7 @@ training jobs.
 from __future__ import annotations
 
 import hashlib
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 from opentelemetry import trace
 from opentelemetry.context import Context
@@ -50,12 +50,12 @@ class RankAwareSampler:
 
     def should_sample_span(
         self,
-        parent_context: Optional[Context] = None,
+        parent_context: Context | None = None,
         trace_id: int = 0,
         name: str = "",
-        kind: Optional[trace.SpanKind] = None,
-        attributes: Optional[dict] = None,
-        links: Optional[Sequence[trace.Link]] = None,
+        kind: trace.SpanKind | None = None,
+        attributes: dict | None = None,
+        links: Sequence[trace.Link] | None = None,
     ) -> bool:
         """Determine whether a specific span should be sampled."""
         return self._should_sample

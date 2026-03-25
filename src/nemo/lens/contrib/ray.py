@@ -9,7 +9,8 @@ calls, enabling distributed traces that span driver -> worker boundaries.
 from __future__ import annotations
 
 import functools
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from opentelemetry import trace
 
@@ -29,7 +30,7 @@ def inject_ray_context() -> dict:
     return carrier
 
 
-def extract_ray_context(carrier: Optional[dict] = None):
+def extract_ray_context(carrier: dict | None = None):
     """Extract trace context from a Ray carrier.
 
     Call this on the worker side to resume the trace.
@@ -43,13 +44,14 @@ def extract_ray_context(carrier: Optional[dict] = None):
     """
     if carrier is None:
         from opentelemetry.context import get_current
+
         return get_current()
     return extract_context(carrier)
 
 
 def traced_remote_call(
     method: Callable,
-    tracer: Optional[trace.Tracer] = None,
+    tracer: trace.Tracer | None = None,
 ) -> Callable:
     """Wrapper for Ray remote methods that auto-injects/extracts trace context.
 
@@ -65,9 +67,9 @@ def traced_remote_call(
     """
 
     @functools.wraps(method)
-    def wrapper(*args: Any, _otel_carrier: Optional[dict] = None, **kwargs: Any) -> Any:
+    def wrapper(*args: Any, _otel_carrier: dict | None = None, **kwargs: Any) -> Any:
         ctx = extract_ray_context(_otel_carrier)
-        t = tracer or trace.get_tracer('nemo.lens.ray')
+        t = tracer or trace.get_tracer("nemo.lens.ray")
         with t.start_as_current_span(method.__qualname__, context=ctx):
             return method(*args, **kwargs)
 
@@ -77,7 +79,7 @@ def traced_remote_call(
 def ray_dispatch_with_context(
     remote_fn,
     *args: Any,
-    _carrier: Optional[dict] = None,
+    _carrier: dict | None = None,
     **kwargs: Any,
 ):
     """Dispatch a Ray remote call with trace context injection.

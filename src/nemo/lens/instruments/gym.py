@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import logging
 import weakref
-from typing import Optional
 
 from opentelemetry import metrics
 
@@ -18,28 +17,28 @@ def _get_gym_instruments(meter: metrics.Meter) -> dict:
     instruments = _GYM_INSTRUMENTS.get(meter)
     if instruments is None:
         instruments = {
-            'server_request_duration_ms': meter.create_histogram(
-                name='gym.server.request_duration_ms',
-                unit='ms',
-                description='Gym server request duration in milliseconds.',
+            "server_request_duration_ms": meter.create_histogram(
+                name="gym.server.request_duration_ms",
+                unit="ms",
+                description="Gym server request duration in milliseconds.",
             ),
-            'rollout_duration_ms': meter.create_histogram(
-                name='gym.rollout.duration_ms',
-                unit='ms',
-                description='Rollout collection duration in milliseconds.',
+            "rollout_duration_ms": meter.create_histogram(
+                name="gym.rollout.duration_ms",
+                unit="ms",
+                description="Rollout collection duration in milliseconds.",
             ),
-            'verify_duration_ms': meter.create_histogram(
-                name='gym.verify.duration_ms',
-                unit='ms',
-                description='Verification endpoint duration in milliseconds.',
+            "verify_duration_ms": meter.create_histogram(
+                name="gym.verify.duration_ms",
+                unit="ms",
+                description="Verification endpoint duration in milliseconds.",
             ),
-            'verify_success_rate': meter.create_gauge(
-                name='gym.verify.success_rate',
-                description='Fraction of successful verifications.',
+            "verify_success_rate": meter.create_gauge(
+                name="gym.verify.success_rate",
+                description="Fraction of successful verifications.",
             ),
-            'active_servers': meter.create_gauge(
-                name='gym.servers.active',
-                description='Number of active Gym servers.',
+            "active_servers": meter.create_gauge(
+                name="gym.servers.active",
+                description="Number of active Gym servers.",
             ),
         }
         _GYM_INSTRUMENTS[meter] = instruments
@@ -48,11 +47,11 @@ def _get_gym_instruments(meter: metrics.Meter) -> dict:
 
 def record_gym_metrics(
     meter: metrics.Meter,
-    server_request_duration_ms: Optional[float] = None,
-    rollout_duration_ms: Optional[float] = None,
-    verify_duration_ms: Optional[float] = None,
-    verify_success_rate: Optional[float] = None,
-    active_servers: Optional[int] = None,
+    server_request_duration_ms: float | None = None,
+    rollout_duration_ms: float | None = None,
+    verify_duration_ms: float | None = None,
+    verify_success_rate: float | None = None,
+    active_servers: int | None = None,
 ) -> None:
     """Record Gym metrics. All arguments optional; None values skipped."""
     try:
@@ -62,12 +61,12 @@ def record_gym_metrics(
         return
 
     if server_request_duration_ms is not None:
-        instruments['server_request_duration_ms'].record(server_request_duration_ms)
+        instruments["server_request_duration_ms"].record(server_request_duration_ms)
     if rollout_duration_ms is not None:
-        instruments['rollout_duration_ms'].record(rollout_duration_ms)
+        instruments["rollout_duration_ms"].record(rollout_duration_ms)
     if verify_duration_ms is not None:
-        instruments['verify_duration_ms'].record(verify_duration_ms)
+        instruments["verify_duration_ms"].record(verify_duration_ms)
     if verify_success_rate is not None:
-        instruments['verify_success_rate'].set(verify_success_rate)
+        instruments["verify_success_rate"].set(verify_success_rate)
     if active_servers is not None:
-        instruments['active_servers'].set(active_servers)
+        instruments["active_servers"].set(active_servers)

@@ -4,7 +4,7 @@
 
 import functools
 from contextlib import contextmanager
-from typing import Any, Optional
+from typing import Any
 
 from opentelemetry import trace
 
@@ -13,7 +13,7 @@ from opentelemetry import trace
 # ---------------------------------------------------------------------------
 
 DEFAULT_REDACT_KEYS: frozenset = frozenset(
-    {'prompt', 'input_text', 'output_text', 'text', 'password', 'token', 'secret', 'key'}
+    {"prompt", "input_text", "output_text", "text", "password", "token", "secret", "key"}
 )
 
 _SCALAR_TYPES = (bool, int, float, str)
@@ -21,7 +21,7 @@ _SCALAR_TYPES = (bool, int, float, str)
 
 def redact_value(key: str, value: str, redact_keys: frozenset = DEFAULT_REDACT_KEYS) -> str:
     """Return ``'[REDACTED]'`` if *key* is in *redact_keys*, else *value*."""
-    return '[REDACTED]' if key in redact_keys else value
+    return "[REDACTED]" if key in redact_keys else value
 
 
 def safe_set_span_attributes(
@@ -43,14 +43,14 @@ def safe_set_span_attributes(
             if isinstance(value, str):
                 value = redact_value(key, value, redact_keys)
             span.set_attribute(key, value)
-        elif isinstance(value, (list, tuple)) and all(isinstance(v, _SCALAR_TYPES) for v in value):
+        elif isinstance(value, list | tuple) and all(isinstance(v, _SCALAR_TYPES) for v in value):
             span.set_attribute(key, list(value))
 
 
 @contextmanager
 def span_cm(
     name: str,
-    tracer: Optional[trace.Tracer] = None,
+    tracer: trace.Tracer | None = None,
     record_exception: bool = True,
     **attributes: Any,
 ):
@@ -80,7 +80,7 @@ def span_cm(
 def managed_span(
     group: str,
     name: str,
-    tracer: Optional[trace.Tracer] = None,
+    tracer: trace.Tracer | None = None,
     **attributes: Any,
 ):
     """Explicit-lifecycle span guarded by a span-group check.
@@ -125,7 +125,7 @@ def managed_span(
         span.end()
 
 
-def trace_fn(group: str, name: str, tracer: Optional[trace.Tracer] = None):
+def trace_fn(group: str, name: str, tracer: trace.Tracer | None = None):
     """Decorator that wraps a function in a group-gated OTel span.
 
     The span group is checked at **call time** (not decoration time).
@@ -146,7 +146,7 @@ def trace_fn(group: str, name: str, tracer: Optional[trace.Tracer] = None):
 
             if not is_span_group_enabled(group):
                 return func(*args, **kwargs)
-            t = tracer if tracer is not None else trace.get_tracer('nemo.lens')
+            t = tracer if tracer is not None else trace.get_tracer("nemo.lens")
             with t.start_as_current_span(name):
                 return func(*args, **kwargs)
 
