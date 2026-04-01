@@ -1,6 +1,6 @@
 # Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Training metric instruments (dl.training.* namespace)."""
+"""Training metric instruments (megatron.training.* namespace)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,16 @@ import logging
 import weakref
 
 from opentelemetry import metrics
+
+from nemo.lens.semconv import (
+    MEGATRON_TRAINING_GRAD_NORM,
+    MEGATRON_TRAINING_LEARNING_RATE,
+    MEGATRON_TRAINING_LOSS,
+    MEGATRON_TRAINING_SKIPPED_ITERS,
+    MEGATRON_TRAINING_STEP_DURATION_MS,
+    MEGATRON_TRAINING_THROUGHPUT_TFLOPS,
+    MEGATRON_TRAINING_TOKENS_PER_SEC,
+)
 
 _logger = logging.getLogger(__name__)
 _TRAINING_INSTRUMENTS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
@@ -18,32 +28,32 @@ def _get_training_instruments(meter: metrics.Meter) -> dict:
     if instruments is None:
         instruments = {
             "step_duration_ms": meter.create_histogram(
-                name="dl.training.step_duration_ms",
+                name=MEGATRON_TRAINING_STEP_DURATION_MS,
                 unit="ms",
                 description="Duration of one training step in milliseconds.",
             ),
             "loss": meter.create_gauge(
-                name="dl.training.loss",
+                name=MEGATRON_TRAINING_LOSS,
                 description="Training loss value at each log interval.",
             ),
             "throughput_tflops": meter.create_gauge(
-                name="dl.training.throughput_tflops",
+                name=MEGATRON_TRAINING_THROUGHPUT_TFLOPS,
                 description="Training throughput in TFLOP/s/GPU.",
             ),
             "grad_norm": meter.create_gauge(
-                name="dl.training.grad_norm",
+                name=MEGATRON_TRAINING_GRAD_NORM,
                 description="Global gradient norm.",
             ),
             "skipped_iters": meter.create_counter(
-                name="dl.training.skipped_iters",
+                name=MEGATRON_TRAINING_SKIPPED_ITERS,
                 description="Number of training iterations skipped.",
             ),
             "learning_rate": meter.create_gauge(
-                name="dl.training.learning_rate",
+                name=MEGATRON_TRAINING_LEARNING_RATE,
                 description="Current learning rate.",
             ),
             "tokens_per_sec": meter.create_gauge(
-                name="dl.training.tokens_per_sec",
+                name=MEGATRON_TRAINING_TOKENS_PER_SEC,
                 description="Training throughput in tokens/second.",
             ),
         }
