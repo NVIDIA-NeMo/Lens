@@ -1,11 +1,11 @@
 # OpenTelemetry Collector configuration for NeMo Lens
 #
-# Handles the metrics and logs pipelines.  Traces go directly to Jaeger v2
-# (which natively accepts OTLP).
-#
 # Pipelines:
 #   Megatron (OTLP metrics) ──► Collector ──► Prometheus scrape endpoint
 #   Megatron (OTLP logs)   ──► Collector ──► Elasticsearch
+#   Host metrics (CPU/mem)  ──► Collector ──► Prometheus scrape endpoint
+#   DCGM Exporter (GPU)    ──► Collector ──► Prometheus scrape endpoint
+#   Node Exporter (IB/net) ──► Collector ──► Prometheus scrape endpoint
 
 receivers:
   otlp:
@@ -15,37 +15,70 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
+  # ── Host metrics: CPU, memory, disk, network, load ──────────────────
+  hostmetrics:
+    root_path: /hostfs
+    collection_interval: 10s
+    scrapers:
+      cpu:           # system.cpu.time, system.cpu.utilization
+      memory:        # system.memory.usage, system.memory.utilization
+      disk:          # system.disk.io, system.disk.operations
+      network:       # system.network.io, system.network.packets, system.network.errors
+      load:          # system.cpu.load_average.{1m,5m,15m}
+      filesystem:    # system.filesystem.usage, system.filesystem.utilization
+      processes:     # system.processes.count, system.processes.created
+      paging:        # system.paging.usage, system.paging.operations
+
+  # ── GPU metrics via DCGM Exporter (sidecar) ────────────────────────
+  # Scrapes NVIDIA DCGM Exporter's Prometheus endpoint for:
+  #   GPU utilization, memory, temperature, power, NVLink, PCIe, ECC, clocks
+  prometheus/dcgm:
+    config:
+      scrape_configs:
+        - job_name: dcgm
+          scrape_interval: 10s
+          static_configs:
+            - targets: ["dcgm-exporter:9400"]
+
+  # ── InfiniBand / network metrics via Node Exporter (sidecar) ───────
+  # Scrapes Prometheus Node Exporter for:
+  #   InfiniBand port counters, RDMA stats, NIC bandwidth, TCP retransmits
+  prometheus/node:
+    config:
+      scrape_configs:
+        - job_name: node
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["node-exporter:9100"]
+          # Only keep relevant metrics — drop filesystem, textfile, etc.
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: "^(node_infiniband_|node_network_|node_nfs_|node_sockstat_|node_tcp_).*"
+              action: keep
+
 processors:
-  # Cap memory usage; drops data rather than OOM-crashing.
   memory_limiter:
     check_interval: 1s
     limit_mib: 512
     spike_limit_mib: 128
 
-  # Batch before exporting — improves throughput.
   batch:
     send_batch_size: 512
     timeout: 5s
 
-  # Attach host-level resource attributes (hostname, OS, etc.).
   resourcedetection:
     detectors: [env, system]
     timeout: 5s
     override: false
 
 exporters:
-  # Expose metrics as a Prometheus scrape endpoint (Prometheus polls this).
   prometheus:
     endpoint: "0.0.0.0:8889"
     send_timestamps: true
-    # After a training job ends, keep last-seen metric values for 3 h
-    # so Grafana doesn't show gaps between runs.
     metric_expiration: 3h
-    # Promote resource attributes (service.name, host.name, …) to labels.
     resource_to_telemetry_conversion:
       enabled: true
 
-  # Export logs to Elasticsearch.
   elasticsearch:
     endpoints: ["http://elasticsearch:9200"]
     logs_index: nemo-logs
@@ -54,12 +87,7 @@ exporters:
       num_consumers: 2
       queue_size: 1000
 
-  # Debug: uncomment to log every received data point to collector stdout.
-  # debug:
-  #   verbosity: detailed
-
 extensions:
-  # Health-check endpoint — used by docker-compose healthcheck.
   health_check:
     endpoint: 0.0.0.0:13133
 
@@ -71,11 +99,13 @@ service:
       level: warn
 
   pipelines:
+    # Training + host + GPU + network metrics → Prometheus
     metrics:
-      receivers:  [otlp]
+      receivers:  [otlp, hostmetrics, prometheus/dcgm, prometheus/node]
       processors: [memory_limiter, resourcedetection, batch]
       exporters:  [prometheus]
 
+    # Training logs → Elasticsearch
     logs:
       receivers:  [otlp]
       processors: [memory_limiter, batch]

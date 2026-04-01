@@ -79,13 +79,70 @@ services:
 
   # ── OpenTelemetry Collector ────────────────────────────────────────────────
   # Handles metrics (→ Prometheus) and logs (→ Elasticsearch) pipelines.
+  # Scrapes host metrics, DCGM (GPU), and Node Exporter (InfiniBand/network).
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.146.0
     command: ["--config=/etc/otel/collector.yaml"]
     volumes:
       - ./observability/otel-collector.yaml:/etc/otel/collector.yaml:ro
+      - /proc:/hostfs/proc:ro
+      - /sys:/hostfs/sys:ro
     ports:
-      - "8889:8889"   # Prometheus scrape endpoint (metrics)
+      - "8889:8889"   # Prometheus scrape endpoint
+    networks:
+      - otel-net
+    restart: unless-stopped
+    depends_on:
+      - dcgm-exporter
+      - node-exporter
+
+  # ── DCGM Exporter ─────────────────────────────────────────────────────────
+  # GPU metrics: utilization, memory, temperature, power, NVLink, PCIe, ECC,
+  # clock throttle reasons, SM activity — per GPU.
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    cap_add:
+      - SYS_ADMIN     # required for DCGM to access GPU telemetry
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # ── Node Exporter ──────────────────────────────────────────────────────────
+  # InfiniBand port counters, RDMA stats, NIC bandwidth, TCP retransmits.
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/host/root"
+      - "--collector.infiniband"
+      - "--collector.netclass"
+      - "--collector.tcpstat"
+      - "--no-collector.arp"
+      - "--no-collector.bcache"
+      - "--no-collector.bonding"
+      - "--no-collector.btrfs"
+      - "--no-collector.entropy"
+      - "--no-collector.hwmon"
+      - "--no-collector.ipvs"
+      - "--no-collector.mdadm"
+      - "--no-collector.ntp"
+      - "--no-collector.textfile"
+      - "--no-collector.timex"
+      - "--no-collector.xfs"
+      - "--no-collector.zfs"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+    pid: host
     networks:
       - otel-net
     restart: unless-stopped
