@@ -14,11 +14,20 @@ class MegatronSpanGroup(SpanGroup):
     """
 
     # ------------------------------------------------------------------ #
-    # Fine-grained (included in "all" only)
+    # Fine-grained (included in "per_step" or "all")
     # ------------------------------------------------------------------ #
 
     MICROBATCH = "microbatch"
-    """Per-microbatch forward/backward spans (highest overhead)."""
+    """Per-microbatch forward/backward spans."""
+
+    COMMUNICATION = "communication"
+    """P2P send/recv and gradient AllReduce/ReduceScatter."""
+
+    ACTIVATION_OFFLOAD = "activation_offload"
+    """GPU<->CPU activation offload/reload spans."""
+
+    DATA_LOADING = "data_loading"
+    """Data loading and batch preparation."""
 
     # ------------------------------------------------------------------ #
     # Inference
@@ -34,6 +43,9 @@ class MegatronSpanGroup(SpanGroup):
     ALL_GROUPS: Final[frozenset] = SpanGroup.ALL_GROUPS | frozenset(
         [
             MICROBATCH,
+            COMMUNICATION,
+            ACTIVATION_OFFLOAD,
+            DATA_LOADING,
             INFERENCE,
         ]
     )
@@ -57,6 +69,8 @@ class MegatronSpanGroup(SpanGroup):
                 SpanGroup.STEP,
                 SpanGroup.FORWARD_BACKWARD,
                 SpanGroup.OPTIMIZER,
+                COMMUNICATION,
+                DATA_LOADING,
                 INFERENCE,
             ]
         ),
