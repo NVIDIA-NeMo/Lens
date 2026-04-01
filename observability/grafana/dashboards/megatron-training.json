@@ -2,7 +2,7 @@
   "title": "Megatron-LM Training",
   "uid": "megatron-training",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "5s",
   "time": { "from": "now-30m", "to": "now" },
   "tags": ["megatron", "training", "llm"],
@@ -15,6 +15,17 @@
         "type": "query",
         "datasource": { "type": "prometheus", "uid": "prometheus" },
         "query": "label_values(megatron_training_loss, service_name)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {}
+      },
+      {
+        "name": "gpu",
+        "label": "GPU",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(DCGM_FI_DEV_GPU_UTIL, gpu)",
         "refresh": 2,
         "includeAll": true,
         "allValue": ".*",
@@ -147,10 +158,118 @@
       ]
     },
     {
+      "id": 6,
+      "title": "Learning Rate",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 5, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "color": { "mode": "fixed" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [
+        {
+          "expr": "megatron_training_learning_rate{service_name=~\"$service\"}",
+          "legendFormat": "{{service_name}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Tokens/sec",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 5, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": { "mode": "fixed" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [
+        {
+          "expr": "megatron_training_tokens_per_sec{service_name=~\"$service\"}",
+          "legendFormat": "{{service_name}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "GPU Memory (app)",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 5, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decgbytes",
+          "decimals": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [
+        {
+          "expr": "megatron_training_memory_allocated_gb{service_name=~\"$service\"}",
+          "legendFormat": "{{service_name}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "GPU Utilization",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 5, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "red", "value": 80 }
+            ]
+          }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [
+        {
+          "expr": "avg(DCGM_FI_DEV_GPU_UTIL{gpu=~\"$gpu\"})",
+          "legendFormat": "avg utilization",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "id": 10,
       "type": "row",
       "title": "Training Curves",
-      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 1 },
+      "gridPos": { "x": 0, "y": 9, "w": 24, "h": 1 },
       "collapsed": false
     },
     {
@@ -158,7 +277,7 @@
       "title": "Training Loss",
       "description": "Training loss over time (gauge).",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 6, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 10, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -189,7 +308,7 @@
       "title": "Gradient Norm",
       "description": "Global gradient norm (gauge). Spikes may indicate training instability.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 6, "w": 12, "h": 8 },
+      "gridPos": { "x": 12, "y": 10, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -219,7 +338,7 @@
       "id": 20,
       "type": "row",
       "title": "Performance",
-      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 1 },
+      "gridPos": { "x": 0, "y": 18, "w": 24, "h": 1 },
       "collapsed": false
     },
     {
@@ -227,7 +346,7 @@
       "title": "Throughput (TFLOP/s/GPU)",
       "description": "Training throughput (gauge).",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 15, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 19, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -260,7 +379,7 @@
       "title": "Step Duration (ms)",
       "description": "Per-step wall-clock time (histogram p50/p95/p99).",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 15, "w": 12, "h": 8 },
+      "gridPos": { "x": 12, "y": 19, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -296,7 +415,7 @@
       "title": "Step Duration Heatmap",
       "description": "Distribution of step durations over time.",
       "type": "heatmap",
-      "gridPos": { "x": 0, "y": 23, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 27, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "options": {
         "calculate": false,
@@ -319,7 +438,7 @@
       "title": "Avg Step Duration (ms)",
       "description": "Mean step duration computed from histogram sum/count.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 23, "w": 6, "h": 8 },
+      "gridPos": { "x": 12, "y": 27, "w": 6, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -342,7 +461,7 @@
       "title": "Skipped Iterations",
       "description": "Rate of optimizer steps skipped due to inf/nan gradients. High rates indicate instability.",
       "type": "timeseries",
-      "gridPos": { "x": 18, "y": 23, "w": 6, "h": 8 },
+      "gridPos": { "x": 18, "y": 27, "w": 6, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -366,10 +485,141 @@
       ]
     },
     {
+      "id": 40,
+      "type": "row",
+      "title": "Resource Usage",
+      "gridPos": { "x": 0, "y": 35, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 41,
+      "title": "Learning Rate",
+      "description": "Learning rate over time.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 36, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 3,
+            "showPoints": "auto"
+          },
+          "unit": "none"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "megatron_training_learning_rate{service_name=~\"$service\"}",
+          "legendFormat": "lr {{service_name}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "title": "Tokens/sec",
+      "description": "Token throughput over time.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 36, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 3,
+            "showPoints": "auto"
+          },
+          "unit": "none"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "megatron_training_tokens_per_sec{service_name=~\"$service\"}",
+          "legendFormat": "tokens/s {{service_name}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "title": "GPU Memory (Allocated)",
+      "description": "Application-level GPU memory allocation over time.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 44, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 3,
+            "showPoints": "auto"
+          },
+          "unit": "decgbytes"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "megatron_training_memory_allocated_gb{service_name=~\"$service\"}",
+          "legendFormat": "mem {{service_name}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "title": "GPU Utilization (per GPU)",
+      "description": "DCGM GPU utilization broken out per GPU.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 44, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 3,
+            "showPoints": "auto"
+          },
+          "unit": "percent"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "DCGM_FI_DEV_GPU_UTIL{gpu=~\"$gpu\"}",
+          "legendFormat": "GPU {{gpu}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "id": 30,
       "type": "row",
       "title": "Inference (GenAI Semconv)",
-      "gridPos": { "x": 0, "y": 31, "w": 24, "h": 1 },
+      "gridPos": { "x": 0, "y": 52, "w": 24, "h": 1 },
       "collapsed": true,
       "panels": [
         {
@@ -377,7 +627,7 @@
           "title": "Inference Request Duration (s)",
           "description": "End-to-end inference request latency (gen_ai.server.request.duration).",
           "type": "timeseries",
-          "gridPos": { "x": 0, "y": 32, "w": 12, "h": 8 },
+          "gridPos": { "x": 0, "y": 53, "w": 12, "h": 8 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": { "unit": "s", "custom": { "lineWidth": 2, "fillOpacity": 10 } }
@@ -400,7 +650,7 @@
           "title": "Token Usage (TFLOP/s/GPU)",
           "description": "Input and output token throughput (gen_ai.client.token.usage).",
           "type": "timeseries",
-          "gridPos": { "x": 12, "y": 32, "w": 12, "h": 8 },
+          "gridPos": { "x": 12, "y": 53, "w": 12, "h": 8 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } }

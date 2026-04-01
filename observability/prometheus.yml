@@ -12,9 +12,8 @@ scrape_configs:
       - targets: ["otel-collector:8889"]
     # Prometheus v3: explicit fallback protocol if Content-Type is missing.
     fallback_scrape_protocol: PrometheusText0.0.4
-    # Only keep NeMo Lens metrics; drop collector self-telemetry.
-    # Includes: megatron.training.*, gen_ai.*, rl.*, gym.*
+    # Keep training, system, GPU, and network metrics.
     metric_relabel_configs:
       - source_labels: [__name__]
-        regex: "^(dl_|megatron_|gen_ai_|rl_|gym_|otelcol_).*"
+        regex: "^(dl_|megatron_|gen_ai_|rl_|gym_|system_|DCGM_|node_|otelcol_).*"
         action: keep
