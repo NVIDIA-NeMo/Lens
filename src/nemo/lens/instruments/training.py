@@ -13,6 +13,7 @@ from nemo.lens.semconv import (
     MEGATRON_TRAINING_GRAD_NORM,
     MEGATRON_TRAINING_LEARNING_RATE,
     MEGATRON_TRAINING_LOSS,
+    MEGATRON_TRAINING_MEMORY_ALLOCATED_GB,
     MEGATRON_TRAINING_SKIPPED_ITERS,
     MEGATRON_TRAINING_STEP_DURATION_MS,
     MEGATRON_TRAINING_THROUGHPUT_TFLOPS,
@@ -56,6 +57,10 @@ def _get_training_instruments(meter: metrics.Meter) -> dict:
                 name=MEGATRON_TRAINING_TOKENS_PER_SEC,
                 description="Training throughput in tokens/second.",
             ),
+            "memory_allocated_gb": meter.create_gauge(
+                name=MEGATRON_TRAINING_MEMORY_ALLOCATED_GB,
+                description="Peak GPU memory allocated in GB.",
+            ),
         }
         _TRAINING_INSTRUMENTS[meter] = instruments
     return instruments
@@ -70,6 +75,7 @@ def record_training_metrics(
     skipped_iters: int | None = None,
     learning_rate: float | None = None,
     tokens_per_sec: float | None = None,
+    memory_allocated_gb: float | None = None,
 ) -> None:
     """Record training metrics to the OTel meter.
 
@@ -96,3 +102,5 @@ def record_training_metrics(
         instruments["learning_rate"].set(learning_rate)
     if tokens_per_sec is not None:
         instruments["tokens_per_sec"].set(tokens_per_sec)
+    if memory_allocated_gb is not None:
+        instruments["memory_allocated_gb"].set(memory_allocated_gb)

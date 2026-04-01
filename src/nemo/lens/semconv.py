@@ -37,6 +37,7 @@ MEGATRON_TRAINING_GRAD_NORM = "megatron.training.grad_norm"
 MEGATRON_TRAINING_SKIPPED_ITERS = "megatron.training.skipped_iters"
 MEGATRON_TRAINING_LEARNING_RATE = "megatron.training.learning_rate"
 MEGATRON_TRAINING_TOKENS_PER_SEC = "megatron.training.tokens_per_sec"
+MEGATRON_TRAINING_MEMORY_ALLOCATED_GB = "megatron.training.memory_allocated_gb"
 
 # ------------------------------------------------------------------ #
 # GenAI semconv (gen_ai.*) — standard OTel
