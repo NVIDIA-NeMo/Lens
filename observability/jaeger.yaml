@@ -1,0 +1,51 @@
+# Jaeger v2 configuration — built on OpenTelemetry Collector framework.
+#
+# Receives OTLP traces directly from Megatron (no separate collector needed
+# for the trace pipeline).  In-memory storage for local dev.
+
+service:
+  extensions: [jaeger_storage, jaeger_query, healthcheckv2]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [jaeger_storage_exporter]
+  telemetry:
+    logs:
+      level: info
+
+extensions:
+  healthcheckv2:
+    http:
+      endpoint: 0.0.0.0:13133
+
+  jaeger_storage:
+    backends:
+      memstore:
+        memory:
+          max_traces: 500000
+
+  jaeger_query:
+    storage:
+      traces: memstore
+    http:
+      endpoint: 0.0.0.0:16686
+    grpc:
+      endpoint: 0.0.0.0:16685
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+exporters:
+  jaeger_storage_exporter:
+    trace_storage: memstore
