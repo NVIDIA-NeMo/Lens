@@ -1,14 +1,20 @@
 global:
-  scrape_interval: 15s
+  scrape_interval:     15s
   evaluation_interval: 15s
+  # Attach these labels to every time series scraped by this Prometheus.
+  external_labels:
+    monitor: megatron-otel
 
 scrape_configs:
-  - job_name: 'otel-collector'
+  - job_name: "megatron"
+    # The OTel collector exposes a Prometheus scrape endpoint.
     static_configs:
-      - targets: ['otel-collector:8889']
-    # Collector's Prometheus exporter
-
-  - job_name: 'collector-health'
-    static_configs:
-      - targets: ['otel-collector:8888']
-    # Collector's own metrics
+      - targets: ["otel-collector:8889"]
+    # Prometheus v3: explicit fallback protocol if Content-Type is missing.
+    fallback_scrape_protocol: PrometheusText0.0.4
+    # Only keep NeMo Lens metrics; drop collector self-telemetry.
+    # Includes: megatron.training.*, gen_ai.*, rl.*, gym.*
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: "^(dl_|megatron_|gen_ai_|rl_|gym_|otelcol_).*"
+        action: keep

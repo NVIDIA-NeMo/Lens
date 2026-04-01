@@ -1,62 +1,176 @@
-version: "3.9"
+# NeMo Lens observability stack
+#
+# Usage:
+#   docker compose -f docker-compose.otel.yml up -d
+#
+# Then bash into the Megatron container to run training:
+#   docker compose -f docker-compose.otel.yml exec megatron bash
+#
+# UIs:
+#   Jaeger         http://localhost:16686
+#   Grafana        http://localhost:3000   (anonymous admin, no login required)
+#   Kibana         http://localhost:5601
+#   Prometheus     http://localhost:9090   (optional, for ad-hoc queries)
+#   Elasticsearch  http://localhost:9200
+#
+# Architecture:
+#   Megatron ──OTLP traces──► Jaeger v2 (natively accepts OTLP)
+#   Megatron ──OTLP metrics──► OTel Collector ──► Prometheus ──► Grafana
+#   Megatron ──OTLP logs────► OTel Collector ──► Elasticsearch ──► Kibana/Grafana
 
 services:
-  # ---------------------------------------------------------------
-  # OpenTelemetry Collector — receives spans/metrics/logs via OTLP
-  # ---------------------------------------------------------------
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.96.0
-    command: ["--config=/etc/otel/config.yaml"]
+
+  # ── Megatron-LM training container ─────────────────────────────────────────
+  # Interactive container for running training with OTel enabled.
+  # Traces go to Jaeger, metrics go to the OTel Collector, logs go to ES.
+  megatron:
+    image: local-megatron-lm:otel-compose
+    build:
+      context: ..
+      dockerfile_inline: |
+        FROM local-megatron-lm:otel
+        COPY nemo-otel /tmp/nemo-otel
+        RUN pip install --no-cache-dir '/tmp/nemo-otel[sdk]' && rm -rf /tmp/nemo-otel
     volumes:
-      - ./observability/otel-collector.yaml:/etc/otel/config.yaml:ro
-    ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "8888:8888"   # Collector metrics
-      - "8889:8889"   # Prometheus exporter
-    depends_on:
-      - jaeger
-    restart: unless-stopped
-
-  # ---------------------------------------------------------------
-  # Jaeger v2 — distributed tracing backend
-  # ---------------------------------------------------------------
-  jaeger:
-    image: jaegertracing/jaeger:2.4.0
+      - ..:/workspace
+    working_dir: /workspace/Megatron-LM
     environment:
-      - COLLECTOR_OTLP_ENABLED=true
+      - MEGATRON_OTEL_ENABLED=1
+      - MEGATRON_OTEL_SPAN_GROUPS=all
+      - NEMO_LENS_LOGS_ENABLED=1
+      - OTEL_METRIC_EXPORT_INTERVAL=1000
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4317
+      - OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://otel-collector:4317
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    stdin_open: true
+    tty: true
+    networks:
+      - otel-net
+    depends_on:
+      jaeger:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+
+  # ── Jaeger v2 ──────────────────────────────────────────────────────────────
+  # Trace storage and search UI. Jaeger v2 natively accepts OTLP — no
+  # separate collector needed for the trace pipeline.
+  jaeger:
+    image: jaegertracing/jaeger:2.15.0
+    command: ["--config", "/etc/jaeger/config.yaml"]
+    volumes:
+      - ./observability/jaeger.yaml:/etc/jaeger/config.yaml:ro
     ports:
-      - "16686:16686"  # Jaeger UI
-      - "14250:14250"  # gRPC (collector)
+      - "16686:16686"   # Jaeger UI
+    networks:
+      - otel-net
     restart: unless-stopped
 
-  # ---------------------------------------------------------------
-  # Prometheus — metrics storage and querying
-  # ---------------------------------------------------------------
+  # ── OpenTelemetry Collector ────────────────────────────────────────────────
+  # Handles metrics (→ Prometheus) and logs (→ Elasticsearch) pipelines.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.146.0
+    command: ["--config=/etc/otel/collector.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otel/collector.yaml:ro
+    ports:
+      - "8889:8889"   # Prometheus scrape endpoint (metrics)
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # ── Prometheus ─────────────────────────────────────────────────────────────
+  # Scrapes the collector's Prometheus endpoint and stores time-series data.
   prometheus:
-    image: prom/prometheus:v2.51.0
+    image: prom/prometheus:v3.10.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"          # allows hot-reload: POST /-/reload
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
     ports:
       - "9090:9090"
+    networks:
+      - otel-net
+    restart: unless-stopped
+    depends_on:
+      - otel-collector
+
+  # ── Elasticsearch ──────────────────────────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.2.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - otel-net
     restart: unless-stopped
 
-  # ---------------------------------------------------------------
-  # Grafana — dashboards and visualization
-  # ---------------------------------------------------------------
-  grafana:
-    image: grafana/grafana:10.4.0
+  # ── Kibana ─────────────────────────────────────────────────────────────────
+  kibana:
+    image: docker.elastic.co/kibana/kibana:9.2.0
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - otel-net
+    restart: unless-stopped
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  # ── Grafana ────────────────────────────────────────────────────────────────
+  # Unified dashboard — pre-wired to Prometheus (metrics) and Jaeger (traces).
+  grafana:
+    image: grafana/grafana:12.4.0
+    environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_FEATURE_TOGGLES_ENABLE=traceToMetrics
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
     ports:
       - "3000:3000"
+    networks:
+      - otel-net
+    restart: unless-stopped
     depends_on:
       - prometheus
       - jaeger
-    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  es-data:
+
+networks:
+  otel-net:
+    driver: bridge
