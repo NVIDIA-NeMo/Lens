@@ -23,15 +23,13 @@ def setup_logging_bridge(logger_name: str = "", level: int = logging.INFO) -> No
     """
     try:
         from opentelemetry._logs import get_logger_provider
-        from opentelemetry.sdk._logs import LoggerProvider
+        from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 
         logger_provider = get_logger_provider()
         if not isinstance(logger_provider, LoggerProvider):
             return
 
-        from opentelemetry.sdk._logs.export import LogExportHandler
-
-        handler = LogExportHandler(logger_provider=logger_provider)
+        handler = LoggingHandler(logger_provider=logger_provider)
         handler.setLevel(level)
         logging.getLogger(logger_name).addHandler(handler)
     except ImportError:
