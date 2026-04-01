@@ -1,0 +1,14 @@
+# Kibana configuration for NeMo Lens
+server.name: nemo-lens-kibana
+server.host: "0.0.0.0"
+
+elasticsearch.hosts: ["http://elasticsearch:9200"]
+
+# Required for saved objects encryption (alerts, actions, etc.)
+xpack.encryptedSavedObjects.encryptionKey: "nemo-lens-dev-key-min-32-chars!!"
+
+# Skip the welcome screen and go straight to Discover
+telemetry.optIn: false
+newsfeed.enabled: false
+
+logging.root.level: warn

@@ -82,6 +82,8 @@ exporters:
   elasticsearch:
     endpoints: ["http://elasticsearch:9200"]
     logs_index: nemo-logs
+    mapping:
+      mode: ecs
     sending_queue:
       enabled: true
       num_consumers: 2
@@ -96,7 +98,7 @@ service:
 
   telemetry:
     logs:
-      level: warn
+      level: info
 
   pipelines:
     # Training + host + GPU + network metrics → Prometheus

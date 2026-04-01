@@ -35,5 +35,5 @@ datasources:
     jsonData:
       index: nemo-logs
       timeField: "@timestamp"
-      logMessageField: body
-      logLevelField: severity_text
+      logMessageField: message
+      logLevelField: log.level

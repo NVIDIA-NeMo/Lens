@@ -173,6 +173,7 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
+      - action.auto_create_index=true
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
     ports:
       - "9200:9200"
@@ -188,10 +189,16 @@ services:
     restart: unless-stopped
 
   # ── Kibana ─────────────────────────────────────────────────────────────────
+  # Log exploration UI. Pre-configured with nemo-logs data view and dashboards.
   kibana:
     image: docker.elastic.co/kibana/kibana:9.2.0
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    volumes:
+      - ./observability/kibana/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
+      - ./observability/kibana/setup.sh:/usr/share/kibana/setup/setup.sh:ro
+      - ./observability/kibana/saved-objects.ndjson:/usr/share/kibana/setup/saved-objects.ndjson:ro
+    command: >
+      bash -c "/usr/share/kibana/setup/setup.sh &
+               /usr/local/bin/kibana-docker"
     ports:
       - "5601:5601"
     networks:
@@ -200,6 +207,7 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+
 
   # ── Grafana ────────────────────────────────────────────────────────────────
   # Unified dashboard — pre-wired to Prometheus (metrics) and Jaeger (traces).
