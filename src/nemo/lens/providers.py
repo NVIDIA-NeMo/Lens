@@ -57,6 +57,11 @@ def build_providers(
         attrs["service.instance.id"] = f"{config.run_id}-rank{rank}"
     if config.user:
         attrs["nemo.user.id"] = config.user
+    # W&B Weave resource attributes (required when exporting to Weave).
+    if config.wandb_entity:
+        attrs["wandb.entity"] = config.wandb_entity
+    if config.wandb_project:
+        attrs["wandb.project"] = config.wandb_project
     env_name = os.environ.get("DEPLOYMENT_ENV", os.environ.get("ENVIRONMENT", ""))
     if env_name:
         attrs["deployment.environment"] = env_name
