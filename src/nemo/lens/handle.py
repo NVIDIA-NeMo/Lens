@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import uuid
 from typing import TYPE_CHECKING
 
 from opentelemetry import metrics, trace
@@ -96,6 +98,11 @@ def setup_telemetry(
     """
     from nemo.lens.providers import build_noop_providers, build_providers
     from nemo.lens.state import set_enabled_span_groups
+
+    # Auto-generate run_id if not explicitly set.
+    if not config.run_id:
+        slurm_id = os.environ.get("SLURM_JOB_ID", "")
+        config.run_id = slurm_id if slurm_id else uuid.uuid4().hex[:12]
 
     is_export_rank = _should_export(config, rank, world_size)
 

@@ -51,6 +51,12 @@ def build_providers(
         "dl.rank": rank,
         "dl.world_size": world_size,
     }
+    # Run identification — shared across all ranks in a job.
+    if config.run_id:
+        attrs["nemo.run.id"] = config.run_id
+        attrs["service.instance.id"] = f"{config.run_id}-rank{rank}"
+    if config.user:
+        attrs["nemo.user.id"] = config.user
     env_name = os.environ.get("DEPLOYMENT_ENV", os.environ.get("ENVIRONMENT", ""))
     if env_name:
         attrs["deployment.environment"] = env_name

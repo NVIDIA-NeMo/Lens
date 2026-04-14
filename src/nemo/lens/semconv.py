@@ -86,6 +86,13 @@ SLURM_PARTITION = "slurm.partition"
 SLURM_CLUSTER_NAME = "slurm.cluster.name"
 
 # ------------------------------------------------------------------ #
+# Run identification (nemo.*)
+# ------------------------------------------------------------------ #
+
+NEMO_RUN_ID = "nemo.run.id"
+NEMO_USER_ID = "nemo.user.id"
+
+# ------------------------------------------------------------------ #
 # Kubernetes (k8s.*)  — standard OTel semconv
 # ------------------------------------------------------------------ #
 
