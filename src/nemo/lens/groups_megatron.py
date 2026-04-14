@@ -20,6 +20,9 @@ class MegatronSpanGroup(SpanGroup):
     MICROBATCH = "microbatch"
     """Per-microbatch forward/backward spans."""
 
+    LAYER = "layer"
+    """Per-transformer-layer forward (attention + MLP breakdown)."""
+
     COMMUNICATION = "communication"
     """P2P send/recv and gradient AllReduce/ReduceScatter."""
 
@@ -43,6 +46,7 @@ class MegatronSpanGroup(SpanGroup):
     ALL_GROUPS: Final[frozenset] = SpanGroup.ALL_GROUPS | frozenset(
         [
             MICROBATCH,
+            LAYER,
             COMMUNICATION,
             ACTIVATION_OFFLOAD,
             DATA_LOADING,
