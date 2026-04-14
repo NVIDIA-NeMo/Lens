@@ -14,9 +14,10 @@
 #   Elasticsearch  http://localhost:9200
 #
 # Architecture:
-#   Megatron ──OTLP traces──► Jaeger v2 (natively accepts OTLP)
-#   Megatron ──OTLP metrics──► OTel Collector ──► Prometheus ──► Grafana
-#   Megatron ──OTLP logs────► OTel Collector ──► Elasticsearch ──► Kibana/Grafana
+#   Megatron ──OTLP──► OTel Collector ──┬─traces──► Jaeger (trace UI)
+#                                       ├─traces──► Elasticsearch (Kibana)
+#                                       ├─metrics─► Prometheus (Grafana)
+#                                       └─logs────► Elasticsearch (Kibana)
 
 services:
 
@@ -41,9 +42,7 @@ services:
       - MEGATRON_OTEL_SPAN_GROUPS=all
       - NEMO_LENS_LOGS_ENABLED=1
       - OTEL_METRIC_EXPORT_INTERVAL=1000
-      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4317
-      - OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otel-collector:4317
-      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
     deploy:
       resources:
         reservations:
