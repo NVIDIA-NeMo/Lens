@@ -79,17 +79,22 @@ services:
     restart: unless-stopped
 
   # ── OpenTelemetry Collector ────────────────────────────────────────────────
-  # Handles metrics (→ Prometheus) and logs (→ Elasticsearch) pipelines.
-  # Scrapes host metrics, DCGM (GPU), and Node Exporter (InfiniBand/network).
+  # Two modes of operation (based on the config file used):
+  # collector.yaml: routes to Jaeger, Prometheus, Elasticsearch.
+  # collector-file.yaml: routes to file
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.146.0
+    user: "0:0"  # file exporter needs write access to /data volume
     command: ["--config=/etc/otel/collector.yaml"]
+    # command: ["--config=/etc/otel/collector-file.yaml"]  # ← file mode
     volumes:
       - ./observability/otel-collector.yaml:/etc/otel/collector.yaml:ro
+      - ./observability/otel-collector-file.yaml:/etc/otel/collector-file.yaml:ro
       - /proc:/hostfs/proc:ro
       - /sys:/hostfs/sys:ro
+      - otel-export:/data    # used by file mode
     ports:
-      - "8889:8889"   # Prometheus scrape endpoint
+      - "8889:8889"          # Prometheus scrape endpoint (backend mode)
     networks:
       - otel-net
     restart: unless-stopped
@@ -236,6 +241,7 @@ volumes:
   prometheus-data:
   grafana-data:
   es-data:
+  otel-export:
 
 networks:
   otel-net:
