@@ -30,7 +30,7 @@ services:
       context: ..
       dockerfile_inline: |
         FROM local-megatron-lm:otel
-        COPY nemo-otel /tmp/nemo-otel
+        COPY lens /tmp/nemo-otel
         RUN python3 -m pip install --no-cache-dir 'opentelemetry-api>=1.40.0' '/tmp/nemo-otel[sdk]' \
          && /usr/bin/python -m pip install --no-cache-dir 'opentelemetry-api>=1.40.0' '/tmp/nemo-otel[sdk]' \
          && rm -rf /tmp/nemo-otel
