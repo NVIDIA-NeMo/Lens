@@ -53,6 +53,12 @@ class NemoLensConfig:
     #: Optional user/team label for filtering runs by owner.
     user: str = ""
 
+    #: W&B entity (team/user) name. Required when exporting traces to W&B Weave.
+    wandb_entity: str = ""
+
+    #: W&B project name. Required when exporting traces to W&B Weave.
+    wandb_project: str = ""
+
     #: Span group class used for resolution. Set by library-specific subclasses.
     _span_group_cls: type | None = field(default=None, repr=False)
 
@@ -131,5 +137,7 @@ class NemoLensConfig:
             exporter=_env("EXPORTER", "otlp"),
             run_id=_env("RUN_ID", ""),
             user=_env("USER_ID", ""),
+            wandb_entity=os.environ.get("WANDB_ENTITY", ""),
+            wandb_project=os.environ.get("WANDB_PROJECT", ""),
             _span_group_cls=span_group_cls,
         )
