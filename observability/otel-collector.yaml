@@ -1,11 +1,9 @@
 # OpenTelemetry Collector configuration for NeMo Lens
 #
-# Pipelines:
-#   Megatron (OTLP metrics) ──► Collector ──► Prometheus scrape endpoint
-#   Megatron (OTLP logs)   ──► Collector ──► Elasticsearch
-#   Host metrics (CPU/mem)  ──► Collector ──► Prometheus scrape endpoint
-#   DCGM Exporter (GPU)    ──► Collector ──► Prometheus scrape endpoint
-#   Node Exporter (IB/net) ──► Collector ──► Prometheus scrape endpoint
+# All three signals flow through the collector for fan-out:
+#   Traces  ──► Jaeger (UI) + Elasticsearch (Kibana)
+#   Metrics ──► Prometheus (Grafana) + Elasticsearch (Kibana)
+#   Logs    ──► Elasticsearch (Kibana)
 
 receivers:
   otlp:
@@ -20,18 +18,16 @@ receivers:
     root_path: /hostfs
     collection_interval: 10s
     scrapers:
-      cpu:           # system.cpu.time, system.cpu.utilization
-      memory:        # system.memory.usage, system.memory.utilization
-      disk:          # system.disk.io, system.disk.operations
-      network:       # system.network.io, system.network.packets, system.network.errors
-      load:          # system.cpu.load_average.{1m,5m,15m}
-      filesystem:    # system.filesystem.usage, system.filesystem.utilization
-      processes:     # system.processes.count, system.processes.created
-      paging:        # system.paging.usage, system.paging.operations
+      cpu:
+      memory:
+      disk:
+      network:
+      load:
+      filesystem:
+      processes:
+      paging:
 
   # ── GPU metrics via DCGM Exporter (sidecar) ────────────────────────
-  # Scrapes NVIDIA DCGM Exporter's Prometheus endpoint for:
-  #   GPU utilization, memory, temperature, power, NVLink, PCIe, ECC, clocks
   prometheus/dcgm:
     config:
       scrape_configs:
@@ -41,8 +37,6 @@ receivers:
             - targets: ["dcgm-exporter:9400"]
 
   # ── InfiniBand / network metrics via Node Exporter (sidecar) ───────
-  # Scrapes Prometheus Node Exporter for:
-  #   InfiniBand port counters, RDMA stats, NIC bandwidth, TCP retransmits
   prometheus/node:
     config:
       scrape_configs:
@@ -50,7 +44,6 @@ receivers:
           scrape_interval: 15s
           static_configs:
             - targets: ["node-exporter:9100"]
-          # Only keep relevant metrics — drop filesystem, textfile, etc.
           metric_relabel_configs:
             - source_labels: [__name__]
               regex: "^(node_infiniband_|node_network_|node_nfs_|node_sockstat_|node_tcp_).*"
@@ -72,6 +65,13 @@ processors:
     override: false
 
 exporters:
+  # ── Traces → Jaeger ────────────────────────────────────────────────
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # ── Metrics → Prometheus ───────────────────────────────────────────
   prometheus:
     endpoint: "0.0.0.0:8889"
     send_timestamps: true
@@ -79,11 +79,13 @@ exporters:
     resource_to_telemetry_conversion:
       enabled: true
 
+  # ── Logs + Traces → Elasticsearch ──────────────────────────────────
   elasticsearch:
     endpoints: ["http://elasticsearch:9200"]
     logs_index: nemo-logs
+    traces_index: nemo-traces
     mapping:
-      mode: ecs
+      mode: otel
     sending_queue:
       enabled: true
       num_consumers: 2
@@ -101,13 +103,19 @@ service:
       level: info
 
   pipelines:
-    # Training + host + GPU + network metrics → Prometheus
+    # Traces → Jaeger + Elasticsearch
+    traces:
+      receivers:  [otlp]
+      processors: [memory_limiter, batch]
+      exporters:  [otlp/jaeger, elasticsearch]
+
+    # Metrics → Prometheus + Elasticsearch
     metrics:
       receivers:  [otlp, hostmetrics, prometheus/dcgm, prometheus/node]
       processors: [memory_limiter, resourcedetection, batch]
-      exporters:  [prometheus]
+      exporters:  [prometheus, elasticsearch]
 
-    # Training logs → Elasticsearch
+    # Logs → Elasticsearch
     logs:
       receivers:  [otlp]
       processors: [memory_limiter, batch]
