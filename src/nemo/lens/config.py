@@ -46,6 +46,13 @@ class NemoLensConfig:
     #: Exporter backend: ``"otlp"`` or ``"console"``.
     exporter: str = "otlp"
 
+    #: Unique run identifier. Shared across all ranks in a distributed job.
+    #: Auto-generated from SLURM_JOB_ID or UUID if not set explicitly.
+    run_id: str = ""
+
+    #: Optional user/team label for filtering runs by owner.
+    user: str = ""
+
     #: Span group class used for resolution. Set by library-specific subclasses.
     _span_group_cls: type | None = field(default=None, repr=False)
 
@@ -122,5 +129,7 @@ class NemoLensConfig:
             logs_enabled=_bool("LOGS_ENABLED", False),
             span_groups=_env("SPAN_GROUPS", "default"),
             exporter=_env("EXPORTER", "otlp"),
+            run_id=_env("RUN_ID", ""),
+            user=_env("USER_ID", ""),
             _span_group_cls=span_group_cls,
         )

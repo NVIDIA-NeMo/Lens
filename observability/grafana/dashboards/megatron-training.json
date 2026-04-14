@@ -21,6 +21,17 @@
         "current": {}
       },
       {
+        "name": "run_id",
+        "label": "Run ID",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(megatron_training_loss, nemo_run_id)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {}
+      },
+      {
         "name": "gpu",
         "label": "GPU",
         "type": "query",
@@ -65,7 +76,7 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
       "targets": [
         {
-          "expr": "megatron_training_loss{service_name=~\"$service\"}",
+          "expr": "megatron_training_loss{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "{{service_name}}",
           "refId": "A"
         }
@@ -95,7 +106,7 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
       "targets": [
         {
-          "expr": "megatron_training_throughput_tflops{service_name=~\"$service\"}",
+          "expr": "megatron_training_throughput_tflops{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "{{service_name}} TFLOP/s/GPU",
           "refId": "A"
         }
@@ -125,7 +136,7 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
       "targets": [
         {
-          "expr": "megatron_training_grad_norm{service_name=~\"$service\"}",
+          "expr": "megatron_training_grad_norm{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "{{service_name}}",
           "refId": "A"
         }
@@ -151,7 +162,7 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
       "targets": [
         {
-          "expr": "megatron_training_step_duration_ms_milliseconds_count{service_name=~\"$service\"}",
+          "expr": "megatron_training_step_duration_ms_milliseconds_count{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "{{service_name}}",
           "refId": "A"
         }
@@ -177,7 +188,7 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
       "targets": [
         {
-          "expr": "megatron_training_learning_rate{service_name=~\"$service\"}",
+          "expr": "megatron_training_learning_rate{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "{{service_name}}",
           "refId": "A"
         }
@@ -203,7 +214,7 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
       "targets": [
         {
-          "expr": "megatron_training_tokens_per_sec{service_name=~\"$service\"}",
+          "expr": "megatron_training_tokens_per_sec{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "{{service_name}}",
           "refId": "A"
         }
@@ -229,7 +240,7 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
       "targets": [
         {
-          "expr": "megatron_training_memory_allocated_gb{service_name=~\"$service\"}",
+          "expr": "megatron_training_memory_allocated_gb{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "{{service_name}}",
           "refId": "A"
         }
@@ -297,7 +308,7 @@
       },
       "targets": [
         {
-          "expr": "megatron_training_loss{service_name=~\"$service\"}",
+          "expr": "megatron_training_loss{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "loss {{service_name}}",
           "refId": "A"
         }
@@ -328,7 +339,7 @@
       },
       "targets": [
         {
-          "expr": "megatron_training_grad_norm{service_name=~\"$service\"}",
+          "expr": "megatron_training_grad_norm{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "grad_norm {{service_name}}",
           "refId": "A"
         }
@@ -368,7 +379,7 @@
       },
       "targets": [
         {
-          "expr": "megatron_training_throughput_tflops{service_name=~\"$service\"}",
+          "expr": "megatron_training_throughput_tflops{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "{{service_name}}",
           "refId": "A"
         }
@@ -394,17 +405,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le, service_name) (rate(megatron_training_step_duration_ms_milliseconds_bucket{service_name=~\"$service\"}[2m])))",
+          "expr": "histogram_quantile(0.50, sum by (le, service_name) (rate(megatron_training_step_duration_ms_milliseconds_bucket{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}[2m])))",
           "legendFormat": "p50 {{service_name}}",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(megatron_training_step_duration_ms_milliseconds_bucket{service_name=~\"$service\"}[2m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(megatron_training_step_duration_ms_milliseconds_bucket{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}[2m])))",
           "legendFormat": "p95 {{service_name}}",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate(megatron_training_step_duration_ms_milliseconds_bucket{service_name=~\"$service\"}[2m])))",
+          "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate(megatron_training_step_duration_ms_milliseconds_bucket{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}[2m])))",
           "legendFormat": "p99 {{service_name}}",
           "refId": "C"
         }
@@ -426,7 +437,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (le) (increase(megatron_training_step_duration_ms_milliseconds_bucket{service_name=~\"$service\"}[1m]))",
+          "expr": "sum by (le) (increase(megatron_training_step_duration_ms_milliseconds_bucket{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}[1m]))",
           "legendFormat": "{{le}}",
           "refId": "A",
           "format": "heatmap"
@@ -450,7 +461,7 @@
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "rate(megatron_training_step_duration_ms_milliseconds_sum{service_name=~\"$service\"}[2m]) / rate(megatron_training_step_duration_ms_milliseconds_count{service_name=~\"$service\"}[2m])",
+          "expr": "rate(megatron_training_step_duration_ms_milliseconds_sum{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}[2m]) / rate(megatron_training_step_duration_ms_milliseconds_count{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}[2m])",
           "legendFormat": "avg {{service_name}}",
           "refId": "A"
         }
@@ -478,7 +489,7 @@
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "rate(megatron_training_skipped_iters_total{service_name=~\"$service\"}[2m])",
+          "expr": "rate(megatron_training_skipped_iters_total{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}[2m])",
           "legendFormat": "skipped/s {{service_name}}",
           "refId": "A"
         }
@@ -516,7 +527,7 @@
       },
       "targets": [
         {
-          "expr": "megatron_training_learning_rate{service_name=~\"$service\"}",
+          "expr": "megatron_training_learning_rate{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "lr {{service_name}}",
           "refId": "A"
         }
@@ -547,7 +558,7 @@
       },
       "targets": [
         {
-          "expr": "megatron_training_tokens_per_sec{service_name=~\"$service\"}",
+          "expr": "megatron_training_tokens_per_sec{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "tokens/s {{service_name}}",
           "refId": "A"
         }
@@ -578,7 +589,7 @@
       },
       "targets": [
         {
-          "expr": "megatron_training_memory_allocated_gb{service_name=~\"$service\"}",
+          "expr": "megatron_training_memory_allocated_gb{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}",
           "legendFormat": "mem {{service_name}}",
           "refId": "A"
         }
@@ -634,12 +645,12 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile(0.50, sum by (le, service_name) (rate(gen_ai_server_request_duration_seconds_bucket{service_name=~\"$service\"}[2m])))",
+              "expr": "histogram_quantile(0.50, sum by (le, service_name) (rate(gen_ai_server_request_duration_seconds_bucket{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}[2m])))",
               "legendFormat": "p50 {{service_name}}",
               "refId": "A"
             },
             {
-              "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate(gen_ai_server_request_duration_seconds_bucket{service_name=~\"$service\"}[2m])))",
+              "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate(gen_ai_server_request_duration_seconds_bucket{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}[2m])))",
               "legendFormat": "p99 {{service_name}}",
               "refId": "B"
             }
@@ -658,7 +669,7 @@
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "sum by (gen_ai_token_type, service_name) (rate(gen_ai_client_token_usage_sum{service_name=~\"$service\"}[2m]))",
+              "expr": "sum by (gen_ai_token_type, service_name) (rate(gen_ai_client_token_usage_sum{service_name=~\"$service\",nemo_run_id=~\"$run_id\"}[2m]))",
               "legendFormat": "{{gen_ai_token_type}} {{service_name}}",
               "refId": "A"
             }
