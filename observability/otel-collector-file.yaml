@@ -1,0 +1,54 @@
+# OTel Collector — file exporter mode.
+# Writes traces, metrics, and logs to JSONL files on disk.
+# No external backends needed (no Jaeger, Prometheus, ES).
+#
+# Output files (inside the container, mapped to ./otel-export on host):
+#   /data/traces.jsonl
+#   /data/metrics.jsonl
+#   /data/logs.jsonl
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+exporters:
+  file/traces:
+    path: /data/traces.jsonl
+  file/metrics:
+    path: /data/metrics.jsonl
+  file/logs:
+    path: /data/logs.jsonl
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+
+  telemetry:
+    logs:
+      level: warn
+
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/traces]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/metrics]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/logs]
