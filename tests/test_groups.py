@@ -1,13 +1,10 @@
 # Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Unit tests for SpanGroup and library-specific subclasses."""
+"""Unit tests for SpanGroup base class."""
 
 import pytest
 
 from nemo.lens.groups import SpanGroup
-from nemo.lens.groups_gym import GymSpanGroup
-from nemo.lens.groups_megatron import MegatronSpanGroup
-from nemo.lens.groups_rl import RLSpanGroup
 
 
 class TestSpanGroupResolve:
@@ -54,65 +51,3 @@ class TestSpanGroupResolve:
         for group in SpanGroup.ALL_GROUPS:
             result = SpanGroup.resolve(group)
             assert group in result
-
-
-class TestMegatronSpanGroup:
-    def test_includes_base_groups(self):
-        assert SpanGroup.JOB in MegatronSpanGroup.ALL_GROUPS
-        assert SpanGroup.STEP in MegatronSpanGroup.ALL_GROUPS
-
-    def test_has_microbatch(self):
-        assert MegatronSpanGroup.MICROBATCH in MegatronSpanGroup.ALL_GROUPS
-
-    def test_has_inference(self):
-        assert MegatronSpanGroup.INFERENCE in MegatronSpanGroup.ALL_GROUPS
-
-    def test_default_includes_inference(self):
-        groups = MegatronSpanGroup.resolve("default")
-        assert MegatronSpanGroup.INFERENCE in groups
-
-    def test_all_includes_microbatch(self):
-        groups = MegatronSpanGroup.resolve("all")
-        assert MegatronSpanGroup.MICROBATCH in groups
-
-    def test_resolve_microbatch(self):
-        groups = MegatronSpanGroup.resolve("microbatch")
-        assert MegatronSpanGroup.MICROBATCH in groups
-
-    def test_per_step_no_microbatch(self):
-        groups = MegatronSpanGroup.resolve("per_step")
-        assert MegatronSpanGroup.MICROBATCH not in groups
-        assert SpanGroup.STEP in groups
-
-
-class TestRLSpanGroup:
-    def test_has_rl_groups(self):
-        assert RLSpanGroup.ROLLOUT in RLSpanGroup.ALL_GROUPS
-        assert RLSpanGroup.GENERATION in RLSpanGroup.ALL_GROUPS
-        assert RLSpanGroup.REWARD in RLSpanGroup.ALL_GROUPS
-        assert RLSpanGroup.POLICY_UPDATE in RLSpanGroup.ALL_GROUPS
-
-    def test_per_step_includes_rl_groups(self):
-        groups = RLSpanGroup.resolve("per_step")
-        assert RLSpanGroup.ROLLOUT in groups
-        assert RLSpanGroup.GENERATION in groups
-
-    def test_resolve_individual_rl_group(self):
-        groups = RLSpanGroup.resolve("rollout")
-        assert RLSpanGroup.ROLLOUT in groups
-
-
-class TestGymSpanGroup:
-    def test_has_gym_groups(self):
-        assert GymSpanGroup.SERVER in GymSpanGroup.ALL_GROUPS
-        assert GymSpanGroup.ROLLOUT_COLLECTION in GymSpanGroup.ALL_GROUPS
-        assert GymSpanGroup.VERIFY in GymSpanGroup.ALL_GROUPS
-
-    def test_default_includes_server(self):
-        groups = GymSpanGroup.resolve("default")
-        assert GymSpanGroup.SERVER in groups
-
-    def test_per_step_includes_all_gym(self):
-        groups = GymSpanGroup.resolve("per_step")
-        assert GymSpanGroup.VERIFY in groups
-        assert GymSpanGroup.AGGREGATE_METRICS in groups

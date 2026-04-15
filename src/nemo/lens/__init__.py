@@ -37,9 +37,6 @@ from opentelemetry import trace as _trace_mod
 from nemo.lens._version import __version__
 from nemo.lens.config import NemoLensConfig
 from nemo.lens.groups import SpanGroup
-from nemo.lens.groups_gym import GymSpanGroup
-from nemo.lens.groups_megatron import MegatronSpanGroup
-from nemo.lens.groups_rl import RLSpanGroup
 from nemo.lens.handle import TelemetryHandle, setup_telemetry
 from nemo.lens.helpers import (
     DEFAULT_REDACT_KEYS,
@@ -67,9 +64,6 @@ __all__ = [
     "__version__",
     "NemoLensConfig",
     "SpanGroup",
-    "MegatronSpanGroup",
-    "RLSpanGroup",
-    "GymSpanGroup",
     "TelemetryHandle",
     "setup_telemetry",
     "span_cm",
