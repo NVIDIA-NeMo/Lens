@@ -172,8 +172,12 @@ class TestNemoLensConfigFromEnv:
 
     def test_span_group_cls_passed_through(self, monkeypatch):
         self._clear_env(monkeypatch)
-        from nemo.lens.groups_megatron import MegatronSpanGroup
+        monkeypatch.setenv("NEMO_LENS_SPAN_GROUPS", "all")
 
-        cfg = NemoLensConfig.from_env(span_group_cls=MegatronSpanGroup)
+        # Use base SpanGroup with "all" preset — verify resolution works
+        from nemo.lens.groups import SpanGroup
+
+        cfg = NemoLensConfig.from_env(span_group_cls=SpanGroup)
         groups = cfg.resolved_span_groups
-        assert MegatronSpanGroup.INFERENCE in groups
+        assert SpanGroup.JOB in groups
+        assert SpanGroup.FORWARD_BACKWARD in groups

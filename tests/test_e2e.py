@@ -5,20 +5,15 @@
 from opentelemetry import trace
 
 from nemo.lens import (
-    GymSpanGroup,
-    MegatronSpanGroup,
     NemoLensConfig,
-    RLSpanGroup,
     SpanGroup,
     TelemetryHandle,
     extract_context,
     get_tracer,
     inject_context,
-    is_span_group_enabled,
     managed_span,
     setup_telemetry,
 )
-from nemo.lens.instruments.training import record_training_metrics
 
 
 class TestE2EConsoleExporter:
@@ -35,9 +30,6 @@ class TestE2EConsoleExporter:
             assert span is not None
             with managed_span(SpanGroup.STEP, "test.step", tracer=handle.tracer) as step_span:
                 assert step_span is not None
-
-        # Record metrics
-        record_training_metrics(handle.meter, loss=2.5, step_duration_ms=100.0)
 
         handle.shutdown(timeout_ms=100)
 
@@ -82,45 +74,6 @@ class TestE2EExportStrategies:
         h1 = setup_telemetry(cfg, rank=1, world_size=4)
         assert h1.is_exporting is False
         h1.shutdown(timeout_ms=100)
-
-
-class TestE2ELibrarySpecificGroups:
-    def test_megatron_groups(self):
-        cfg = NemoLensConfig(
-            enabled=True,
-            exporter="console",
-            span_groups="all",
-            _span_group_cls=MegatronSpanGroup,
-        )
-        handle = setup_telemetry(cfg, rank=0, world_size=1)
-        assert is_span_group_enabled(MegatronSpanGroup.MICROBATCH)
-        assert is_span_group_enabled(MegatronSpanGroup.INFERENCE)
-        handle.shutdown(timeout_ms=100)
-
-    def test_rl_groups(self):
-        cfg = NemoLensConfig(
-            enabled=True,
-            exporter="console",
-            span_groups="per_step",
-            _span_group_cls=RLSpanGroup,
-        )
-        handle = setup_telemetry(cfg, rank=0, world_size=1)
-        assert is_span_group_enabled(RLSpanGroup.ROLLOUT)
-        assert is_span_group_enabled(RLSpanGroup.GENERATION)
-        assert is_span_group_enabled(RLSpanGroup.REWARD)
-        handle.shutdown(timeout_ms=100)
-
-    def test_gym_groups(self):
-        cfg = NemoLensConfig(
-            enabled=True,
-            exporter="console",
-            span_groups="default",
-            _span_group_cls=GymSpanGroup,
-        )
-        handle = setup_telemetry(cfg, rank=0, world_size=1)
-        assert is_span_group_enabled(GymSpanGroup.SERVER)
-        assert not is_span_group_enabled(GymSpanGroup.VERIFY)
-        handle.shutdown(timeout_ms=100)
 
 
 class TestE2ESpanHierarchy:
