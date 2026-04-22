@@ -14,10 +14,16 @@
 #   Elasticsearch  http://localhost:9200
 #
 # Architecture:
-#   Megatron ──OTLP──► OTel Collector ──┬─traces──► Jaeger (trace UI)
-#                                       ├─traces──► Elasticsearch (Kibana)
-#                                       ├─metrics─► Prometheus (Grafana)
-#                                       └─logs────► Elasticsearch (Kibana)
+#   Megatron ──OTLP──► OTel Collector ──► (one of three modes, pick in `command:`)
+#
+# Modes (swap which `command:` line is uncommented under otel-collector):
+#   collector.yaml           — local stack: Jaeger + Prometheus + Elasticsearch
+#   collector-file.yaml      — write to /data volume (for offline inspection)
+#   collector-weave.yaml     — forward traces to W&B Weave (needs WANDB_API_KEY)
+#   collector-honeycomb.yaml — forward all signals to Honeycomb (needs HONEYCOMB_API_KEY)
+#
+# For hosted-backend modes (Weave, Honeycomb), copy .env.example → .env and
+# fill in the relevant credentials. See .env.example for details.
 
 services:
 
@@ -37,6 +43,10 @@ services:
     volumes:
       - ..:/workspace
     working_dir: /workspace/Megatron-LM
+    # .env is gitignored; carries WANDB_ENTITY / WANDB_PROJECT used by Weave.
+    # For non-Weave modes the values are harmless (just unused env).
+    env_file:
+      - .env
     environment:
       - MEGATRON_OTEL_ENABLED=1
       - MEGATRON_OTEL_SPAN_GROUPS=all
@@ -81,22 +91,45 @@ services:
     restart: unless-stopped
 
   # ── OpenTelemetry Collector ────────────────────────────────────────────────
-  # Two modes of operation (based on the config file used):
-  # collector.yaml: routes to Jaeger, Prometheus, Elasticsearch.
-  # collector-file.yaml: routes to file
+  # Four modes — uncomment exactly ONE `command:` line below to pick a mode.
+  #
+  #   collector.yaml            Local stack: Jaeger + Prometheus + Elasticsearch.
+  #                             Use when you want full local observability UIs.
+  #
+  #   collector-file.yaml       Write all signals to /data as JSONL.
+  #                             Use for offline / reproducible debugging; no UIs.
+  #
+  #   collector-weave.yaml      Forward traces to W&B Weave. Requires
+  #                             WANDB_API_KEY in .env. Weave accepts traces
+  #                             only — metrics/logs are accepted-and-dropped.
+  #
+  #   collector-honeycomb.yaml  Forward all signals (traces, metrics, logs)
+  #                             to Honeycomb. Requires HONEYCOMB_API_KEY and
+  #                             HONEYCOMB_DATASET in .env.
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.146.0
     user: "0:0"  # file exporter needs write access to /data volume
-    command: ["--config=/etc/otel/collector.yaml"]
-    # command: ["--config=/etc/otel/collector-file.yaml"]  # ← file mode
+    # .env supplies credentials to hosted-backend modes (Weave, Honeycomb).
+    # Harmless in local/file modes (keys are simply unused).
+    env_file:
+      - .env
+
+    # ── Pick exactly one mode ──
+    # command: ["--config=/etc/otel/collector.yaml"]             # local stack: Jaeger + Prometheus + Elasticsearch
+    # command: ["--config=/etc/otel/collector-file.yaml"]        # file: write to /data volume
+    command: ["--config=/etc/otel/collector-weave.yaml"]         # W&B Weave: traces only (needs WANDB_API_KEY)
+    # command: ["--config=/etc/otel/collector-honeycomb.yaml"]   # Honeycomb: all signals (needs HONEYCOMB_API_KEY, HONEYCOMB_DATASET)
+
     volumes:
       - ./observability/otel-collector.yaml:/etc/otel/collector.yaml:ro
       - ./observability/otel-collector-file.yaml:/etc/otel/collector-file.yaml:ro
+      - ./observability/otel-collector-weave.yaml:/etc/otel/collector-weave.yaml:ro
+      - ./observability/otel-collector-honeycomb.yaml:/etc/otel/collector-honeycomb.yaml:ro
       - /proc:/hostfs/proc:ro
       - /sys:/hostfs/sys:ro
       - otel-export:/data    # used by file mode
     ports:
-      - "8889:8889"          # Prometheus scrape endpoint (backend mode)
+      - "8889:8889"          # Prometheus scrape endpoint (local-stack mode)
     networks:
       - otel-net
     restart: unless-stopped

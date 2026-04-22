@@ -2,10 +2,11 @@
 
 **Lens does not provide or recommend an observability solution.** It emits OTLP. Where that OTLP goes, how it's stored, how it's queried, and how it's visualised are your decisions — shaped by your organisation's existing observability investments and the scale of your workloads.
 
-This page shows how to wire lens up to common destinations. Lens exports via standard OTLP, so any OTLP-compatible backend works without code changes. Three destinations are covered in depth:
+This page shows how to wire lens up to common destinations. Lens exports via standard OTLP, so any OTLP-compatible backend works without code changes. Four destinations are covered in depth:
 
 - [File](#file) — local trace/metric capture for offline analysis or archival
 - [W&B Weave](#wb-weave) — Weights & Biases' trace UI, co-located with training run metadata
+- [Honeycomb](#honeycomb) — hosted APM that accepts all three signals on one OTLP endpoint
 - [OTel Collector](#otel-collector) — a routing / aggregation layer in front of other backends
 
 Plus a quick reference for other hosted backends.
@@ -217,6 +218,72 @@ Everything the SDK exports — span names, attributes, events, links, status. We
 
 ---
 
+## Honeycomb
+
+[Honeycomb](https://honeycomb.io) is a hosted APM that ingests OpenTelemetry data natively. Unlike Weave, it accepts all three signals — traces, metrics, and logs — on a single OTLP endpoint. Good fit if you want one hosted destination for everything and already have (or are happy to adopt) Honeycomb's query model.
+
+### Configure
+
+Two patterns work. Pick one.
+
+#### Pattern A: direct from app (no collector)
+
+```bash
+# One endpoint covers all three signals.
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://api.honeycomb.io:443
+export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=${HONEYCOMB_API_KEY},x-honeycomb-dataset=${HONEYCOMB_DATASET}"
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+
+export NEMO_LENS_ENABLED=1
+```
+
+- **`x-honeycomb-team`**: your ingest API key. Find it in the Honeycomb UI under **Environment settings → API Keys**.
+- **`x-honeycomb-dataset`**: dataset name. Required for metrics; strongly recommended for traces and logs. Pick anything meaningful; Honeycomb auto-creates the dataset on first write.
+- **`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`**: Honeycomb supports both gRPC and HTTP, but HTTP is more forgiving behind load balancers. Default to HTTP unless you have a reason otherwise.
+
+For EU instance, substitute `https://api.eu1.honeycomb.io:443`.
+
+#### Pattern B: through a collector
+
+Useful when you want batching, filtering, or multi-backend fan-out between the app and Honeycomb. See [collector-honeycomb.yaml](../../observability/otel-collector-honeycomb.yaml) in the repo for a ready-to-run example:
+
+```yaml
+exporters:
+  otlphttp/honeycomb:
+    endpoint: https://api.honeycomb.io:443
+    headers:
+      x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+      x-honeycomb-dataset: ${env:HONEYCOMB_DATASET}
+
+service:
+  pipelines:
+    traces:   { receivers: [otlp], processors: [batch], exporters: [otlphttp/honeycomb] }
+    metrics:  { receivers: [otlp], processors: [batch], exporters: [otlphttp/honeycomb] }
+    logs:     { receivers: [otlp], processors: [batch], exporters: [otlphttp/honeycomb] }
+```
+
+The application then points at your collector (`OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317`), and the collector handles Honeycomb auth and routing.
+
+The repo's `docker-compose.otel.yml` has a one-line toggle for this: uncomment `--config=/etc/otel/collector-honeycomb.yaml` and set `HONEYCOMB_API_KEY` / `HONEYCOMB_DATASET` in `.env`.
+
+### Classic vs current Honeycomb
+
+Honeycomb migrated from dataset-per-service (Classic) to environment-based organisation. If you're on a Classic account, the `x-honeycomb-dataset` header is required for every signal, and the dataset field has specific semantics. For current Honeycomb it's still required for metrics and optional-but-recommended for traces/logs. If you're unsure which you have, your account page will tell you.
+
+### Sampling
+
+Honeycomb bills on event volume. A `per_step` Megatron run on many ranks will ship a lot of events. Layer your sampling:
+
+1. Lens `export_strategy` — rank-level (start with `single_rank`).
+2. OTel SDK `OTEL_TRACES_SAMPLER=parentbased_traceidratio` — per-trace.
+3. Honeycomb **Refinery** — tail sampling with access to the full trace before deciding. Recommended for production; see [Honeycomb's Refinery docs](https://docs.honeycomb.io/manage-data-volume/refinery/).
+
+### What gets sent
+
+Every attribute, event, and link the SDK exports. Honeycomb's UI is especially good at high-cardinality attribute queries (`BubbleUp`, `HEATMAP`, etc.), so set span attributes liberally — attribute cardinality is what Honeycomb is best at.
+
+---
+
 ## OTel Collector
 
 The OpenTelemetry Collector is a common intermediary between your application and your observability backends. Running a Collector (vs. exporting directly from the SDK) can give you:
@@ -418,13 +485,6 @@ export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64-encoded-instance-
 
 Traces → Tempo, metrics → Mimir, logs → Loki — queryable from a unified Grafana UI.
 
-### Honeycomb
-
-```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT=https://api.honeycomb.io
-export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=<your-api-key>"
-```
-
 ### Datadog
 
 ```bash
@@ -456,8 +516,10 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger.internal:4317    # or tempo.int
 | Factor | Prefer |
 |---|---|
 | Quick local iteration | [Console / File](#file) |
-| Small team, no infra team | Hosted (W&B, Grafana Cloud, Honeycomb) |
+| Small team, no infra team | Hosted ([W&B Weave](#wb-weave), [Honeycomb](#honeycomb), Grafana Cloud) |
 | Training runs tied to W&B | [W&B Weave](#wb-weave) |
+| One hosted destination for all three signals | [Honeycomb](#honeycomb) |
+| High-cardinality attribute queries matter | [Honeycomb](#honeycomb) |
 | Production with multi-backend routing | [OTel Collector](#otel-collector) + your chosen backends |
 | Data residency / compliance | Self-hosted Collector + self-hosted backends |
 | Already have one APM vendor | Their OTLP endpoint |

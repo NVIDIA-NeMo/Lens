@@ -1,0 +1,84 @@
+# OpenTelemetry Collector configuration — W&B Weave sink.
+#
+# Pipeline:
+#   Traces  → OTLP in → batch → W&B Weave (HTTP/protobuf).
+#   Metrics → OTLP in → debug exporter (accept-and-drop; Weave doesn't ingest metrics).
+#   Logs    → OTLP in → debug exporter (accept-and-drop; Weave doesn't ingest logs).
+#
+# Why the no-op metric/log pipelines? Without them the OTLP receiver
+# accepts the connection but has no pipeline to route to, causing the
+# SDK to see StatusCode.UNIMPLEMENTED and spam errors. Routing them
+# to the `debug` exporter silently consumes them.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+exporters:
+  # ── Traces → W&B Weave ─────────────────────────────────────────────
+  # HTTP OTLP endpoint. Uses `traces_endpoint` (not `endpoint`) so the
+  # collector uses the URL verbatim instead of appending /v1/traces a
+  # second time. Header carries the W&B API key from WANDB_API_KEY in
+  # the collector container's env_file (.env).
+  otlphttp/weave:
+    traces_endpoint: https://trace.wandb.ai/otel/v1/traces
+    headers:
+      wandb-api-key: ${env:WANDB_API_KEY}
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 5m
+
+  # ── Metrics / Logs → drop ──────────────────────────────────────────
+  # Weave doesn't ingest metrics or logs. We still need a pipeline for
+  # them, otherwise the OTLP receiver returns UNIMPLEMENTED to clients.
+  # `debug` with verbosity=basic periodically logs a short count summary
+  # but doesn't forward the data anywhere.
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+
+  telemetry:
+    logs:
+      level: info
+
+  pipelines:
+    traces:
+      receivers:  [otlp]
+      processors: [memory_limiter, batch]
+      exporters:  [otlphttp/weave]
+
+    metrics:
+      receivers:  [otlp]
+      processors: [memory_limiter, batch]
+      exporters:  [debug]
+
+    logs:
+      receivers:  [otlp]
+      processors: [memory_limiter, batch]
+      exporters:  [debug]
