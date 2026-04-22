@@ -36,3 +36,20 @@ def is_span_group_enabled(group: str) -> bool:
     Returns ``False`` before :func:`set_enabled_span_groups` is called.
     """
     return group in _ENABLED_GROUPS
+
+
+_PP_TRACE_CARRIER: dict | None = None
+
+
+def set_pp_trace_carrier(carrier: dict | None) -> None:
+    """Store the pipeline-parallel trace carrier for cross-stage linking.
+
+    Called from the training loop after :func:`broadcast_trace_context`.
+    """
+    global _PP_TRACE_CARRIER
+    _PP_TRACE_CARRIER = carrier
+
+
+def get_pp_trace_carrier() -> dict | None:
+    """Return the current PP trace carrier, or None."""
+    return _PP_TRACE_CARRIER

@@ -5,6 +5,34 @@
 Follows OTel semconv naming: ``<namespace>.<entity>.<attribute>``.
 """
 
+# ------------------------------------------------------------------ #
+# Version tracking
+# ------------------------------------------------------------------ #
+# Tracks which upstream OTel semconv version these constants are based
+# on. Update when syncing with a new semconv release.
+#
+# Reference: https://github.com/open-telemetry/semantic-conventions
+# ------------------------------------------------------------------ #
+
+SEMCONV_VERSION = "1.29.0"
+"""OTel semantic conventions version these constants are aligned with.
+
+Standard namespaces (gen_ai.*, k8s.*) follow the upstream spec at this
+version. Custom namespaces (dl.*, rl.*, gym.*, slurm.*, nemo.*, wandb.*)
+are NeMo-specific extensions that do not exist upstream.
+"""
+
+# ------------------------------------------------------------------ #
+# Stability markers
+# ------------------------------------------------------------------ #
+# gen_ai.*  — Experimental (upstream, stabilising in semconv 1.30+)
+# k8s.*     — Stable (upstream)
+# dl.*      — NeMo custom (stable within NeMo ecosystem)
+# rl.*      — NeMo custom (stable within NeMo ecosystem)
+# gym.*     — NeMo custom (stable within NeMo ecosystem)
+# slurm.*   — NeMo custom (stable within NeMo ecosystem)
+# nemo.*    — NeMo custom (stable within NeMo ecosystem)
+# wandb.*   — NeMo custom (stable within NeMo ecosystem)
 
 # ------------------------------------------------------------------ #
 # Distributed learning (dl.*)

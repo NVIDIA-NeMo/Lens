@@ -30,3 +30,10 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Sphinx docs build output
+docs/_build/
+docs/apidocs/
+
+# Local env (secrets like WANDB_API_KEY for docker-compose)
+.env

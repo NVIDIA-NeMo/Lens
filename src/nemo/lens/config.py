@@ -31,6 +31,10 @@ class NemoLensConfig:
     #: For ``sampled``: fraction of ranks that export (0.0–1.0).
     export_sample_rate: float = 1.0
 
+    #: Enable the RankAwareSampler on the TracerProvider. When True,
+    #: spans are filtered at the SDK level using the export_sample_rate.
+    sampler_enabled: bool = False
+
     #: Enable trace spans.
     traces_enabled: bool = True
 
@@ -61,6 +65,12 @@ class NemoLensConfig:
 
     #: Span group class used for resolution. Set by library-specific subclasses.
     _span_group_cls: type | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if not (0.0 <= self.export_sample_rate <= 1.0):
+            raise ValueError(
+                f"export_sample_rate must be in [0.0, 1.0], got {self.export_sample_rate}"
+            )
 
     @property
     def resolved_span_groups(self) -> frozenset:
@@ -130,6 +140,7 @@ class NemoLensConfig:
             export_strategy=_env("EXPORT_STRATEGY", "single_rank"),
             export_rank=_int("EXPORT_RANK", -1),
             export_sample_rate=_float("EXPORT_SAMPLE_RATE", 1.0),
+            sampler_enabled=_bool("SAMPLER_ENABLED", False),
             traces_enabled=_bool("TRACES_ENABLED", True),
             metrics_enabled=_bool("METRICS_ENABLED", True),
             logs_enabled=_bool("LOGS_ENABLED", False),

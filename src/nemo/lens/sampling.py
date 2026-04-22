@@ -11,17 +11,24 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from opentelemetry import trace
 from opentelemetry.context import Context
 
+if TYPE_CHECKING:
+    from opentelemetry.util.types import Attributes
+
 
 class RankAwareSampler:
-    """Sampler that filters spans based on rank.
+    """OTel-compatible Sampler that filters spans based on rank.
 
-    This is a lightweight sampler that can be used alongside the export
-    strategy. It's useful when you want all ranks to create spans (for
-    local debugging) but only export a subset.
+    When ``should_sample`` is called, the decision is based on a
+    deterministic hash of the rank — not per-span. This means either
+    all spans on a rank are sampled, or none are.
+
+    Implements the OTel ``Sampler`` interface so it can be passed
+    directly to ``TracerProvider(sampler=...)``.
 
     Args:
         rank: Current process rank.
@@ -43,19 +50,32 @@ class RankAwareSampler:
         h = hashlib.md5(str(self._rank).encode()).hexdigest()
         return (int(h, 16) % 10000) / 10000.0 < self._sample_rate
 
-    @property
-    def should_sample(self) -> bool:
-        """Whether this rank should produce spans."""
-        return self._should_sample
-
-    def should_sample_span(
+    def should_sample(
         self,
         parent_context: Context | None = None,
         trace_id: int = 0,
         name: str = "",
         kind: trace.SpanKind | None = None,
-        attributes: dict | None = None,
+        attributes: Attributes | None = None,
         links: Sequence[trace.Link] | None = None,
-    ) -> bool:
-        """Determine whether a specific span should be sampled."""
-        return self._should_sample
+    ):
+        """Return a SamplingResult based on rank sampling decision.
+
+        Requires the OTel SDK. Falls back to returning a bool if the SDK
+        is not installed (preserving the original API for non-SDK callers).
+        """
+        try:
+            from opentelemetry.sdk.trace.sampling import Decision, SamplingResult
+
+            if self._should_sample:
+                return SamplingResult(
+                    decision=Decision.RECORD_AND_SAMPLE,
+                    attributes=dict(attributes) if attributes else None,
+                )
+            return SamplingResult(decision=Decision.DROP)
+        except ImportError:
+            return self._should_sample
+
+    def get_description(self) -> str:
+        """Return a description of this sampler for OTel diagnostics."""
+        return f"RankAwareSampler(rank={self._rank}, rate={self._sample_rate})"

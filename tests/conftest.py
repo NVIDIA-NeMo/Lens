@@ -42,6 +42,11 @@ def _reset_otel_globals() -> None:
     _metrics_mod._METER_PROVIDER = None
     _metrics_mod._METER_PROVIDER_SET_ONCE = Once()
 
+    # Reset the initialization guard
+    import nemo.lens.handle as _handle_mod
+
+    _handle_mod._INITIALIZED = False
+
 
 @pytest.fixture(autouse=True)
 def reset_otel_providers():
@@ -54,8 +59,10 @@ def reset_otel_providers():
 @pytest.fixture(autouse=True)
 def reset_span_groups():
     """Reset span group state before and after each test."""
-    from nemo.lens.state import set_enabled_span_groups
+    from nemo.lens.state import set_enabled_span_groups, set_pp_trace_carrier
 
     set_enabled_span_groups(frozenset())
+    set_pp_trace_carrier(None)
     yield
     set_enabled_span_groups(frozenset())
+    set_pp_trace_carrier(None)

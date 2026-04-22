@@ -55,7 +55,7 @@ class TestE2EExportStrategies:
             span_groups="default",
         )
         for rank in range(4):
-            handle = setup_telemetry(cfg, rank=rank, world_size=4)
+            handle = setup_telemetry(cfg, rank=rank, world_size=4, _allow_reinit=True)
             assert handle.is_exporting is True
             handle.shutdown(timeout_ms=100)
 
@@ -71,7 +71,7 @@ class TestE2EExportStrategies:
         assert h0.is_exporting is True
         h0.shutdown(timeout_ms=100)
 
-        h1 = setup_telemetry(cfg, rank=1, world_size=4)
+        h1 = setup_telemetry(cfg, rank=1, world_size=4, _allow_reinit=True)
         assert h1.is_exporting is False
         h1.shutdown(timeout_ms=100)
 

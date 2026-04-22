@@ -53,3 +53,31 @@ class TestBuildProviders:
         cfg = NemoLensConfig(enabled=True, exporter="console", metrics_enabled=False)
         build_providers(cfg, rank=0, world_size=1)
         # Meter should be no-op (not set by us)
+
+
+class TestCustomExporters:
+    def test_custom_span_exporter(self):
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+        custom_exporter = InMemorySpanExporter()
+        cfg = NemoLensConfig(enabled=True, exporter="console")
+        build_providers(cfg, rank=0, world_size=1, span_exporter=custom_exporter)
+        tracer = trace.get_tracer("test")
+        with tracer.start_as_current_span("custom") as span:
+            span.set_attribute("key", "value")
+        trace.get_tracer_provider().force_flush()
+        spans = custom_exporter.get_finished_spans()
+        assert len(spans) == 1
+        assert spans[0].name == "custom"
+
+    def test_custom_metric_reader(self):
+        from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+
+        reader = InMemoryMetricReader()
+        cfg = NemoLensConfig(enabled=True, exporter="console")
+        build_providers(cfg, rank=0, world_size=1, metric_reader=reader)
+        meter = metrics.get_meter("test")
+        counter = meter.create_counter("test.counter")
+        counter.add(1)
+        data = reader.get_metrics_data()
+        assert data is not None
