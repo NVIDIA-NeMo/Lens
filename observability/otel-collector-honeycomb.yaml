@@ -1,0 +1,87 @@
+# OpenTelemetry Collector configuration — Honeycomb sink.
+#
+# Forwards all three signals (traces, metrics, logs) to Honeycomb via
+# HTTP/protobuf. Unlike Weave, Honeycomb ingests all three signals on a
+# single OTLP endpoint.
+#
+# Required env vars (in .env):
+#   HONEYCOMB_API_KEY   Ingest API key from the Honeycomb UI
+#                       (Environment settings → API Keys).
+#   HONEYCOMB_DATASET   Dataset name. Required for metrics; recommended for
+#                       traces. Pick anything meaningful (e.g. "nemo-lens").
+#
+# Optional env var:
+#   HONEYCOMB_ENDPOINT  Base OTLP endpoint. Defaults to the US instance.
+#                       For EU use https://api.eu1.honeycomb.io:443
+#
+# Why HTTP/protobuf: Honeycomb supports both, but recommends HTTP in
+# front of Refinery or load balancers because gRPC's long-lived
+# connections complicate load balancing.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+exporters:
+  # ── Traces + Metrics + Logs → Honeycomb ────────────────────────────
+  # HTTP OTLP. The collector appends `/v1/traces`, `/v1/metrics`, and
+  # `/v1/logs` to the base endpoint for the respective signals.
+  # Headers:
+  #   x-honeycomb-team     : API key, scopes ingest to your environment
+  #   x-honeycomb-dataset  : required for metrics; optional but recommended
+  #                         for traces and logs
+  otlphttp/honeycomb:
+    endpoint: ${env:HONEYCOMB_ENDPOINT:-https://api.honeycomb.io:443}
+    headers:
+      x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+      x-honeycomb-dataset: ${env:HONEYCOMB_DATASET}
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 5m
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+
+  telemetry:
+    logs:
+      level: info
+
+  pipelines:
+    traces:
+      receivers:  [otlp]
+      processors: [memory_limiter, batch]
+      exporters:  [otlphttp/honeycomb]
+
+    metrics:
+      receivers:  [otlp]
+      processors: [memory_limiter, batch]
+      exporters:  [otlphttp/honeycomb]
+
+    logs:
+      receivers:  [otlp]
+      processors: [memory_limiter, batch]
+      exporters:  [otlphttp/honeycomb]

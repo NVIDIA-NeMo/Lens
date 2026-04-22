@@ -76,6 +76,7 @@ Lens emits OTLP; choosing and running an observability stack is up to you. Quick
 
 - [Send telemetry to a file](observability/backends.md#file)
 - [Send telemetry to W&B Weave](observability/backends.md#wb-weave)
+- [Send telemetry to Honeycomb](observability/backends.md#honeycomb)
 - [Send telemetry to an OTel Collector](observability/backends.md#otel-collector)
 
 For trying things out locally, see the [demo docker-compose stack](observability/stack.md) (proof of concept, not for production).
