@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
 
 _INSTRUMENTATION_SCOPE = "nemo.lens"
+_INITIALIZED = False
 
 
 class TelemetryHandle:
@@ -77,6 +78,9 @@ def setup_telemetry(
     rank: int = 0,
     world_size: int = 1,
     resource_attributes: dict | None = None,
+    span_exporter=None,
+    metric_reader=None,
+    _allow_reinit: bool = False,
 ) -> TelemetryHandle:
     """Initialise OTel providers and return a TelemetryHandle.
 
@@ -92,10 +96,20 @@ def setup_telemetry(
         rank: This process's global rank.
         world_size: Total number of processes.
         resource_attributes: Extra resource attributes.
+        span_exporter: Optional custom span exporter (bypasses config-based exporter).
+        metric_reader: Optional custom metric reader (bypasses config-based reader).
 
     Returns:
         A TelemetryHandle with ``.tracer`` and ``.meter``.
     """
+    global _INITIALIZED
+
+    if _INITIALIZED and config.enabled and not _allow_reinit:
+        raise RuntimeError(
+            "setup_telemetry() has already been initialised for this process. "
+            "Call it once at startup. Pass _allow_reinit=True to override (testing only)."
+        )
+
     from nemo.lens.providers import build_noop_providers, build_providers
     from nemo.lens.state import set_enabled_span_groups
 
@@ -111,13 +125,23 @@ def setup_telemetry(
         set_enabled_span_groups(frozenset())
         _is_exporting = False
     elif is_export_rank:
-        build_providers(config, rank, world_size, resource_attributes)
+        build_providers(
+            config,
+            rank,
+            world_size,
+            resource_attributes,
+            span_exporter=span_exporter,
+            metric_reader=metric_reader,
+        )
         set_enabled_span_groups(config.resolved_span_groups)
         _is_exporting = True
     else:
         build_noop_providers()
         set_enabled_span_groups(frozenset())
         _is_exporting = False
+
+    if config.enabled:
+        _INITIALIZED = True
 
     tracer = trace.get_tracer(_INSTRUMENTATION_SCOPE)
     meter = metrics.get_meter(_INSTRUMENTATION_SCOPE)

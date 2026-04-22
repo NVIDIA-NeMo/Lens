@@ -181,3 +181,41 @@ class TestNemoLensConfigFromEnv:
         groups = cfg.resolved_span_groups
         assert SpanGroup.JOB in groups
         assert SpanGroup.FORWARD_BACKWARD in groups
+
+    def test_export_sample_rate_below_zero_raises(self, monkeypatch):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("NEMO_LENS_EXPORT_SAMPLE_RATE", "-0.1")
+        with pytest.raises(ValueError, match="export_sample_rate"):
+            NemoLensConfig.from_env()
+
+    def test_export_sample_rate_above_one_raises(self, monkeypatch):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("NEMO_LENS_EXPORT_SAMPLE_RATE", "1.5")
+        with pytest.raises(ValueError, match="export_sample_rate"):
+            NemoLensConfig.from_env()
+
+    def test_export_sample_rate_boundary_zero(self, monkeypatch):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("NEMO_LENS_EXPORT_SAMPLE_RATE", "0.0")
+        cfg = NemoLensConfig.from_env()
+        assert cfg.export_sample_rate == 0.0
+
+    def test_export_sample_rate_boundary_one(self, monkeypatch):
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("NEMO_LENS_EXPORT_SAMPLE_RATE", "1.0")
+        cfg = NemoLensConfig.from_env()
+        assert cfg.export_sample_rate == 1.0
+
+
+class TestNemoLensConfigValidation:
+    def test_direct_construction_sample_rate_below_zero_raises(self):
+        with pytest.raises(ValueError, match="export_sample_rate"):
+            NemoLensConfig(export_sample_rate=-0.1)
+
+    def test_direct_construction_sample_rate_above_one_raises(self):
+        with pytest.raises(ValueError, match="export_sample_rate"):
+            NemoLensConfig(export_sample_rate=1.5)
+
+    def test_direct_construction_valid_sample_rate(self):
+        cfg = NemoLensConfig(export_sample_rate=0.5)
+        assert cfg.export_sample_rate == 0.5

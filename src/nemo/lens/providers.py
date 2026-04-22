@@ -21,6 +21,8 @@ def build_providers(
     rank: int = 0,
     world_size: int = 1,
     resource_attributes: dict | None = None,
+    span_exporter=None,
+    metric_reader=None,
 ) -> None:
     """Initialise TracerProvider, MeterProvider, and optionally LoggerProvider.
 
@@ -31,6 +33,8 @@ def build_providers(
         rank: Current process rank.
         world_size: Total number of ranks.
         resource_attributes: Extra resource attributes to merge.
+        span_exporter: Optional custom span exporter (bypasses config-based exporter).
+        metric_reader: Optional custom metric reader (bypasses config-based reader).
     """
     try:
         from opentelemetry.sdk.resources import Resource
@@ -84,9 +88,18 @@ def build_providers(
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-        span_exporter = _build_span_exporter(config)
-        tracer_provider = TracerProvider(resource=resource)
-        tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
+        _span_exporter = span_exporter or _build_span_exporter(config)
+
+        kwargs: dict = {"resource": resource}
+        if config.sampler_enabled:
+            from nemo.lens.sampling import RankAwareSampler
+
+            kwargs["sampler"] = RankAwareSampler(
+                rank=rank, world_size=world_size, sample_rate=config.export_sample_rate
+            )
+
+        tracer_provider = TracerProvider(**kwargs)
+        tracer_provider.add_span_processor(BatchSpanProcessor(_span_exporter))
         trace.set_tracer_provider(tracer_provider)
 
     # ------------------------------------------------------------------
@@ -95,14 +108,18 @@ def build_providers(
     if config.metrics_enabled:
         from opentelemetry import metrics
         from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
-        metric_exporter = _build_metric_exporter(config)
-        _export_interval = int(os.environ.get("OTEL_METRIC_EXPORT_INTERVAL", "10000"))
-        reader = PeriodicExportingMetricReader(
-            metric_exporter, export_interval_millis=_export_interval
-        )
-        meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
+        if metric_reader is not None:
+            _reader = metric_reader
+        else:
+            from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+
+            metric_exporter = _build_metric_exporter(config)
+            _export_interval = int(os.environ.get("OTEL_METRIC_EXPORT_INTERVAL", "10000"))
+            _reader = PeriodicExportingMetricReader(
+                metric_exporter, export_interval_millis=_export_interval
+            )
+        meter_provider = MeterProvider(resource=resource, metric_readers=[_reader])
         metrics.set_meter_provider(meter_provider)
 
     # ------------------------------------------------------------------

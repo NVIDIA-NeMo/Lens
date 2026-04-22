@@ -2,6 +2,8 @@
 
 """Unit tests for TelemetryHandle and setup_telemetry."""
 
+import pytest
+
 from nemo.lens.config import NemoLensConfig
 from nemo.lens.groups import SpanGroup
 from nemo.lens.handle import TelemetryHandle, _should_export, setup_telemetry
@@ -125,6 +127,26 @@ class TestSetupTelemetrySpanGroups:
         setup_telemetry(cfg, rank=0, world_size=4)
         for group in SpanGroup.ALL_GROUPS:
             assert not is_span_group_enabled(group)
+
+
+class TestDoubleInitGuard:
+    def test_double_init_raises(self):
+        cfg = NemoLensConfig(enabled=True, exporter="console")
+        setup_telemetry(cfg, rank=0, world_size=1)
+        with pytest.raises(RuntimeError, match="already been initialised"):
+            setup_telemetry(cfg, rank=0, world_size=1)
+
+    def test_double_init_disabled_is_allowed(self):
+        cfg = NemoLensConfig(enabled=False)
+        setup_telemetry(cfg, rank=0, world_size=1)
+        handle = setup_telemetry(cfg, rank=0, world_size=1)
+        assert handle.is_exporting is False
+
+    def test_allow_reinit_flag(self):
+        cfg = NemoLensConfig(enabled=True, exporter="console")
+        setup_telemetry(cfg, rank=0, world_size=1)
+        handle = setup_telemetry(cfg, rank=0, world_size=1, _allow_reinit=True)
+        assert handle is not None
 
 
 class TestTelemetryHandleShutdown:

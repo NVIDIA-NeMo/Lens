@@ -17,17 +17,24 @@ Public API
         trace_fn,
         inject_context,
         extract_context,
+        broadcast_trace_context,
+        create_linked_span,
         get_tracer,
         get_meter,
         is_span_group_enabled,
+        set_enabled_span_groups,
     )
+
+Consumers that need to tolerate lens being absent at runtime can import
+no-op fallbacks from :mod:`nemo.lens.fallbacks`.
 
 Quick start
 -----------
 
 1. Set ``NEMO_LENS_ENABLED=1`` and optionally
    ``OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317``.
-2. Call ``setup_telemetry(NemoLensConfig.from_env(), rank, world_size)``.
+2. Call ``setup_telemetry(NemoLensConfig.from_env(), rank, world_size)``
+   once per process (raises ``RuntimeError`` on second call when enabled).
 3. Use ``managed_span``, ``trace_fn``, or ``span_cm`` at instrumentation sites.
 """
 
@@ -36,6 +43,7 @@ from opentelemetry import trace as _trace_mod
 
 from nemo.lens._version import __version__
 from nemo.lens.config import NemoLensConfig
+from nemo.lens.distributed import broadcast_trace_context, create_linked_span
 from nemo.lens.groups import SpanGroup
 from nemo.lens.handle import TelemetryHandle, setup_telemetry
 from nemo.lens.helpers import (
@@ -78,4 +86,6 @@ __all__ = [
     "get_meter",
     "is_span_group_enabled",
     "set_enabled_span_groups",
+    "broadcast_trace_context",
+    "create_linked_span",
 ]
