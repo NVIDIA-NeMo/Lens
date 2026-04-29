@@ -151,6 +151,20 @@ def build_noop_providers() -> None:
 _VALID_EXPORTERS = ("otlp", "console")
 
 
+def _resolve_otlp_protocol(signal: str) -> str:
+    """Resolve the OTLP wire protocol for the given signal ('traces' / 'metrics' / 'logs').
+
+    Honours the OTel SDK convention: ``OTEL_EXPORTER_OTLP_<SIGNAL>_PROTOCOL``
+    takes precedence over ``OTEL_EXPORTER_OTLP_PROTOCOL``. Defaults to ``"grpc"``
+    when neither is set, matching the OTel SDK's default.
+
+    Recognised values: ``grpc``, ``http/protobuf``, ``http/json``.
+    """
+    signal_specific = os.environ.get(f"OTEL_EXPORTER_OTLP_{signal.upper()}_PROTOCOL")
+    general = os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL")
+    return (signal_specific or general or "grpc").strip().lower()
+
+
 def _build_span_exporter(config: NemoLensConfig):
     if config.exporter not in _VALID_EXPORTERS:
         raise ValueError(
@@ -161,6 +175,17 @@ def _build_span_exporter(config: NemoLensConfig):
         from opentelemetry.sdk.trace.export import ConsoleSpanExporter
 
         return ConsoleSpanExporter()
+
+    protocol = _resolve_otlp_protocol("traces")
+    prefer_http = protocol in ("http/protobuf", "http/json")
+
+    if prefer_http:
+        try:
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+            return OTLPSpanExporter()
+        except ImportError:
+            pass  # fall through to gRPC
 
     try:
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -187,6 +212,17 @@ def _build_metric_exporter(config: NemoLensConfig):
         from opentelemetry.sdk.metrics.export import ConsoleMetricExporter
 
         return ConsoleMetricExporter()
+
+    protocol = _resolve_otlp_protocol("metrics")
+    prefer_http = protocol in ("http/protobuf", "http/json")
+
+    if prefer_http:
+        try:
+            from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+
+            return OTLPMetricExporter()
+        except ImportError:
+            pass  # fall through to gRPC
 
     try:
         from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter

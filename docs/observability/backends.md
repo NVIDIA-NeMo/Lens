@@ -165,23 +165,39 @@ Or use the Collector's file exporter in its metrics pipeline (same pattern as tr
 
 ### Configure
 
+Two patterns work. Pick one.
+
+#### Pattern A: direct from app (no collector)
+
 ```bash
 # Required: W&B identification (set as resource attributes)
 export WANDB_ENTITY=my-team                    # or your personal entity
 export WANDB_PROJECT=megatron-training
 
-# Required: OTLP endpoint + auth header for traces
+# Required: traces-signal-specific endpoint + auth header
 export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://trace.wandb.ai/otel/v1/traces
+export OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
 export OTEL_EXPORTER_OTLP_TRACES_HEADERS="wandb-api-key=$WANDB_API_KEY"
+
+# Weave ingests traces only; disable the other two signals.
+export MEGATRON_OTEL_METRICS_ENABLED=0
+export NEMO_LENS_LOGS_ENABLED=0
 
 # Required: lens activation
 export NEMO_LENS_ENABLED=1
 ```
 
-Notes:
+A ready-to-run compose file for this pattern is at `docker-compose.weave.yml` — brings up only the Megatron container and points traces straight at Weave. Use when you don't want to run the local stack.
 
-- Weave currently ingests **traces only** (as of early 2026). Metrics still need a separate sink (Prometheus, OTel Collector, etc.).
-- Use the `OTEL_EXPORTER_OTLP_TRACES_*` variants (not the signal-agnostic `OTEL_EXPORTER_OTLP_*`) if you want traces to go to Weave while metrics go elsewhere.
+#### Pattern B: through a collector
+
+Useful when you want batching, filtering, or multi-backend fan-out. See `observability/otel-collector-weave.yaml` in the repo for a ready-to-run example, toggled via `docker-compose.otel.yml`'s `--config=/etc/otel/collector-weave.yaml` mode.
+
+### Notes on the direct path
+
+- Weave currently ingests **traces only** (as of early 2026). Metrics still need a separate sink (Prometheus, OTel Collector, native `wandb.log()`, etc.).
+- Use the `OTEL_EXPORTER_OTLP_TRACES_*` variants (not the signal-agnostic `OTEL_EXPORTER_OTLP_*`). The Weave URL is a full path ending in `/v1/traces`; signal-specific env vars are treated as full URLs, the generic variant appends `/v1/traces` automatically — setting both would produce `/v1/traces/v1/traces` and 404.
+- Lens honours `OTEL_EXPORTER_OTLP_PROTOCOL` and signal-specific variants, so `http/protobuf` routes to the HTTP exporter class (Weave is HTTP-only).
 - `NemoLensConfig.from_env()` reads `WANDB_ENTITY` and `WANDB_PROJECT` directly and sets them as `wandb.entity` / `wandb.project` resource attributes on every span — required for Weave to route correctly.
 
 ### Run
@@ -241,7 +257,11 @@ export NEMO_LENS_ENABLED=1
 - **`x-honeycomb-dataset`**: dataset name. Required for metrics; strongly recommended for traces and logs. Pick anything meaningful; Honeycomb auto-creates the dataset on first write.
 - **`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`**: Honeycomb supports both gRPC and HTTP, but HTTP is more forgiving behind load balancers. Default to HTTP unless you have a reason otherwise.
 
+Lens honours `OTEL_EXPORTER_OTLP_PROTOCOL` (and the signal-specific variants `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL`) when picking between gRPC and HTTP exporters, so this works without code changes.
+
 For EU instance, substitute `https://api.eu1.honeycomb.io:443`.
+
+A ready-to-run compose file for this pattern is at `docker-compose.honeycomb.yml` — brings up only the Megatron container and points it straight at Honeycomb. Use when you don't want to run the local stack.
 
 #### Pattern B: through a collector
 

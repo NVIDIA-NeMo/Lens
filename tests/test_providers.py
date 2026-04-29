@@ -81,3 +81,65 @@ class TestCustomExporters:
         counter.add(1)
         data = reader.get_metrics_data()
         assert data is not None
+
+
+class TestOtlpProtocolSelection:
+    """OTEL_EXPORTER_OTLP_PROTOCOL must route between gRPC and HTTP exporters."""
+
+    def test_default_is_grpc(self, monkeypatch):
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as Grpc
+
+        from nemo.lens.providers import _build_span_exporter
+
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_PROTOCOL", raising=False)
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", raising=False)
+
+        cfg = NemoLensConfig(enabled=True, exporter="otlp")
+        assert isinstance(_build_span_exporter(cfg), Grpc)
+
+    def test_http_protobuf_picks_http_exporter(self, monkeypatch):
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as Http
+
+        from nemo.lens.providers import _build_span_exporter
+
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", raising=False)
+
+        cfg = NemoLensConfig(enabled=True, exporter="otlp")
+        assert isinstance(_build_span_exporter(cfg), Http)
+
+    def test_signal_specific_overrides_general(self, monkeypatch):
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as Http
+
+        from nemo.lens.providers import _build_span_exporter
+
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "http/protobuf")
+
+        cfg = NemoLensConfig(enabled=True, exporter="otlp")
+        assert isinstance(_build_span_exporter(cfg), Http)
+
+    def test_http_protocol_selects_http_metric_exporter(self, monkeypatch):
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter as HttpMetric,
+        )
+
+        from nemo.lens.providers import _build_metric_exporter
+
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+
+        cfg = NemoLensConfig(enabled=True, exporter="otlp")
+        assert isinstance(_build_metric_exporter(cfg), HttpMetric)
+
+    def test_grpc_default_picks_grpc_metric_exporter(self, monkeypatch):
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+            OTLPMetricExporter as GrpcMetric,
+        )
+
+        from nemo.lens.providers import _build_metric_exporter
+
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_PROTOCOL", raising=False)
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", raising=False)
+
+        cfg = NemoLensConfig(enabled=True, exporter="otlp")
+        assert isinstance(_build_metric_exporter(cfg), GrpcMetric)
