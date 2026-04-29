@@ -1,0 +1,78 @@
+# NeMo Lens — minimal W&B Weave setup (direct from app, no collector)
+#
+# Megatron exports traces directly to W&B Weave. No local OTel Collector,
+# no Jaeger / Prometheus / Grafana / Elasticsearch. Just one container.
+#
+# Setup:
+#   1. cp .env.example .env
+#   2. Fill in WANDB_API_KEY, WANDB_ENTITY, WANDB_PROJECT in .env.
+#   3. docker compose -f docker-compose.weave.yml up -d
+#   4. docker compose -f docker-compose.weave.yml exec megatron bash
+#
+# Weave ingests traces only. Metrics and logs are disabled here to avoid
+# spurious export errors — no traffic is generated for them. If you also
+# want metrics in W&B, use Megatron's native wandb.log() integration
+# (--wandb-project flag); that's orthogonal to OTel.
+#
+# The Weave endpoint is a FULL URL (ends in /v1/traces) and differs by
+# signal, so we use OTEL_EXPORTER_OTLP_TRACES_ENDPOINT rather than the
+# generic OTEL_EXPORTER_OTLP_ENDPOINT — this prevents the SDK from
+# appending /v1/traces a second time (→ /v1/traces/v1/traces → 404).
+#
+# Requires lens ≥ 0.1.0 which honours OTEL_EXPORTER_OTLP_PROTOCOL.
+
+services:
+
+  megatron:
+    image: local-megatron-lm:otel-compose
+    build:
+      context: ..
+      dockerfile_inline: |
+        FROM local-megatron-lm:otel
+        COPY lens /tmp/nemo-otel
+        RUN python3 -m pip install --no-cache-dir 'opentelemetry-api>=1.40.0' '/tmp/nemo-otel[sdk]' \
+         && /usr/bin/python -m pip install --no-cache-dir 'opentelemetry-api>=1.40.0' '/tmp/nemo-otel[sdk]' \
+         && rm -rf /tmp/nemo-otel
+    volumes:
+      - ..:/workspace
+    working_dir: /workspace/Megatron-LM
+    env_file:
+      - .env
+    environment:
+      # ── Lens / Megatron telemetry config ────────────────────────────────
+      - MEGATRON_OTEL_ENABLED=1
+      - MEGATRON_OTEL_SPAN_GROUPS=default        # start conservative; raise to per_step as needed
+      - NEMO_LENS_RUN_ID=my-experiment-1
+      - NEMO_LENS_USER_ID=team-alpha
+
+      # Weave ingests traces only — disable the other two signals entirely
+      # so no metric/log exporters are constructed.
+      - MEGATRON_OTEL_METRICS_ENABLED=0
+      - NEMO_LENS_LOGS_ENABLED=0
+
+      # ── Direct OTLP → W&B Weave ─────────────────────────────────────────
+      # Weave's endpoint is a full URL (already includes /v1/traces); use
+      # the traces-signal-specific env vars so the SDK does NOT append
+      # another /v1/traces to the path.
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://trace.wandb.ai/otel/v1/traces
+      - OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+      - OTEL_EXPORTER_OTLP_TRACES_HEADERS=wandb-api-key=${WANDB_API_KEY}
+
+      # Resource attributes that route traces to the right Weave project.
+      # Picked up by NemoLensConfig.from_env() and set on every span.
+      - WANDB_ENTITY=${WANDB_ENTITY}
+      - WANDB_PROJECT=${WANDB_PROJECT}
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    stdin_open: true
+    tty: true

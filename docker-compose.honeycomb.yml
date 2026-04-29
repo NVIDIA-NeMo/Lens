@@ -1,0 +1,65 @@
+# NeMo Lens — minimal Honeycomb setup (direct from app, no collector)
+#
+# Megatron exports OTLP directly to Honeycomb. No local OTel Collector,
+# no Jaeger / Prometheus / Grafana / Elasticsearch. Just one container.
+#
+# Setup:
+#   1. cp .env.example .env
+#   2. Fill in HONEYCOMB_API_KEY and HONEYCOMB_DATASET in .env.
+#   3. docker compose -f docker-compose.honeycomb.yml up -d
+#   4. docker compose -f docker-compose.honeycomb.yml exec megatron bash
+#
+# All three signals (traces, metrics, logs) ship to Honeycomb on one
+# endpoint. HTTP/protobuf is used — Honeycomb's recommended protocol
+# (avoids gRPC long-lived connection issues at scale).
+#
+# For the EU instance, set HONEYCOMB_ENDPOINT=https://api.eu1.honeycomb.io
+# in .env. Default is the US instance.
+#
+# Requires lens ≥ 0.1.0 which honours OTEL_EXPORTER_OTLP_PROTOCOL.
+
+services:
+
+  megatron:
+    image: local-megatron-lm:otel-compose
+    build:
+      context: ..
+      dockerfile_inline: |
+        FROM local-megatron-lm:otel
+        COPY lens /tmp/nemo-otel
+        RUN python3 -m pip install --no-cache-dir 'opentelemetry-api>=1.40.0' '/tmp/nemo-otel[sdk]' \
+         && /usr/bin/python -m pip install --no-cache-dir 'opentelemetry-api>=1.40.0' '/tmp/nemo-otel[sdk]' \
+         && rm -rf /tmp/nemo-otel
+    volumes:
+      - ..:/workspace
+    working_dir: /workspace/Megatron-LM
+    env_file:
+      - .env
+    environment:
+      # ── Lens / Megatron telemetry config ────────────────────────────────
+      - MEGATRON_OTEL_ENABLED=1
+      - MEGATRON_OTEL_SPAN_GROUPS=default        # start conservative; raise to per_step / all as needed
+      - NEMO_LENS_LOGS_ENABLED=1
+      - NEMO_LENS_RUN_ID=my-experiment-1
+      - NEMO_LENS_USER_ID=team-alpha
+
+      # ── Direct OTLP → Honeycomb ─────────────────────────────────────────
+      # Single endpoint for all three signals; the SDK appends /v1/traces,
+      # /v1/metrics, /v1/logs per signal.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${HONEYCOMB_ENDPOINT:-https://api.honeycomb.io:443}
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_EXPORTER_OTLP_HEADERS=x-honeycomb-team=${HONEYCOMB_API_KEY},x-honeycomb-dataset=${HONEYCOMB_DATASET}
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    stdin_open: true
+    tty: true
