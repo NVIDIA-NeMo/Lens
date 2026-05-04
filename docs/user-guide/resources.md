@@ -9,7 +9,7 @@ Every exporter-rank process emits these attributes (set in `providers.py:build_p
 | Attribute | Source | Example |
 |---|---|---|
 | `service.name` | `config.service_name` or `OTEL_SERVICE_NAME` | `"megatron-lm"` |
-| `service.version` | `nemo.lens.__version__` | `"0.1.0"` |
+| `service.version` | `nemo.lens.__version__` | `"0.1.0"`, `"0.1.0.post3+gabc1234"` |
 | `service.instance.id` | `"{run_id}-rank{rank}"` | `"abc123-rank0"` |
 | `dl.rank` | `rank` argument | `0` |
 | `dl.world_size` | `world_size` argument | `8` |

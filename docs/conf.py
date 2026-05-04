@@ -16,7 +16,13 @@ import sys
 project = "nemo-lens"
 copyright = "2026, NVIDIA Corporation"
 author = "NVIDIA Corporation"
-release = "0.1.0"
+try:
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _pkg_version
+
+    release = _pkg_version("nemo-lens")
+except PackageNotFoundError:
+    release = "0.0.0"
 
 # -- General configuration ---------------------------------------------------
 
