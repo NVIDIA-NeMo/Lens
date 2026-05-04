@@ -48,11 +48,11 @@ Field validation runs in `__post_init__`: `export_sample_rate` must be in `[0.0,
 
 ### Export strategy
 
-Controls which ranks send telemetry to the collector. Three strategies are available: `single_rank` (default), `all_ranks`, and `sampled`. See [Sampling](sampling.md) for detailed semantics, when to use each, and how they compose with OTel SDK samplers.
+Controls which ranks send telemetry to the collector. Three strategies are available: `single_rank` (default), `all_ranks`, and `sampled`. See [Sampling](sampling.md) for detailed semantics, when to use each, and how they compose with OTel SDK samplers. Unknown strategy names raise `ValueError` at `setup_telemetry` time, not at config construction — register custom strategies before initialising telemetry. See [Custom Strategies](custom-strategies.md).
 
 | Field | Default | Description |
 |---|---|---|
-| `export_strategy` | `"single_rank"` | `"single_rank"`, `"all_ranks"`, or `"sampled"`. |
+| `export_strategy` | `"single_rank"` | `"single_rank"`, `"all_ranks"`, `"sampled"`, `"first_rank_per_node"`, or any name registered via [`register_export_strategy`](custom-strategies.md). |
 | `export_rank` | `-1` | For `single_rank`: which rank exports. `-1` means the last rank. |
 | `export_sample_rate` | `1.0` | For `sampled`: fraction of ranks in `[0.0, 1.0]`. Validated at config time. |
 | `sampler_enabled` | `False` | Install `RankAwareSampler` on the TracerProvider for SDK-level per-rank filtering. See [Sampling](sampling.md). |

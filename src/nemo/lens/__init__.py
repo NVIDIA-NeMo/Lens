@@ -23,6 +23,10 @@ Public API
         get_meter,
         is_span_group_enabled,
         set_enabled_span_groups,
+        ExportStrategy,
+        register_export_strategy,
+        registered_strategies,
+        unregister_export_strategy,
     )
 
 Consumers that need to tolerate lens being absent at runtime can import
@@ -56,6 +60,12 @@ from nemo.lens.helpers import (
 )
 from nemo.lens.propagation import extract_context, inject_context
 from nemo.lens.state import is_span_group_enabled, set_enabled_span_groups
+from nemo.lens.strategies import (
+    ExportStrategy,
+    register_export_strategy,
+    registered_strategies,
+    unregister_export_strategy,
+)
 
 
 def get_tracer(name: str = "nemo.lens") -> _trace_mod.Tracer:
@@ -88,4 +98,8 @@ __all__ = [
     "set_enabled_span_groups",
     "broadcast_trace_context",
     "create_linked_span",
+    "ExportStrategy",
+    "register_export_strategy",
+    "registered_strategies",
+    "unregister_export_strategy",
 ]

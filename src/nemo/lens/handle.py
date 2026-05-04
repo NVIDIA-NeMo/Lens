@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import uuid
 from typing import TYPE_CHECKING
@@ -13,6 +12,7 @@ from opentelemetry import metrics, trace
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
+    from nemo.lens.strategies import ExportStrategy
 
 _INSTRUMENTATION_SCOPE = "nemo.lens"
 _INITIALIZED = False
@@ -59,18 +59,17 @@ def _should_export(
     config: NemoLensConfig,
     rank: int,
     world_size: int,
+    override: ExportStrategy | None = None,
 ) -> bool:
-    """Determine if this rank should export telemetry data."""
-    if config.export_strategy == "all_ranks":
-        return True
-    elif config.export_strategy == "sampled":
-        # Deterministic hash-based sampling
-        h = hashlib.md5(str(rank).encode()).hexdigest()
-        return (int(h, 16) % 10000) / 10000.0 < config.export_sample_rate
-    else:
-        # single_rank (default)
-        resolved = config.export_rank if config.export_rank >= 0 else (world_size - 1)
-        return rank == resolved
+    """Determine if this rank should export telemetry data.
+
+    If ``override`` is supplied, it is called directly. Otherwise the strategy
+    named by ``config.export_strategy`` is looked up in the registry.
+    """
+    from nemo.lens.strategies import get_export_strategy
+
+    strategy = override if override is not None else get_export_strategy(config.export_strategy)
+    return strategy(config, rank, world_size)
 
 
 def setup_telemetry(
@@ -80,6 +79,7 @@ def setup_telemetry(
     resource_attributes: dict | None = None,
     span_exporter=None,
     metric_reader=None,
+    export_strategy: ExportStrategy | None = None,
     _allow_reinit: bool = False,
 ) -> TelemetryHandle:
     """Initialise OTel providers and return a TelemetryHandle.
@@ -98,6 +98,9 @@ def setup_telemetry(
         resource_attributes: Extra resource attributes.
         span_exporter: Optional custom span exporter (bypasses config-based exporter).
         metric_reader: Optional custom metric reader (bypasses config-based reader).
+        export_strategy: Optional callable ``(config, rank, world_size) -> bool``
+            that bypasses the registry-based dispatch. Useful for ad-hoc
+            strategies without registering globally.
 
     Returns:
         A TelemetryHandle with ``.tracer`` and ``.meter``.
@@ -118,7 +121,7 @@ def setup_telemetry(
         slurm_id = os.environ.get("SLURM_JOB_ID", "")
         config.run_id = slurm_id if slurm_id else uuid.uuid4().hex[:12]
 
-    is_export_rank = _should_export(config, rank, world_size)
+    is_export_rank = _should_export(config, rank, world_size, override=export_strategy)
 
     if not config.enabled:
         build_noop_providers()
