@@ -14,7 +14,7 @@ The `[dev]` extra includes the OTel SDK, pytest, pytest-cov, pre-commit, and ruf
 ## Code style
 
 - **Line length**: 100 (ruff-enforced)
-- **Python**: 3.10+ (use `X | Y`, not `Optional`)
+- **Python**: 3.13+ (use `X | Y`, not `Optional`)
 - **Ruff rules**: E, W, F, I (isort), UP, B, SIM, TCH (with TC002/TC003 ignored for runtime imports)
 - **Double quotes** for strings
 

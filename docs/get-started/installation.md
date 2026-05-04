@@ -38,7 +38,7 @@ The `[dev]` extra includes the SDK, pytest, pytest-cov, pre-commit, and ruff. Se
 
 ## Python support
 
-`nemo-lens` requires **Python ≥ 3.10**. It uses `X | Y` union syntax and expects modern type hints.
+`nemo-lens` requires **Python ≥ 3.13**. It uses `X | Y` union syntax and expects modern type hints.
 
 ## Packaging notes
 

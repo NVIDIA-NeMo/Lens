@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Shared OpenTelemetry library for NVIDIA NeMo ecosystem (Megatron-LM, NeMo-RL, NeMo-Gym)"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 authors = [
     { name = "NVIDIA Corporation" },
 ]
@@ -16,9 +16,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "opentelemetry-api>=1.20.0",
@@ -71,7 +69,7 @@ dirty = "{base_version}+dirty"
 distance-dirty = "{base_version}.post{distance}+{vcs}{rev}.dirty"
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py313"
 line-length = 100
 src = ["src", "tests"]
 
