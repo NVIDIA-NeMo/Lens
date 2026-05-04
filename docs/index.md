@@ -45,6 +45,7 @@ user-guide/context-propagation
 user-guide/distributed-tracing
 user-guide/sampling
 user-guide/custom-exporters
+user-guide/custom-strategies
 user-guide/resources
 user-guide/contrib
 user-guide/logging-bridge

@@ -9,8 +9,9 @@ If anything here conflicts with your site's ops conventions, trust ops.
 Decision flow:
 
 - One rank's view is representative and you want the simplest setup. Use `single_rank` (the default). Done.
-- You need per-rank investigation — hang debugging, NaN hunting, suspected bad nodes. Use `all_ranks` for the duration of the investigation, then revert.
+- Per-node visibility — attributing hangs or stragglers to specific machines on a medium-scale job (8–128 nodes). Use `first_rank_per_node`; one rank per machine, no `LOCAL_RANK=0` configuration required (torchrun and friends set it for you).
 - Fleet-scale job where you want more than one rank's perspective without full export. Use `sampled` with `sampler_enabled=1`.
+- You need per-rank investigation — hang debugging, NaN hunting, suspected bad nodes. Use `all_ranks` for the duration of the investigation, then revert.
 
 Full discussion in [Sampling](sampling.md). Don't leave this at default "because it's the default" — pick it because it fits the run.
 

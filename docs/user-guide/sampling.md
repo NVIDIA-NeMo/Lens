@@ -5,6 +5,8 @@ Sampling controls how much of the raw telemetry stream actually reaches your bac
 1. **Export strategy** (rank-level): which ranks send data at all.
 2. **Sampler** (SDK-level): which spans on an exporting rank are kept.
 
+For strategy logic beyond the built-ins, see [Custom Strategies](custom-strategies.md).
+
 Understand the difference before picking a configuration.
 
 ## Export strategy
@@ -40,6 +42,16 @@ NEMO_LENS_EXPORT_SAMPLE_RATE=0.1    # 10% of ranks
 Sampling is deterministic by rank — same rank + rate → same decision across re-runs.
 
 **Use when**: large jobs (1000+ ranks) where `all_ranks` is too much but you want more than one rank's perspective.
+
+### `first_rank_per_node`
+
+One rank per node sends telemetry — specifically, the rank with `LOCAL_RANK=0` on each node. Reads the `LOCAL_RANK` env var (set by torchrun, deepspeed, and similar launchers); a missing `LOCAL_RANK` is treated as `0`.
+
+```bash
+NEMO_LENS_EXPORT_STRATEGY=first_rank_per_node
+```
+
+**Use when**: you want per-node visibility (e.g., to attribute hangs or stragglers to a specific machine) without the volume of `all_ranks`. Common deployment for medium-scale jobs (8–128 nodes) where one rank's view per machine is the right granularity.
 
 ## `RankAwareSampler`
 

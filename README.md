@@ -50,9 +50,12 @@ NEMO_LENS_SPAN_GROUPS=default   # coarse-grained
 By default only one rank exports (`single_rank`, last rank). Change with:
 
 ```bash
-NEMO_LENS_EXPORT_STRATEGY=all_ranks   # every rank
-NEMO_LENS_EXPORT_STRATEGY=sampled     # fraction via NEMO_LENS_EXPORT_SAMPLE_RATE
+NEMO_LENS_EXPORT_STRATEGY=all_ranks            # every rank
+NEMO_LENS_EXPORT_STRATEGY=sampled              # fraction via NEMO_LENS_EXPORT_SAMPLE_RATE
+NEMO_LENS_EXPORT_STRATEGY=first_rank_per_node  # one rank per node (LOCAL_RANK=0)
 ```
+
+Custom strategies (your own rank-selection logic) are supported via `register_export_strategy` — see [docs/user-guide/custom-strategies.md](docs/user-guide/custom-strategies.md).
 
 ## Local observability stack
 

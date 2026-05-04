@@ -46,6 +46,30 @@ class TestShouldExport:
         for r in range(10):
             assert _should_export(cfg, rank=r, world_size=10) is True
 
+    def test_first_rank_per_node_local_zero(self, monkeypatch):
+        monkeypatch.setenv("LOCAL_RANK", "0")
+        cfg = NemoLensConfig(export_strategy="first_rank_per_node")
+        assert _should_export(cfg, rank=0, world_size=8) is True
+
+    def test_first_rank_per_node_local_nonzero(self, monkeypatch):
+        monkeypatch.setenv("LOCAL_RANK", "5")
+        cfg = NemoLensConfig(export_strategy="first_rank_per_node")
+        assert _should_export(cfg, rank=5, world_size=8) is False
+
+    def test_first_rank_per_node_no_env(self, monkeypatch):
+        monkeypatch.delenv("LOCAL_RANK", raising=False)
+        cfg = NemoLensConfig(export_strategy="first_rank_per_node")
+        assert _should_export(cfg, rank=0, world_size=1) is True
+
+    def test_unknown_strategy_raises(self):
+        cfg = NemoLensConfig(export_strategy="bogus_strategy_xyz")
+        with pytest.raises(ValueError, match="Unknown export_strategy"):
+            _should_export(cfg, rank=0, world_size=4)
+
+    def test_override_callable_takes_precedence(self):
+        cfg = NemoLensConfig(export_strategy="all_ranks")
+        assert _should_export(cfg, rank=0, world_size=4, override=lambda c, r, ws: False) is False
+
 
 class TestSetupTelemetryDisabled:
     def test_returns_handle(self):
@@ -100,6 +124,22 @@ class TestSetupTelemetryEnabled:
         cfg = NemoLensConfig(enabled=True, export_strategy="all_ranks", exporter="console")
         handle = setup_telemetry(cfg, rank=0, world_size=4)
         assert handle.is_exporting is True
+
+    def test_first_rank_per_node_strategy(self, monkeypatch):
+        monkeypatch.setenv("LOCAL_RANK", "0")
+        cfg = NemoLensConfig(
+            enabled=True, export_strategy="first_rank_per_node", exporter="console"
+        )
+        handle = setup_telemetry(cfg, rank=0, world_size=4)
+        assert handle.is_exporting is True
+
+    def test_first_rank_per_node_non_local_zero(self, monkeypatch):
+        monkeypatch.setenv("LOCAL_RANK", "3")
+        cfg = NemoLensConfig(
+            enabled=True, export_strategy="first_rank_per_node", exporter="console"
+        )
+        handle = setup_telemetry(cfg, rank=3, world_size=8)
+        assert handle.is_exporting is False
 
 
 class TestSetupTelemetrySpanGroups:
