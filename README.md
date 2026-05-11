@@ -77,4 +77,4 @@ pytest
 
 ## Docs
 
-Full documentation: `cd docs && make serve` (requires `pip install -e '.[docs]'`).
+Full documentation: `cd docs && make serve` (requires `pip install --group docs -e .`).
