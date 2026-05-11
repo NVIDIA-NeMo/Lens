@@ -1,0 +1,15 @@
+# Order is important: later matches have higher precedence.
+# See: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+
+# Catch-all
+*                          @ahmadki
+
+# CI and automation
+/.github/                  @ahmadki
+/.pre-commit-config.yaml   @ahmadki
+
+# Build / packaging
+/pyproject.toml            @ahmadki
+
+# Docs
+/docs/                     @ahmadki
