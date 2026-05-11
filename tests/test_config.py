@@ -232,3 +232,8 @@ class TestNemoLensConfigValidation:
     def test_direct_construction_valid_sample_rate(self):
         cfg = NemoLensConfig(export_sample_rate=0.5)
         assert cfg.export_sample_rate == 0.5
+
+
+def test_ci_probe_intentional_failure():
+    """CI-TEST-PROBE: intentional failure to verify the unit-tests workflow flags failing tests. Remove before merging."""
+    assert False, "CI test probe: this test is intentionally failing to validate CI"
