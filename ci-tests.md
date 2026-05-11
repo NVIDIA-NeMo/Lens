@@ -6,7 +6,7 @@ A scratchpad of scenarios to validate every workflow on the CI-test branch befor
 [v] tests workflow
 [v] PR title validation
 [v] copyright check
-[] secret
+[v] secret detection
 
 [] building docs
 [] PR semantics has two
