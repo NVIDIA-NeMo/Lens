@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import os
+import sys  # CI-LINT-PROBE: unused import to trigger ruff F401
 import uuid
 from typing import TYPE_CHECKING
 
