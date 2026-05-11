@@ -4,4 +4,4 @@ A scratchpad of scenarios to validate every workflow on the CI-test branch befor
 
 [v] linting workflow
 [v] tests workflow
-[] PR title validation
+[v] PR title validation
