@@ -3,4 +3,5 @@
 A scratchpad of scenarios to validate every workflow on the CI-test branch before merging the CI to `main`. Delete this file before the final merge.
 
 [v] linting workflow
-[] tests workflow
+[v] tests workflow
+[] PR title validation
