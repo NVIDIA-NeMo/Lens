@@ -119,7 +119,7 @@ For such changes, coordinate with the consumer repos (feature branches, paired P
 Docs source lives in `docs/` and is built with Sphinx + MyST parser + NVIDIA theme.
 
 ```bash
-pip install -e '.[docs]'
+pip install --group docs -e .
 cd docs && make html          # full build
 cd docs && make serve         # live-reload on :8000 (preferred while writing)
 ```
