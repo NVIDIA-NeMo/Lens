@@ -25,7 +25,7 @@ with managed_span('step', 'train.step', iteration=42) as span:
 
 ### Tracer resolution
 
-If `tracer=` is not passed, `managed_span` looks up the global tracer. Passing `tracer=handle.tracer` is slightly faster since it skips the lookup.
+If `tracer=` is not passed, `managed_span` obtains a named tracer from the global `TracerProvider` using the instrumentation scope `nemo.lens.helpers` (the same default used by `span_cm`; note that `trace_fn` defaults to the `nemo.lens` scope instead). Passing `tracer=handle.tracer` (scope `nemo.lens`) skips this `get_tracer` call and makes spans share the handle's instrumentation scope.
 
 ## `trace_fn` — group-gated decorator
 
@@ -106,6 +106,32 @@ from nemo.lens import DEFAULT_REDACT_KEYS
 ```
 
 Pass a custom `redact_keys` set to override.
+
+### `redact_value`
+
+`redact_value(key, value, redact_keys=DEFAULT_REDACT_KEYS)` is the single-value primitive that `safe_set_span_attributes` uses internally:
+
+```python
+from nemo.lens import redact_value, DEFAULT_REDACT_KEYS
+
+redact_value('prompt', 'user input here')   # '[REDACTED]'  (key is in DEFAULT_REDACT_KEYS)
+redact_value('iteration', 'user input here') # 'user input here' (key not redacted)
+```
+
+It returns `'[REDACTED]'` iff `key` is in `redact_keys`, otherwise it returns `value` unchanged. Redaction is decided by the **attribute-key name**, not by inspecting the value.
+
+## `get_tracer` and `get_meter`
+
+Both are top-level exports that return the globally registered tracer/meter from the active provider:
+
+```python
+from nemo.lens import get_tracer, get_meter
+
+tracer = get_tracer()   # default instrumentation scope 'nemo.lens'
+meter = get_meter()     # default instrumentation scope 'nemo.lens'
+```
+
+Each accepts an optional `name=` argument to set the instrumentation scope (default `'nemo.lens'`). Use these when you need a tracer or meter outside the span primitives — for example, to create custom metric instruments.
 
 ## Choosing between primitives
 

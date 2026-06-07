@@ -1,6 +1,6 @@
 # Logging Bridge
 
-Traces tell you "what happened"; logs tell you "why". The OTel logging bridge correlates Python `logging` records with the active span's trace ID and exports them through the same pipeline as spans — so Kibana, Loki, or Grafana Logs show log lines alongside the trace they came from.
+Traces tell you "what happened"; logs tell you "why". The OTel logging bridge correlates Python `logging` records with the active span's trace ID and exports them through the same pipeline as spans — so Kibana shows log lines alongside the trace they came from (or any OTLP-capable log backend).
 
 ## Enable
 
@@ -12,10 +12,15 @@ if handle.is_exporting and config.logs_enabled:
     setup_logging_bridge()   # bridges root logger
 ```
 
-Or via env var:
+The env var `NEMO_LENS_LOGS_ENABLED=1` only enables the `LoggerProvider` (it sets `config.logs_enabled`); it does NOT install the bridge. You still must call `setup_logging_bridge()`:
 
 ```bash
-NEMO_LENS_LOGS_ENABLED=1
+export NEMO_LENS_LOGS_ENABLED=1   # enables the LoggerProvider
+```
+
+```python
+from nemo.lens.logging_bridge import setup_logging_bridge
+setup_logging_bridge()            # installs the Python logging handler
 ```
 
 ## What it does
@@ -47,7 +52,7 @@ Only messages from that logger (and its children) are bridged. Useful when you w
 
 ## Trace correlation
 
-The key value proposition: every bridged log record carries `trace_id` and `span_id`. In Kibana/Grafana Logs, you can:
+The key value proposition: every bridged log record carries `trace_id` and `span_id`. In Kibana (or any OTLP log backend), you can:
 
 - Filter logs by trace ID to find every log line produced during a specific trace.
 - Click from a Jaeger trace into the corresponding log stream.
@@ -57,7 +62,7 @@ Without the bridge, logs end up in a different index with no link back to traces
 
 ## When to use it vs the exporter
 
-OTel logs are **in addition to**, not a replacement for, your existing log pipeline (stdout, file, syslog). The bridge is an extra sink — set it up when you have a centralised observability stack (Elasticsearch/Kibana, Loki, Grafana) that benefits from trace correlation.
+OTel logs are **in addition to**, not a replacement for, your existing log pipeline (stdout, file, syslog). The bridge is an extra sink — set it up when you have a centralised observability stack (the shipped stack uses Elasticsearch/Kibana; any OTLP-capable log backend works) that benefits from trace correlation.
 
 If you just want stdout logs for a local run, don't bother with the bridge.
 
@@ -72,7 +77,7 @@ It never breaks the application. A failed bridge means "no bridged logs" — not
 
 ## Enabling logs in providers
 
-The bridge needs a `LoggerProvider` to be active. `providers.py:build_providers` sets one up when `config.logs_enabled=True`. Setting `NEMO_LENS_LOGS_ENABLED=1` on an exporting rank handles both the provider and the bridge via `setup_telemetry`.
+The bridge needs a `LoggerProvider` to be active. `providers.py:build_providers` sets one up when `config.logs_enabled=True`. Setting `NEMO_LENS_LOGS_ENABLED=1` (config.logs_enabled) makes `setup_telemetry` build the `LoggerProvider`, but you must still call `setup_logging_bridge()` yourself to install the Python logging handler — lens never calls it automatically.
 
 ## Performance
 

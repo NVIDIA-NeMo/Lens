@@ -10,7 +10,7 @@ Decision flow:
 
 - One rank's view is representative and you want the simplest setup. Use `single_rank` (the default). Done.
 - Per-node visibility — attributing hangs or stragglers to specific machines on a medium-scale job (8–128 nodes). Use `first_rank_per_node`; one rank per machine, no `LOCAL_RANK=0` configuration required (torchrun and friends set it for you).
-- Fleet-scale job where you want more than one rank's perspective without full export. Use `sampled` with `sampler_enabled=1`.
+- Fleet-scale job where you want more than one rank's perspective without full export. Use `sampled` (set `export_strategy=sampled` / `NEMO_LENS_EXPORT_STRATEGY=sampled`) with an `export_sample_rate` below 1.0. This is independent of `sampler_enabled`; add SDK-level per-rank filtering only if you also want layer 2 (see Layer your sampling).
 - You need per-rank investigation — hang debugging, NaN hunting, suspected bad nodes. Use `all_ranks` for the duration of the investigation, then revert.
 
 Full discussion in [Sampling](sampling.md). Don't leave this at default "because it's the default" — pick it because it fits the run.
@@ -28,7 +28,7 @@ See [Span Groups](span-groups.md) for the full breakdown.
 Think of sampling as four composable layers:
 
 1. **Export strategy** (`single_rank` / `all_ranks` / `sampled`) — decides which ranks emit at all. Non-exporting ranks are fully no-op.
-2. **`RankAwareSampler`** (via `sampler_enabled=1`) — SDK-level per-rank decision on whether to keep spans on an exporting rank.
+2. **`RankAwareSampler`** (via `sampler_enabled=1`) — SDK-level per-rank decision on whether to keep spans on an exporting rank. Driven by `export_sample_rate`; at the default `1.0` it keeps every span, so set `export_sample_rate` < 1.0 for this layer to actually drop spans.
 3. **OTel SDK trace sampler** (`OTEL_TRACES_SAMPLER`) — per-trace decision on whether to record.
 4. **Collector-side tail sampling** (optional) — lets you make smart decisions after the fact: keep all error traces, sample successful ones.
 

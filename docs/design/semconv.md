@@ -2,7 +2,7 @@
 
 `nemo.lens.semconv` centralises every attribute name constant lens emits. Two categories of attribute coexist:
 
-1. **Standard OTel semconv** — `gen_ai.*`, `k8s.*`, `service.*`, `host.*`. These track upstream OTel specs.
+1. **Standard OTel semconv** — `gen_ai.*` and `k8s.*`. These track upstream OTel specs. (Resource attributes like `service.*` and `host.*` are also standard OTel names but are set as literals in `providers.py` and `resources/local.py` rather than mirrored as `semconv.py` constants.)
 2. **NeMo custom namespaces** — `dl.*` (distributed learning), `rl.*`, `gym.*`, `slurm.*`, `nemo.*`, `wandb.*`. These are NeMo-specific extensions that don't exist upstream.
 
 ## Why constants instead of strings
@@ -75,7 +75,7 @@ dl.throughput_tflops, dl.throughput_tokens_per_sec
 
 For attributes that don't generalise across the ecosystem:
 
-- `megatron.*` — model architecture (`num_layers`, `hidden_size`), iteration-level (`skipped`, `update_successful`)
+- `megatron.*` — Megatron-LM consumer-specific span attributes (e.g. model architecture `megatron.num_layers`/`megatron.hidden_size`, iteration-level `megatron.skipped`/`megatron.update_successful`). These are set as inline string attributes in the Megatron-LM fork and are **not** defined as constants in `nemo.lens.semconv` — the central registry only holds the shared/standard namespaces (`dl.*`, `gen_ai.*`, `rl.*`, `gym.*`, `slurm.*`, `nemo.*`, `wandb.*`, `k8s.*`).
 - `rl.*` — RL-specific (`reward`, `kl_divergence`, `policy_loss`)
 - `gym.*` — Gym server-specific (`verify.success_rate`, `rollout.batch_size`)
 
@@ -96,7 +96,7 @@ Checklist before adding a constant:
 
 1. **Is there an upstream OTel semconv name?** Use it.
 2. **Is this shared across consumers?** Use `dl.*` or another shared namespace.
-3. **Is this project-specific?** Use `<project>.*`.
+3. **Is this project-specific?** Use `<project>.*`. Such namespaces are set inline in the consumer fork (e.g. Megatron-LM), not as constants in `semconv.py`.
 4. **Is this a metric or a span attribute?** Metric instruments go in `instruments/`, span attributes go in `semconv.py`.
 5. **Is the attribute always available?** If not, document it as "optional" so query authors know to handle missing values.
 

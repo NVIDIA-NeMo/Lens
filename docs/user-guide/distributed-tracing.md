@@ -18,6 +18,9 @@ carrier = broadcast_trace_context(
     rank=torch.distributed.get_rank(),
     src_rank=0,
 )
+
+# Check `if carrier is not None:` before using it — a `None` carrier passed
+# to `create_linked_span` yields an unlinked span rather than an error.
 ```
 
 ### What it does
@@ -25,7 +28,7 @@ carrier = broadcast_trace_context(
 1. On `src_rank`: serialise the current trace context to a W3C carrier dict, JSON-encode it to bytes.
 2. `torch.distributed.broadcast` the byte length (int64 tensor), then the bytes (uint8 tensor).
 3. All ranks deserialise into a carrier dict.
-4. Returns the carrier on every rank.
+4. Returns the carrier dict on every rank, or `None` if torch/torch.distributed is unavailable, the process group is not initialised, or the broadcast payload was empty.
 
 ### When to use it
 
@@ -37,7 +40,7 @@ Two small collective broadcasts (a length int64 plus ~200 bytes of payload). Run
 
 ### Collective correctness
 
-`broadcast_trace_context` is a **collective operation**. If some ranks call it and others don't, you get a deadlock. Gate it on conditions that are the same on all ranks (e.g. "telemetry was initialised" — use `get_telemetry() is not None`, not `TelemetryHandle.is_exporting` which differs per rank).
+`broadcast_trace_context` is a **collective operation**. If some ranks call it and others don't, you get a deadlock. Gate it only on conditions that are identical on every rank — e.g. `config.enabled` (the same `NemoLensConfig` value is passed to `setup_telemetry()` on all ranks). Do **not** gate on `handle.is_exporting`: that flag is `True` only on exporting ranks, so it differs per rank and would deadlock.
 
 ## `create_linked_span`
 
@@ -80,7 +83,7 @@ Combine both primitives to wire pipeline-parallel correlation:
 carrier = broadcast_trace_context(rank, src_rank=0)
 
 # Later, inside the pipeline schedule on non-first ranks:
-if my_pp_rank != 0:
+if carrier is not None and my_pp_rank != 0:
     span = create_linked_span(
         tracer,
         'pipeline.recv_forward.linked',

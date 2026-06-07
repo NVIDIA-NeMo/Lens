@@ -18,8 +18,8 @@
 
 | Consumer | Domain | Span group extension |
 |---|---|---|
-| [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) | Transformer pre-training | `MegatronSpanGroup` — microbatch, communication, activation_offload, inference |
-| NeMo-RL | RLHF, GRPO, DPO | `RLSpanGroup` — rollout, generation, logprob, reward, advantage, policy_update |
+| [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) | Transformer pre-training | `MegatronSpanGroup` — microbatch, layer, communication, activation_offload, data_loading, inference |
+| NeMo-RL | RLHF, GRPO, DPO | `RLSpanGroup` — rollout, generation, logprob, reward, advantage, policy_update, reference_policy, data_processing |
 | NeMo-Gym | RL environments | `GymSpanGroup` — server, rollout_collection, verify, aggregate_metrics |
 
 ```{toctree}

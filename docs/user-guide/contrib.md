@@ -1,6 +1,6 @@
 # Contrib Helpers
 
-`nemo.lens.contrib` contains framework-specific integration helpers. Each is optional and isolated — installing lens without the corresponding extra gives you import-time errors if you try to use it.
+`nemo.lens.contrib` contains framework-specific integration helpers. Each is optional and isolated — installing lens without the corresponding extra raises a clear ImportError (with an install hint) when you call the helper, not when you import it.
 
 ## FastAPI — `contrib.fastapi`
 
@@ -8,10 +8,12 @@
 from nemo.lens.contrib.fastapi import instrument_fastapi
 
 app = FastAPI()
-instrument_fastapi(app, service_name="my-service")
+instrument_fastapi(app)
 ```
 
 Wraps `opentelemetry-instrumentation-fastapi`. After this call, every incoming HTTP request gets a span covering its lifetime, with W3C trace context automatically extracted from request headers (so upstream traces flow through).
+
+Note: `instrument_fastapi` does accept a `service_name` parameter, but it is currently a no-op (the implementation ignores it). The service name is set via `setup_telemetry` / the `OTEL_SERVICE_NAME` environment variable, not here.
 
 Install: `pip install 'nemo-lens[fastapi]'`
 
@@ -102,6 +104,14 @@ data = serialize_context()    # JSON-encoded W3C carrier as bytes
 # Receiver
 ctx = extract_nccl_context(data)
 # attach ctx as parent context for new spans
+```
+
+If you need the intermediate carrier dict rather than a ready-to-use OTel `Context`, call `deserialize_context(data: bytes) -> dict | None` — the mid-layer that `extract_nccl_context` wraps. It returns the decoded carrier dict, or `None` if the bytes are malformed (it swallows `JSONDecodeError` and `UnicodeDecodeError`):
+
+```python
+from nemo.lens.contrib.nccl import deserialize_context
+
+carrier = deserialize_context(data)    # dict, or None on bad input
 ```
 
 In practice, most pipeline-parallel users don't need this — `broadcast_trace_context` is simpler and more idiomatic (see [Distributed Tracing](distributed-tracing.md)). NCCL helpers exist for advanced cases where you're already passing metadata alongside tensors and trace context can piggy-back for free.

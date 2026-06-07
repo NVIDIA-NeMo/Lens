@@ -38,8 +38,8 @@ The `dev` dependency group includes the SDK, pytest, pytest-cov, pre-commit, and
 
 ## Python support
 
-`nemo-lens` requires **Python ≥ 3.13**. It uses `X | Y` union syntax and expects modern type hints.
+`nemo-lens` requires **Python ≥ 3.13**. It uses the PEP 695 `type` statement (e.g. in `src/nemo/lens/strategies.py`) and other modern typing features.
 
 ## Packaging notes
 
-`nemo.lens` is a **PEP 420 namespace package** so it coexists peacefully with NeMo Framework's `nemo.*` packages. The `src/nemo/__init__.py` is intentionally empty.
+`nemo.lens` is a **PEP 420 namespace package** so it coexists peacefully with NeMo Framework's `nemo.*` packages. The `src/nemo/__init__.py` contains only an explanatory comment (no code), so it does not shadow other `nemo.*` packages on the path.

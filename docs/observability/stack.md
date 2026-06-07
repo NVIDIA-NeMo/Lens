@@ -24,24 +24,34 @@ Prometheus ─► Grafana (dashboards)
 
 | Component | Port | Role in the demo |
 |---|---|---|
-| OpenTelemetry Collector | 4317 / 4318 | OTLP receiver, fans out to storage |
+| OpenTelemetry Collector | 4317 / 4318 | OTLP receiver, fans out to storage (internal network only, not published to host) |
 | Jaeger | 16686 | Trace search UI |
 | Prometheus | 9090 | Metric storage |
 | Grafana | 3000 | Metric dashboards |
 | Elasticsearch | 9200 | Trace + log storage |
 | Kibana | 5601 | Log UI |
-| DCGM Exporter | 9400 | GPU metrics (scrape target) |
-| Node Exporter | 9100 | Host metrics (scrape target) |
+| DCGM Exporter | 9400 | GPU metrics (internal scrape target, not published to host) |
+| Node Exporter | 9100 | Host metrics (internal scrape target, not published to host) |
 
 This is a **lot of moving parts for a demo**. If all you need is trace viewing, you can run Jaeger alone. If you only care about metrics, Prometheus + Grafana is enough. Pick what matches your needs; the compose file is a starting point, not a prescription.
 
 ## Starting the demo
 
+```{note}
+The committed `docker-compose.otel.yml` ships with the **W&B Weave** collector mode active. For the local Jaeger + Prometheus + Grafana + Elasticsearch + Kibana pipeline described here, edit the `otel-collector` service in `docker-compose.otel.yml`: uncomment `command: ["--config=/etc/otel/collector.yaml"]` and comment out the `--config=/etc/otel/collector-weave.yaml` line. With Weave active, traces go to W&B Weave and metrics/logs are accepted-and-dropped, so the local UIs below stay empty.
+```
+
 ```bash
 docker compose -f docker-compose.otel.yml up -d
 ```
 
-Point an instrumented application at it:
+The compose file is built around running an instrumented application **inside** the compose network. The bundled Megatron-LM container already exports to the collector over the internal network (`OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317`):
+
+```bash
+docker compose -f docker-compose.otel.yml exec megatron bash
+```
+
+The collector's OTLP ports (4317/4318) are not published to the host. To export from a host-side application instead, add `"4317:4317"` and `"4318:4318"` to the `otel-collector` `ports:` block, then point your app at it:
 
 ```bash
 export NEMO_LENS_ENABLED=1
@@ -90,17 +100,23 @@ Lens doesn't change between these. Point at a different `OTEL_EXPORTER_OTLP_ENDP
 
 ## File layout of the demo
 
-The compose file references configuration from the **consumer** repo (Megatron-LM in this case), because dashboards and collector config are domain-specific. In Megatron-LM:
+The compose file mounts its observability configuration from this (lens) repo under `observability/`. Only the application container (Megatron-LM in this case) is built/mounted from the parent directory. In `lens/`:
 
 ```
 docker-compose.otel.yml
 observability/
-├── otel-collector.yaml          — receiver + pipelines + exporters
-├── prometheus.yml               — scrape config (collector, dcgm, node-exporter)
+├── jaeger.yaml                   — Jaeger v2 config (native OTLP)
+├── otel-collector.yaml           — local-stack receiver + pipelines + exporters
+├── otel-collector-file.yaml      — file-export mode
+├── otel-collector-weave.yaml     — W&B Weave mode (default in shipped compose)
+├── otel-collector-honeycomb.yaml — Honeycomb mode
+├── prometheus.yml                — scrape config (collector, dcgm, node-exporter)
+├── kibana/                       — kibana.yml + setup.sh + saved-objects.ndjson
 └── grafana/
-    ├── provisioning/            — auto-wire Prometheus + Jaeger data sources
+    ├── provisioning/             — auto-wire Prometheus + Jaeger + Elasticsearch data sources
     └── dashboards/
-        └── megatron-training.json  — training + inference dashboard
+        ├── megatron-training.json — training + inference dashboard
+        └── system-overview.json   — host/GPU/network overview dashboard
 ```
 
 If you're using lens from a different consumer (NeMo-RL, NeMo-Gym, a fresh project), you'll need your own collector config and dashboards. The demo isn't trying to be a one-size-fits-all deployment — it's a worked example.

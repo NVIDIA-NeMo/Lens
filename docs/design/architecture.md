@@ -90,7 +90,7 @@ setup_telemetry(config, rank, world_size, resource_attributes)
   │
   ├─ elif is_export_rank:
   │     build_providers(config, rank, world_size, resource_attributes, ...)
-  │         ├─ imports SDK (first and only place)
+  │         ├─ imports SDK (primary SDK construction site)
   │         ├─ builds Resource with auto-detected + passed attributes
   │         ├─ builds TracerProvider (with optional RankAwareSampler)
   │         ├─ builds MeterProvider (with PeriodicExportingMetricReader)
@@ -116,7 +116,7 @@ with managed_span('step', 'train.step', iteration=42) as span:
   │     yield None
   │     return                        # [disabled path: no span created]
   │
-  ├─ tracer = tracer or get_tracer()
+  ├─ tracer = tracer or trace.get_tracer(__name__)   # default tracer name "nemo.lens.helpers"
   ├─ span = tracer.start_span('train.step')
   ├─ safe_set_span_attributes(span, {'iteration': 42})
   ├─ token = context.attach(set_span_in_context(span))
@@ -140,9 +140,9 @@ The hot path when disabled is three Python statements: lookup, compare, yield `N
 
 **Config separated from providers** — `config.py` has no dependency on OTel SDK. A consumer can construct and validate `NemoLensConfig` in a process that doesn't have the SDK installed, then decide whether to initialise telemetry.
 
-**Lazy SDK imports** — `providers.py` is the only module that imports `opentelemetry.sdk.*`. Non-exporting ranks never execute `providers.py`, so they never incur the SDK import cost. On a large-rank job where most ranks don't export, avoiding that import on every non-exporting rank adds up.
+**Lazy SDK imports** — `providers.py` is the primary home for `opentelemetry.sdk.*` construction (a few other modules, such as `sampling.py` and `logging_bridge.py`, import the SDK lazily inside function bodies). Non-exporting ranks never execute `build_providers`, so they never incur the SDK import cost. On a large-rank job where most ranks don't export, avoiding that import on every non-exporting rank adds up.
 
-**Public API minimal** — `__init__.py` exports 17 symbols. Everything else is internal. Consumers can rely on the `__all__` list; we can refactor internals freely.
+**Public API minimal** — `__init__.py` exports only the documented public surface (the entries in `__all__`). Everything else is internal. Consumers can rely on the `__all__` list; we can refactor internals freely.
 
 ## Thread safety
 

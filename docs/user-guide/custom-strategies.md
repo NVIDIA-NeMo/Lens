@@ -4,7 +4,7 @@ Lens picks which ranks export by name: `NemoLensConfig.export_strategy` selects 
 
 ## Built-in strategies
 
-Registered automatically at import time and exposed as the frozenset `nemo.lens.strategies.BUILTIN_STRATEGIES`:
+Registered automatically at import time and exposed as the frozenset `nemo.lens.strategies.BUILTIN_STRATEGIES` (this symbol lives on the submodule and is not a top-level `nemo.lens` export, so import it as `from nemo.lens.strategies import BUILTIN_STRATEGIES`):
 
 - `single_rank` (default) — one rank exports (`config.export_rank`, `-1` means the last rank).
 - `all_ranks` — every rank exports.
@@ -59,7 +59,7 @@ Notes:
 
 - Register **before** `setup_telemetry`. Validation is lazy: unknown names raise `ValueError` at `setup_telemetry` time, not at `NemoLensConfig` construction.
 - The registry is process-wide. Call `register_export_strategy` exactly once per process (typically near your import-time setup).
-- Pass `allow_override=True` only when you intentionally replace an existing entry. Built-ins additionally refuse silent replacement.
+- `allow_override` is **keyword-only**. Pass `allow_override=True` only when you intentionally replace an existing entry — without it, re-registering an already-registered name raises `ValueError` (an empty `name` also raises `ValueError`). Built-ins can only be replaced with `allow_override=True`, and can never be unregistered.
 
 ## Strategy callable signature
 
@@ -83,6 +83,8 @@ unregister_export_strategy("first_two_ranks")
 ```
 
 `registered_strategies()` returns a sorted list of every name currently in the registry. `unregister_export_strategy(name)` removes a custom entry; it raises `ValueError` if `name` refers to a built-in or is not registered.
+
+`register_export_strategy`, `registered_strategies`, `unregister_export_strategy`, and `ExportStrategy` are top-level exports (`from nemo.lens import ...`). The lower-level `get_export_strategy(name)` lookup, like `BUILTIN_STRATEGIES`, is **not** a top-level export — import it from `nemo.lens.strategies`.
 
 ## Why this API
 

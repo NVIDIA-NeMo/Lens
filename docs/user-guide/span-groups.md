@@ -52,7 +52,7 @@ Presets are **per-subclass**: `MegatronSpanGroup.ALL_GROUPS` contains more than 
 ```bash
 NEMO_LENS_SPAN_GROUPS=default                  # just default preset
 NEMO_LENS_SPAN_GROUPS=per_step                 # per_step preset
-NEMO_LENS_SPAN_GROUPS=default,microbatch       # default + one extra group
+NEMO_LENS_SPAN_GROUPS=default,step             # default + one extra group
 NEMO_LENS_SPAN_GROUPS=step,optimizer,checkpoint # individual groups only
 NEMO_LENS_SPAN_GROUPS=all                      # everything
 ```
@@ -73,6 +73,8 @@ set_enabled_span_groups(frozenset(['job', 'step']))
 ```
 
 The read path (`is_span_group_enabled`) is lock-free and safe to call from any thread. The write path (`set_enabled_span_groups`) is lock-protected and typically called once by `setup_telemetry`.
+
+`set_enabled_span_groups` is also a top-level public export (`from nemo.lens import set_enabled_span_groups`), letting you override the active groups at runtime without reaching into `nemo.lens.state`.
 
 ## Extending: library-specific subclasses
 
@@ -119,5 +121,5 @@ cfg = NemoLensConfig.from_env(
 ## Design notes
 
 - Groups are **runtime knobs**, not compile-time. Toggling an env var and restarting is the full configuration workflow — no code changes needed.
-- Groups are **orthogonal** to sampling (`OTEL_TRACES_SAMPLER`) and export strategy. You can combine: enable `per_step` groups, sample 10% of traces, export from one rank only.
+- Groups are **orthogonal** to rank sampling (`NEMO_LENS_SAMPLER_ENABLED` / `NEMO_LENS_EXPORT_SAMPLE_RATE`) and export strategy (`NEMO_LENS_EXPORT_STRATEGY`). You can combine: enable `per_step` groups, sample 10% of ranks, export from one rank only.
 - Groups are a **coarse filter**. For fine-grained control (e.g. "trace only iterations where loss > threshold"), add a runtime check inside your instrumented code — `is_span_group_enabled` is just one signal.

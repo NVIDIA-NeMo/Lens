@@ -1,6 +1,6 @@
 # Testing
 
-The lens test suite is small and focused. 148 tests cover every public API, with a strong emphasis on:
+The lens test suite is small and focused. Over 180 tests cover every public API, with a strong emphasis on:
 
 - **State isolation** — tests that touch global OTel state reset it before and after.
 - **No-op equivalence** — `fallbacks.py` behaviour must match the real API.
@@ -16,7 +16,7 @@ pytest
 pytest tests/test_helpers.py
 
 # Single test
-pytest tests/test_helpers.py::TestManagedSpan::test_creates_span_when_group_enabled
+pytest tests/test_helpers.py::TestManagedSpan::test_enabled_group_creates_span
 
 # With coverage
 pytest --cov=nemo.lens --cov-report=term-missing
@@ -34,6 +34,7 @@ tests/
 ├── test_handle.py                  — setup_telemetry, TelemetryHandle, double-init guard
 ├── test_providers.py               — build_providers, custom exporters
 ├── test_sampling_integration.py    — RankAwareSampler, integration with TracerProvider
+├── test_strategies.py              — register/unregister/registered export strategies
 ├── test_distributed.py             — broadcast_trace_context, create_linked_span
 ├── test_propagation.py             — inject_context, extract_context
 ├── test_resources.py               — SLURM, K8s, local detection
@@ -46,7 +47,7 @@ tests/
 
 OTel SDK stores providers globally (`trace._TRACER_PROVIDER`, `metrics._METER_PROVIDER`). Lens stores enabled span groups globally. Tests that touch these must reset between runs, or test 2 inherits test 1's state.
 
-`conftest.py` has two `autouse` fixtures:
+`conftest.py` has three `autouse` fixtures:
 
 ```python
 @pytest.fixture(autouse=True)
@@ -64,7 +65,23 @@ def reset_span_groups():
     set_pp_trace_carrier(None)
 ```
 
-`_reset_otel_globals()` resets four pieces of state:
+Because `reset_span_groups` clears the enabled set before every test, a test that needs a group active must opt in explicitly — `set_enabled_span_groups(...)` (a top-level export from `nemo.lens`) is the escape hatch for enabling groups inside a test.
+
+A third autouse fixture, `reset_strategy_registry`, snapshots `nemo.lens.strategies._REGISTRY` (under `_REGISTRY_LOCK`) before each test and restores it afterward, so custom export strategies registered via `register_export_strategy` do not leak between tests:
+
+```python
+@pytest.fixture(autouse=True)
+def reset_strategy_registry():
+    from nemo.lens.strategies import _REGISTRY, _REGISTRY_LOCK
+    with _REGISTRY_LOCK:
+        snapshot = dict(_REGISTRY)
+    yield
+    with _REGISTRY_LOCK:
+        _REGISTRY.clear()
+        _REGISTRY.update(snapshot)
+```
+
+`_reset_otel_globals()` resets five pieces of state:
 
 ```python
 _trace_mod._TRACER_PROVIDER = None
@@ -82,7 +99,7 @@ Tests that assert on span content use `InMemorySpanExporter` (shipped in `confte
 
 ```python
 def test_my_instrumentation():
-    from conftest import InMemorySpanExporter
+    from tests.conftest import InMemorySpanExporter
     exporter = InMemorySpanExporter()
 
     cfg = NemoLensConfig(enabled=True, exporter="console")
@@ -123,6 +140,7 @@ Tests that legitimately need to call `setup_telemetry` multiple times in one tes
 
 ```python
 def test_all_ranks_export():
+    cfg = NemoLensConfig(enabled=True, export_strategy="all_ranks", exporter="console")
     for rank in range(4):
         handle = setup_telemetry(cfg, rank=rank, world_size=4, _allow_reinit=True)
         assert handle.is_exporting
@@ -153,7 +171,7 @@ ruff check src tests --fix
 ruff format src tests
 ```
 
-Pre-commit runs both. CI rejects PRs that fail either.
+Pre-commit runs both (the `ruff` and `ruff-format` hooks in `.pre-commit-config.yaml`). CI runs `pre-commit run --all-files` and rejects PRs that fail it.
 
 ## What's NOT tested
 

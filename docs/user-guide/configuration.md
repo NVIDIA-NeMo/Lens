@@ -77,6 +77,8 @@ Controls which ranks send telemetry to the collector. Three strategies are avail
 |---|---|---|
 | `exporter` | `"otlp"` | `"otlp"` (gRPC, falls back to HTTP) or `"console"` (stdout, for local debugging). |
 
+With `exporter="console"` (env `NEMO_LENS_EXPORTER=console`), lens uses the SDK's `ConsoleSpanExporter` / `ConsoleMetricExporter`, which print spans and metrics to stdout. Any value other than `"otlp"` or `"console"` raises `ValueError("Unknown exporter type: ...")` when providers are built.
+
 ### Identification
 
 | Field | Default | Description |
@@ -93,7 +95,7 @@ Controls which ranks send telemetry to the collector. Three strategies are avail
 
 ## Environment variables
 
-All config fields have a corresponding env var under the configured prefix. Using `NEMO_LENS` as the prefix:
+Most config fields have a corresponding `<PREFIX>_<KEY>` env var. Three are exceptions that bypass the prefix/fallback model entirely: `service_name` reads bare `OTEL_SERVICE_NAME`, and `wandb_entity`/`wandb_project` read bare `WANDB_ENTITY`/`WANDB_PROJECT` (no prefix or fallback). Note also that the `user` field's env var is `<PREFIX>_USER_ID` (e.g. `NEMO_LENS_USER_ID`), not `_USER`. Using `NEMO_LENS` as the prefix:
 
 | Variable | Field |
 |---|---|
@@ -116,7 +118,7 @@ Boolean parsing accepts: `1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off` (case-i
 
 ## Standard OTel SDK variables
 
-Standard OTel SDK env vars are honoured automatically by the SDK — no special handling in lens:
+Standard OTel SDK env vars are honoured — most are read by the SDK directly, but a few are consumed by lens's provider-building code: `OTEL_EXPORTER_OTLP_PROTOCOL` (and the signal-specific `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_PROTOCOL`, which wins; default `grpc`) selects the OTLP transport, and `OTEL_METRIC_EXPORT_INTERVAL` (default `10000` ms) sets the metric reader's export interval:
 
 | Variable | Example |
 |---|---|
@@ -129,6 +131,8 @@ Standard OTel SDK env vars are honoured automatically by the SDK — no special 
 | `OTEL_METRIC_EXPORT_INTERVAL` | `10000` (ms) |
 | `OTEL_SDK_DISABLED` | `true` |
 
+In addition, `build_providers` reads the non-prefixed `DEPLOYMENT_ENV` (falling back to `ENVIRONMENT`) and, when set, emits it as the `deployment.environment` resource attribute.
+
 ## setup_telemetry signature
 
 ```python
@@ -139,6 +143,7 @@ setup_telemetry(
     resource_attributes: dict | None = None,
     span_exporter=None,
     metric_reader=None,
+    export_strategy: ExportStrategy | None = None,
     _allow_reinit: bool = False,
 ) -> TelemetryHandle
 ```
@@ -150,8 +155,13 @@ setup_telemetry(
 | `resource_attributes` | Extra attributes to merge into the OTel `Resource` (become Jaeger "Process" tags). |
 | `span_exporter` | Optional custom `SpanExporter`, bypasses config-based construction. See [Custom Exporters](custom-exporters.md). |
 | `metric_reader` | Optional custom `MetricReader`, bypasses config-based construction. |
+| `export_strategy` | Optional callable `(config, rank, world_size) -> bool` that bypasses the registry-based strategy dispatch (per-call override, no global registration needed). See [Custom Strategies](custom-strategies.md). |
 | `_allow_reinit` | Escape hatch for testing only — bypasses the [double-init guard](../design/double-init-guard.md). |
 
-Returns a `TelemetryHandle` with `.tracer`, `.meter`, `.is_exporting`, and `.shutdown()`.
+Returns a `TelemetryHandle` exposing:
+
+- `.tracer` / `.meter` — read-only properties holding the OTel tracer and meter (no-op objects on non-exporting ranks).
+- `.is_exporting` — `bool` indicating whether this rank built real exporting providers.
+- `.shutdown(timeout_ms=5000)` — force-flushes and shuts down both the tracer and meter providers.
 
 **Call once per process.** A second call with `config.enabled=True` raises `RuntimeError`. See [Double-Init Guard](../design/double-init-guard.md) for rationale.

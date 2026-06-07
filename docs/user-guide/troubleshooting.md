@@ -48,10 +48,11 @@ See [Sampling](sampling.md) for how to change which rank(s) export.
 
 ### Wrong OTLP protocol
 
-If you only have `opentelemetry-exporter-otlp-proto-http` installed (not `...-grpc`), the SDK will not silently fall back — span export fails. Set the protocol explicitly:
+lens's exporter builder falls back between gRPC and HTTP automatically (it tries the protocol you ask for, then the other), and `nemo-lens[sdk]` installs both exporter packages — so a missing exporter package is rarely the issue. The real failure mode is a protocol/endpoint mismatch: lens defaults to gRPC on port 4317, but your collector may only listen for HTTP on 4318 (or vice-versa). Match lens to the collector's listener:
 
 ```bash
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://collector.internal:4318
 ```
 
 ### Verify locally first
@@ -104,7 +105,7 @@ You instrumented a site with `managed_span('my_group', ...)` and nothing exports
 
 ### `my_group` isn't in the enabled set
 
-`default` includes only `job`, `checkpoint`, and `evaluate`. Groups like `step`, `microbatch`, `forward_backward` live in `per_step` or `all`. Check what's enabled:
+The base `default` preset includes only `job`, `checkpoint`, and `evaluate`, but consumer subclasses extend it — Megatron's `default` adds `inference`, Gym's adds `server` (RL's matches the base). The authoritative set is the `_PRESETS`/`ALL_GROUPS` of the `SpanGroup` subclass you pass to `from_env(span_group_cls=...)`. Groups like `step`, `microbatch`, `forward_backward` live in `per_step` or `all`. Check what's enabled:
 
 ```python
 from nemo.lens.state import is_span_group_enabled
@@ -139,7 +140,7 @@ The application exports OTLP; the collector converts that into the Prometheus-fo
 
 ### SDK-appended unit suffixes
 
-The OTel SDK appends units to metric names when it has them. `megatron.training.loss` becomes `megatron_training_loss` (dots → underscores); duration metrics ending in `_ms` may get `_milliseconds` appended. Use the Prometheus metric browser to find the exact name rather than guessing.
+The OTel SDK appends units to metric names when it has them. A metric like `rl.reward.mean` becomes `rl_reward_mean` (dots → underscores); duration metrics ending in `_ms` (e.g. `gym.server.request_duration_ms`) may get `_milliseconds` appended. Use the Prometheus metric browser to find the exact name rather than guessing.
 
 ## Tracing is slow or blocking my training loop
 
