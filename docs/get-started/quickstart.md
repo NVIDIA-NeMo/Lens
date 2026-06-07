@@ -7,7 +7,7 @@ Instrument a minimal script in three steps.
 ```bash
 export NEMO_LENS_ENABLED=1
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317   # where your collector listens
-export NEMO_LENS_SPAN_GROUPS=default                         # coarse-grained; safe for production
+export NEMO_LENS_SPAN_GROUPS=per_step                        # adds per-step boundaries (step/forward_backward/optimizer)
 ```
 
 ## 2. Initialize telemetry
@@ -39,12 +39,12 @@ with managed_span('step', 'train.step', iteration=42) as span:
         span.set_attribute('loss', compute_loss())
 
 # Group-gated decorator — no re-indentation
-@trace_fn('microbatch', 'train.microbatch.forward')
+@trace_fn('forward_backward', 'train.forward_backward')
 def forward_pass(batch):
     ...
 
 # Simple ungated context manager — always creates a span
-with span_cm('evaluate', tracer=handle.tracer):
+with span_cm('demo.evaluate', tracer=handle.tracer):
     ...
 ```
 

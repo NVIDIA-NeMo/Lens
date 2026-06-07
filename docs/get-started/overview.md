@@ -4,7 +4,7 @@
 
 ## What it is
 
-A thin, well-tested library that wraps the OpenTelemetry Python SDK with:
+A thin, well-tested library built on OpenTelemetry (API required, SDK optional) that provides:
 
 - A unified configuration object (`NemoLensConfig`) with prefix/fallback env var support
 - Three instrumentation primitives designed for hot paths: `managed_span`, `trace_fn`, `span_cm`

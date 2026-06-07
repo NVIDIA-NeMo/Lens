@@ -35,7 +35,7 @@ class NemoLensConfig:
     #: Human-readable service name for the OTLP backend.
     service_name: str = "nemo"
 
-    #: Export strategy: ``"all_ranks"``, ``"sampled"``, ``"single_rank"``.
+    #: Export strategy: ``"all_ranks"``, ``"sampled"``, ``"single_rank"``, ``"first_rank_per_node"``.
     export_strategy: str = "single_rank"
 
     #: For ``single_rank``: which rank exports (-1 = last rank).

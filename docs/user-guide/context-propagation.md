@@ -11,7 +11,7 @@ from nemo.lens import inject_context
 
 headers = {}
 inject_context(headers)
-# headers == {'traceparent': '00-<trace_id>-<span_id>-01', 'tracestate': '...', ...}
+# headers == {'traceparent': '00-<trace_id>-<span_id>-01'}  # plus 'tracestate'/'baggage' only if present
 
 await http_client.post(url, headers=headers, json=body)
 ```

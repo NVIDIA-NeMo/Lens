@@ -254,7 +254,7 @@ export NEMO_LENS_ENABLED=1
 ```
 
 - **`x-honeycomb-team`**: your ingest API key. Find it in the Honeycomb UI under **Environment settings → API Keys**.
-- **`x-honeycomb-dataset`**: dataset name. Required for metrics; strongly recommended for traces and logs. Pick anything meaningful; Honeycomb auto-creates the dataset on first write.
+- **`x-honeycomb-dataset`**: dataset name. Required for metrics; optional but recommended for traces and logs. Pick anything meaningful; Honeycomb auto-creates the dataset on first write.
 - **`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`**: Honeycomb supports both gRPC and HTTP, but HTTP is more forgiving behind load balancers. Default to HTTP unless you have a reason otherwise.
 
 Lens honours `OTEL_EXPORTER_OTLP_PROTOCOL` (and the signal-specific variants `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL`) when picking between gRPC and HTTP exporters, so this works without code changes.
@@ -371,6 +371,8 @@ docker run --rm \
   --config=/etc/otel-collector.yaml
 ```
 
+This is a generic standalone example. The repo's bundled configs live under `observability/` and are mounted at `/etc/otel/collector*.yaml` by `docker-compose.otel.yml` (selected via the `--config` line) — adjust the path if you copy from there.
+
 On a cluster, deploy as a sidecar, DaemonSet, or shared service. Typical patterns:
 
 - **Sidecar**: one Collector per application pod. Low latency, isolated failure domain.
@@ -469,7 +471,7 @@ The `tail_sampling` processor is the standard tool. See the full [tail sampling 
 
 - **Backpressure**: if a backend is slow, the Collector buffers. Configure `sending_queue` limits to cap memory.
 - **TLS**: enable TLS between SDK and Collector, and between Collector and backends, in any multi-tenant setup.
-- **Health checks**: Collector exposes `:13133/` by default. Monitor it.
+- **Health checks**: enable the `health_check` extension (as the bundled configs do) to expose `:13133/`. Monitor it.
 - **Version pinning**: the `opentelemetry-collector-contrib` image changes — pin to a version and upgrade deliberately.
 
 ### Debugging the Collector

@@ -4,14 +4,14 @@ Thanks for your interest in contributing to nemo-lens!
 
 ## Reporting Issues
 
-Bug reports, feature requests, and questions are tracked on the [GitHub issues page](https://github.com/NVIDIA-NeMo/lens/issues). Before opening a new issue, please search existing issues to avoid duplicates. When reporting a bug, include a minimal reproducer, the lens version, and the relevant environment variables (`NEMO_LENS_*`, `OTEL_*`).
+Bug reports, feature requests, and questions are tracked on the [GitHub issues page](https://github.com/NVIDIA-NeMo/Lens/issues). Before opening a new issue, please search existing issues to avoid duplicates. When reporting a bug, include a minimal reproducer, the lens version, and the relevant environment variables (`NEMO_LENS_*`, `OTEL_*`).
 
 ## Development Setup
 
 Requires Python 3.13+.
 
 ```bash
-git clone https://github.com/NVIDIA-NeMo/lens.git
+git clone https://github.com/NVIDIA-NeMo/Lens.git
 cd lens
 pip install -e '.[dev]'
 pre-commit install
@@ -48,6 +48,7 @@ ruff format src tests
 - Keep the no-op hot path cheap — don't introduce work before the span-group gate check.
 - Don't import from `opentelemetry.sdk.*` outside `providers.py`.
 - Changes to the public API in `src/nemo/lens/__init__.py` or `fallbacks.py` must keep the consumer fallback files in `Megatron-LM/`, `RL/`, and `Gym/` ... in lockstep.
+- The PR *title* must follow Conventional Commits (e.g. `feat: ...`, `fix: ...`, `docs: ...`, `ci: ...`). The "Validate PR title" CI check rejects non-conforming titles. Allowed type prefixes: `feat`, `fix`, `chore`, `docs`, `style`, `refactor`, `test`, `ci`, `build`, `perf`, `revert`.
 
 ## Signing Your Work
 

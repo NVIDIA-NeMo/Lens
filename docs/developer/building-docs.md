@@ -80,7 +80,7 @@ cd docs
 make linkcheck
 ```
 
-Sphinx walks every external URL and reports broken ones. GitHub links are excluded (they rate-limit in CI). Output lands in `_build/linkcheck/output.txt`.
+Sphinx walks every external URL and reports broken ones. Output lands in `_build/linkcheck/output.txt`.
 
 ### Clean rebuild
 
@@ -168,12 +168,7 @@ Your source file has a syntax error, or an import in `src/nemo/lens/` that can't
 
 ## CI
 
-The docs are not currently built in CI. When that's added, the expected command will be:
-
-```bash
-pip install --group docs -e .
-cd docs && make html
-```
+The docs are built in CI by `.github/workflows/build-docs.yml`. It runs on every push to `main`, on `pull-request/[0-9]+` branches, and on every pull request. The job delegates to the shared reusable workflow `NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_docs.yml@v0.67.0`, which encapsulates the install and Sphinx build steps (so the exact commands are defined in that template, not in this repo).
 
 A CI failure would indicate:
 
@@ -206,4 +201,4 @@ cd docs && make clean && make html && make linkcheck
 # then deploy _build/html/ to the target
 ```
 
-The `conf.py` already includes theme config (icon links, version switcher scaffold) to support a versioned published site.
+The `conf.py` already includes theme config (a GitHub icon link via `html_theme_options["icon_links"]`) toward a published site; a version switcher would still need to be added.

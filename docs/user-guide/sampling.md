@@ -67,6 +67,8 @@ NEMO_LENS_EXPORT_SAMPLE_RATE=0.1
 Or programmatically:
 
 ```python
+from nemo.lens import NemoLensConfig
+
 cfg = NemoLensConfig(
     enabled=True,
     sampler_enabled=True,
@@ -77,8 +79,9 @@ cfg = NemoLensConfig(
 ### Behaviour
 
 - Decision is **per-rank**, not per-span: once a rank is sampled, *all* its spans export; otherwise *none* do.
-- Deterministic: same rank + rate → same decision.
+- Deterministic: same rank + rate → same decision. The decision is a hash of the rank (`md5(rank)`) compared against `export_sample_rate`; `world_size` is passed to the sampler but is not used in the decision.
 - Composes with export strategy: `all_ranks` + `sampler_enabled=1` gives uniform random rank sampling at SDK level.
+- Without the OTel SDK installed, `should_sample` returns a bare bool instead of a `SamplingResult`, preserving the API for non-SDK callers.
 
 ### When to use it vs export strategy
 

@@ -53,9 +53,8 @@ class MegatronSpanGroup(SpanGroup):
     # existing Megatron groups...
     MY_NEW_GROUP = "my_new_group"
 
-    ALL_GROUPS: Final[frozenset] = frozenset([
-        *SpanGroup.ALL_GROUPS,
-        MICROBATCH, COMMUNICATION, ACTIVATION_OFFLOAD, DATA_LOADING, INFERENCE,
+    ALL_GROUPS: Final[frozenset] = SpanGroup.ALL_GROUPS | frozenset([
+        MICROBATCH, LAYER, COMMUNICATION, ACTIVATION_OFFLOAD, DATA_LOADING, INFERENCE,
         MY_NEW_GROUP,
     ])
 
@@ -71,7 +70,7 @@ class MegatronSpanGroup(SpanGroup):
 Checklist:
 
 - [ ] Constant added to the subclass.
-- [ ] Constant added to the subclass's `ALL_GROUPS` (inheriting base via unpacking).
+- [ ] Constant added to the subclass's `ALL_GROUPS` (inheriting base via set union).
 - [ ] Constant added to the appropriate subclass presets.
 - [ ] Instrumentation added in the consumer source tree.
 - [ ] Entry added to the consumer's observability docs (e.g. `Megatron-LM/docs/user-guide/observability/span-groups.md`).

@@ -29,7 +29,7 @@ The instrumented code then uses the aliased names. When lens is installed → re
 
 Lens ships `nemo.lens.fallbacks` with canonical no-op implementations of every consumer-facing function:
 
-- `trace_fn(group, name)` → decorator that returns the function unchanged
+- `trace_fn(group, name, tracer=None)` → decorator that returns the function unchanged
 - `managed_span(group, name, **kwargs)` → context manager yielding `None`
 - `span_cm(name, **kwargs)` → context manager yielding `None`
 - `is_span_group_enabled(group)` → always `False`

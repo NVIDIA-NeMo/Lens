@@ -2,13 +2,17 @@
 
 Lens ships opinionated metric instruments under `nemo.lens.instruments` for common observability needs: GenAI inference, RL training, and Gym servers. Training-specific metrics (e.g. `megatron.training.loss`) live in the consumer project — they are not generic.
 
+Import each record function from its submodule, e.g. `from nemo.lens.instruments.rl import record_rl_metrics`. Only `record_inference_metrics` is also re-exported at the package level (`from nemo.lens.instruments import record_inference_metrics`); the RL and Gym functions are available only via their submodules.
+
+The `meter` argument is the OTel `Meter` to record on. You can use `handle.meter` from `setup_telemetry()`, or grab one directly with `get_meter(name="nemo.lens")` (`from nemo.lens import get_meter`).
+
 ## Architecture
 
 Each module under `instruments/` follows the same pattern:
 
 - A module-level `WeakKeyDictionary` caches instruments per `Meter`, so re-initialising the meter doesn't leak memory.
 - A `_get_*_instruments(meter)` helper creates (and caches) all instruments for a meter on first call.
-- A `record_*_metrics(meter, ...)` function takes optional keyword arguments and records only the ones that are not `None`.
+- A `record_*_metrics(meter, ...)` function takes a required `meter` plus optional per-metric arguments (best passed by keyword) and records only the ones that are not `None`.
 
 This means callers can record partial data without conditional logic:
 
@@ -119,7 +123,7 @@ def _get_instruments(meter: metrics.Meter) -> dict:
         _INSTRUMENTS[meter] = instruments
     return instruments
 
-def record_my_metrics(meter, *, latency_ms=None, queue_depth=None):
+def record_my_metrics(meter, latency_ms=None, queue_depth=None):
     i = _get_instruments(meter)
     if latency_ms is not None:
         i["latency"].record(latency_ms)

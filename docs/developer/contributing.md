@@ -25,11 +25,11 @@ ruff check src tests --fix
 ruff format src tests
 ```
 
-Pre-commit does both automatically on staged files.
+Pre-commit does both automatically on staged files. CI enforces linting via `pre-commit run --all-files` (ruff is pinned to v0.11.5 in `.pre-commit-config.yaml`), so running `pre-commit run --all-files` locally is the authoritative check — direct `ruff` is for convenience and may use a different ruff version.
 
 ## Heavy imports stay deferred
 
-`opentelemetry-sdk` and related packages are expensive to import. Import them **inside** functions that actually need them, not at module level. `providers.py` is the only place the SDK is imported, and even there the imports happen inside `build_providers()` not at the top of the file.
+`opentelemetry-sdk` and related packages are expensive to import. Every `opentelemetry.sdk.*` import must be deferred **inside** the function that needs it, never at module top level. Most SDK imports live in `providers.py` (spread across `build_providers()` and the `_build_*_exporter` / `_setup_log_provider` helpers), but `sampling.py` and `logging_bridge.py` also import the SDK lazily inside their functions.
 
 This keeps `import nemo.lens` cheap — important for consumers that may import lens just to reach its fallbacks.
 
@@ -107,7 +107,8 @@ For such changes, coordinate with the consumer repos (feature branches, paired P
 ## PR checklist
 
 - [ ] Tests added and passing (`pytest -v`)
-- [ ] Ruff clean (`ruff check src tests && ruff format --check src tests`)
+- [ ] PR title follows the conventional-commits / semantic format (enforced by the `Validate PR title` CI check, e.g. `feat: ...`, `fix: ...`, `docs: ...`)
+- [ ] Lint clean (`pre-commit run --all-files`)
 - [ ] Public API changes mirrored in `fallbacks.py` if applicable
 - [ ] Docstrings updated for changed signatures
 - [ ] User-guide page added or updated if the change is user-visible

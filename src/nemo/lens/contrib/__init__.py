@@ -13,4 +13,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Contrib modules: integration helpers for FastAPI, Ray, and NCCL."""
+"""Contrib modules: integration helpers for FastAPI, aiohttp, Ray, and NCCL."""
