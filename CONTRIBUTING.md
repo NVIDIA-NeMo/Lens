@@ -46,7 +46,7 @@ ruff format src tests
 
 - Follow existing conventions in the file and module you're touching.
 - Keep the no-op hot path cheap — don't introduce work before the span-group gate check.
-- Don't import from `opentelemetry.sdk.*` outside `providers.py`.
+- Keep `opentelemetry.sdk.*` imports function-local (never at module top level), concentrated in `providers.py`, so `import nemo.lens` stays SDK-free.
 - Changes to the public API in `src/nemo/lens/__init__.py` or `fallbacks.py` must keep the consumer fallback files in `Megatron-LM/`, `RL/`, and `Gym/` ... in lockstep.
 - The PR *title* must follow Conventional Commits (e.g. `feat: ...`, `fix: ...`, `docs: ...`, `ci: ...`). The "Validate PR title" CI check rejects non-conforming titles. Allowed type prefixes: `feat`, `fix`, `chore`, `docs`, `style`, `refactor`, `test`, `ci`, `build`, `perf`, `revert`.
 
