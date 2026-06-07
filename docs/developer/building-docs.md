@@ -13,16 +13,16 @@ The docs use:
 - **sphinx-copybutton** — copy-to-clipboard button on code blocks
 - **sphinx-autobuild** — live reload during development
 
-All of these are declared as the `[docs]` extra in `pyproject.toml`.
+All of these are declared in the `[dependency-groups].docs` section of `pyproject.toml` (PEP 735).
 
 ## Install
 
 ```bash
 cd lens
-pip install -e '.[docs]'
+pip install --group docs -e .
 ```
 
-This installs lens in editable mode plus all Sphinx dependencies. You only need to run this once (or after pulling changes to `pyproject.toml`).
+This installs lens in editable mode plus all Sphinx dependencies. You only need to run this once (or after pulling changes to `pyproject.toml`). Requires pip 25.1+; with `uv`, use `uv pip install --group docs -e .`.
 
 ## Build commands
 
@@ -171,7 +171,7 @@ Your source file has a syntax error, or an import in `src/nemo/lens/` that can't
 The docs are not currently built in CI. When that's added, the expected command will be:
 
 ```bash
-pip install -e '.[docs]'
+pip install --group docs -e .
 cd docs && make html
 ```
 
