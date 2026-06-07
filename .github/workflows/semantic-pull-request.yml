@@ -22,12 +22,6 @@ on:
       - edited
       - synchronize
       - reopened
-  pull_request:
-    types:
-      - opened
-      - edited
-      - synchronize
-      - reopened
 
 defaults:
   run:
