@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Build wheel (dry-run)
+name: Build wheel
 
 on:
   push:
@@ -22,20 +22,43 @@ on:
       - "r**"
   pull_request:
 
-defaults:
-  run:
-    shell: bash -x -e -u -o pipefail {0}
+permissions:
+  contents: read
 
 jobs:
-  build-test-publish-wheel:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.55.0
-    with:
-      dry-run: true
-      python-package: nemo_lens
-      python-version: "3.13"
-      packaging: uv
-    secrets:
-      TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-      TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-      SLACK_WEBHOOK: ${{ secrets.SLACK_RELEASE_ENDPOINT }}
-      SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
+  build:
+    name: Build & verify wheel
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # versioningit needs full history + tags
+
+      - name: Install uv
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends curl ca-certificates
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Build wheel and sdist
+        run: |
+          uv build
+
+      - name: Validate distributions with twine
+        run: |
+          uv tool run twine check dist/*
+
+      - name: Install wheel and import smoke test
+        run: |
+          uv venv .venv-install --python 3.13
+          source .venv-install/bin/activate
+          uv pip install dist/*.whl
+          python -c "import nemo.lens; print('nemo.lens version:', nemo.lens.__version__ if hasattr(nemo.lens, '__version__') else '(no __version__)')"
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7

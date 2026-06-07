@@ -7,10 +7,11 @@ A scratchpad of scenarios to validate every workflow on the CI-test branch befor
 [v] PR title validation
 [v] copyright check
 [v] secret detection
+[v] building docs
 
-[] building docs
 [] PR semantics has two
 [] Build wheel has 3 ?
+
 [] DCO
 
 Conventions:
