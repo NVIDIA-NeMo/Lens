@@ -1,5 +1,7 @@
 # nemo-lens
 
+> **Early development:** This library is under active development. Expect breaking changes between releases.
+
 Shared OpenTelemetry instrumentation library for the NVIDIA NeMo ecosystem (Megatron-LM, NeMo-RL, NeMo-Gym).
 
 Provides unified tracing, metrics, and log bridging across distributed training jobs. Cheap when disabled — group-gated calls (`managed_span`, `@trace_fn`) cost only a single `frozenset` lookup when their span group is off. `managed_span` then yields `None` (its body still runs); `@trace_fn` just calls the wrapped function. (`span_cm` is always-on and not gated.) Only `opentelemetry-api` (no-op) is required at import time; the full SDK loads only on exporting ranks.
