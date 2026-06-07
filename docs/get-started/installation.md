@@ -30,11 +30,11 @@ Each adds the relevant OTel instrumentation package. See [Contrib](../user-guide
 ```bash
 git clone <repo-url>
 cd lens
-pip install -e '.[dev]'
+pip install --group dev -e .
 pre-commit install
 ```
 
-The `[dev]` extra includes the SDK, pytest, pytest-cov, pre-commit, and ruff. See [Developer Guide](../developer/contributing.md).
+The `dev` dependency group includes the SDK, pytest, pytest-cov, pre-commit, and ruff. See [Developer Guide](../developer/contributing.md).
 
 ## Python support
 

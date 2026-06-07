@@ -5,11 +5,11 @@
 ```bash
 git clone <repo-url>
 cd lens
-pip install -e '.[dev]'
+pip install --group dev -e .
 pre-commit install
 ```
 
-The `[dev]` extra includes the OTel SDK, pytest, pytest-cov, pre-commit, and ruff.
+The `dev` dependency group includes the OTel SDK, pytest, pytest-cov, pre-commit, and ruff.
 
 ## Code style
 
