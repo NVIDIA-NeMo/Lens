@@ -13,7 +13,7 @@ Requires Python 3.13+.
 ```bash
 git clone https://github.com/NVIDIA-NeMo/lens.git
 cd lens
-pip install -e '.[dev]'
+pip install --group dev -e .
 pre-commit install
 ```
 

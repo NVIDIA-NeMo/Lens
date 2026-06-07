@@ -70,7 +70,7 @@ docker compose -f docker-compose.otel.yml up -d
 
 ```bash
 git clone <repo-url> && cd lens
-uv venv && uv pip install -e '.[dev]'
+uv venv && uv pip install -e . --group dev
 pre-commit install
 pytest
 ```
