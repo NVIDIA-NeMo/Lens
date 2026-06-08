@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "nemo-lens"
+abstract: "Shared OpenTelemetry instrumentation library for the NVIDIA NeMo ecosystem (Megatron-LM, NeMo-RL, NeMo-Gym ...). Provides unified tracing, metrics, and log bridging across distributed training and inference jobs."
+authors:
+  - name: "NVIDIA Corporation"
+license: Apache-2.0
+repository-code: "https://github.com/NVIDIA-NeMo/Lens"
+url: "https://github.com/NVIDIA-NeMo/Lens"
