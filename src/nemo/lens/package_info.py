@@ -35,7 +35,7 @@ if not int(_os.getenv("NO_VCS_VERSION", "0")):
             capture_output=True,
             cwd=_os.path.dirname(_os.path.abspath(__file__)),
             check=True,
-            universal_newlines=True,
+            text=True,
         )
     except (_subprocess.CalledProcessError, OSError):
         pass
