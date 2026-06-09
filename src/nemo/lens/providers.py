@@ -60,7 +60,7 @@ def build_providers(
     # ------------------------------------------------------------------
     # Resource
     # ------------------------------------------------------------------
-    from nemo.lens._version import __version__
+    from nemo.lens.package_info import __version__
 
     attrs = {
         "service.name": config.service_name,

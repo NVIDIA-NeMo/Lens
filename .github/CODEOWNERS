@@ -5,11 +5,12 @@
 *                          @ahmadki
 
 # CI and automation
-/.github/                  @ahmadki
+/.github/                  @nvidia-nemo/automation
 /.pre-commit-config.yaml   @ahmadki
 
 # Build / packaging
-/pyproject.toml            @ahmadki
+/pyproject.toml            @nvidia-nemo/automation
+/uv.lock                   @nvidia-nemo/automation
 
 # Docs
 /docs/                     @ahmadki

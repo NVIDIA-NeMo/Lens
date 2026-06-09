@@ -13,28 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Code linting
+name: Community Bot
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
-  workflow_call:
+  issues:
+    types: [opened, edited, reopened, closed, deleted]
+  issue_comment:
+    types: [created, edited, deleted]
 
 jobs:
-  lint-check:
-    name: Lint check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Run pre-commit
-        run: |
-          pip install pre-commit==3.6.0
-          pre-commit install
-          pre-commit run --all-files --show-diff-on-failure --color=always
+  community-bot:
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_community_bot.yml@v1.5.1
+    with:
+      community_project_id: ${{ vars.COMMUNITY_PROJECT_ID }}
+      app-id: ${{ vars.BOT_ID }}
+    secrets:
+      BOT_KEY: ${{ secrets.BOT_KEY }}
