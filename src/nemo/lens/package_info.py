@@ -50,4 +50,6 @@ __repository_url__ = "https://github.com/NVIDIA-NeMo/Lens"
 __download_url__ = "https://github.com/NVIDIA-NeMo/Lens/releases"
 __description__ = "NeMo Lens"
 __license__ = "Apache2"
-__keywords__ = "deep learning, machine learning, gpu, NLP, NeMo, Lens, nvidia, pytorch, torch, language"
+__keywords__ = (
+    "deep learning, machine learning, gpu, NLP, NeMo, Lens, nvidia, pytorch, torch, language"
+)
