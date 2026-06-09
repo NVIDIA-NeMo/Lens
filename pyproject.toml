@@ -7,11 +7,9 @@ name = "nemo-lens"
 dynamic = ["version"]
 description = "Shared OpenTelemetry library for NVIDIA NeMo ecosystem (Megatron-LM, NeMo-RL, NeMo-Gym)"
 readme = "README.md"
-license = "Apache-2.0"
+license = {file = "LICENSE"}
 requires-python = ">=3.13"
-authors = [
-    { name = "NVIDIA Corporation" },
-]
+authors = [{ name = "NVIDIA", email = "nemo-toolkit@nvidia.com" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -21,6 +19,9 @@ classifiers = [
 dependencies = [
     "opentelemetry-api>=1.20.0",
 ]
+
+[tool.setuptools.dynamic]
+version = { attr = "nemo.lens.package_info.__version__" }
 
 [project.optional-dependencies]
 sdk = [
@@ -56,6 +57,7 @@ docs = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["nemo.lens", "nemo.lens.*"]
 
 [tool.versioningit]
 default-version = "0.0.0"
@@ -97,3 +99,6 @@ known-first-party = ["nemo.lens"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv]
+managed = true
