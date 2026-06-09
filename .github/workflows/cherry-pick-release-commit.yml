@@ -13,15 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Build docs
+name: Create PR to main with cherry-pick from release
 
 on:
   push:
     branches:
       - main
-      - "pull-request/[0-9]+"
-  pull_request:
 
 jobs:
-  build-docs:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_docs.yml@v0.67.0
+  cherry-pick:
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cherry_pick.yml@v1.5.1
+    secrets:
+      PAT: ${{ secrets.PAT }}
+      SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
+      SLACK_WEBHOOK: ${{ secrets.SLACK_CI_CHANNEL_WEBHOOK }}
