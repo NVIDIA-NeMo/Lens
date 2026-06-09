@@ -61,7 +61,6 @@ Quick start
 from opentelemetry import metrics as _metrics_mod
 from opentelemetry import trace as _trace_mod
 
-from nemo.lens._version import __version__
 from nemo.lens.config import NemoLensConfig
 from nemo.lens.distributed import broadcast_trace_context, create_linked_span
 from nemo.lens.groups import SpanGroup
@@ -73,6 +72,15 @@ from nemo.lens.helpers import (
     safe_set_span_attributes,
     span_cm,
     trace_fn,
+)
+from nemo.lens.package_info import (
+    __contact_emails__,
+    __contact_names__,
+    __download_url__,
+    __homepage__,
+    __package_name__,
+    __repository_url__,
+    __version__,
 )
 from nemo.lens.propagation import extract_context, inject_context
 from nemo.lens.state import is_span_group_enabled, set_enabled_span_groups
@@ -96,6 +104,12 @@ def get_meter(name: str = "nemo.lens") -> _metrics_mod.Meter:
 
 __all__ = [
     "__version__",
+    "__package_name__",
+    "__contact_names__",
+    "__contact_emails__",
+    "__homepage__",
+    "__repository_url__",
+    "__download_url__",
     "NemoLensConfig",
     "SpanGroup",
     "TelemetryHandle",
