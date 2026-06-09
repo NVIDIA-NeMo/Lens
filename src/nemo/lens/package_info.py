@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
+from importlib.metadata import version as _dist_version
 import os as _os  # noqa: I001
 import subprocess as _subprocess
 
@@ -26,22 +28,30 @@ PRE_RELEASE = ""
 VERSION = (MAJOR, MINOR, PATCH, PRE_RELEASE)
 
 __shortversion__ = ".".join(map(str, VERSION[:3]))
-__version__ = ".".join(map(str, VERSION[:3])) + "".join(VERSION[3:])
+_BASE_VERSION = __shortversion__ + "".join(VERSION[3:])
 
 
-if not int(_os.getenv("NO_VCS_VERSION", "0")):
+def _source_tree_version() -> str:
+    if int(_os.getenv("NO_VCS_VERSION", "0")):
+        return _BASE_VERSION
+
     try:
-        _git = _subprocess.run(
+        git_sha = _subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             capture_output=True,
             cwd=_os.path.dirname(_os.path.abspath(__file__)),
             check=True,
             text=True,
-        )
+        ).stdout.strip()
     except (_subprocess.CalledProcessError, OSError):
-        pass
-    else:
-        __version__ += f"+{_git.stdout.strip()}"
+        return _BASE_VERSION
+    return f"{_BASE_VERSION}+{git_sha}"
+
+
+try:
+    __version__ = _dist_version("nemo-lens")
+except _PackageNotFoundError:
+    __version__ = _source_tree_version()
 
 __package_name__ = "nemo_lens"
 __contact_names__ = "NVIDIA"
