@@ -38,6 +38,14 @@ jobs:
   lint-check:
     name: Lint check
     runs-on: ubuntu-latest
+    needs: [pre-flight]
+    if: |
+      (
+        success()
+        || needs.pre-flight.outputs.is_ci_workload == 'true'
+        || needs.pre-flight.outputs.force_run_all == 'true'
+      )
+      && !cancelled()
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -56,6 +64,14 @@ jobs:
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    needs: [pre-flight]
+    if: |
+      (
+        success()
+        || needs.pre-flight.outputs.is_ci_workload == 'true'
+        || needs.pre-flight.outputs.force_run_all == 'true'
+      )
+      && !cancelled()
     strategy:
       fail-fast: false
       matrix:

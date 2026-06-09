@@ -102,7 +102,7 @@ jobs:
       has-src-dir: true
       skip-test-wheel: true
       app-id: ${{ vars.BOT_ID }}
-      publish-docs: ${{ inputs.publish-docs }}
+      publish-docs: ${{ inputs.publish-docs || false }}
       docs-target-path: nemo/lens
       submodules: recursive
       restrict-to-admins: true
