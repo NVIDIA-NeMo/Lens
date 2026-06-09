@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os as _os  # noqa: I001
+import subprocess as _subprocess
+
 
 MAJOR = 0
 MINOR = 1
@@ -23,9 +26,6 @@ VERSION = (MAJOR, MINOR, PATCH, PRE_RELEASE)
 
 __shortversion__ = ".".join(map(str, VERSION[:3]))
 __version__ = ".".join(map(str, VERSION[:3])) + "".join(VERSION[3:])
-
-import os as _os  # noqa: I001
-import subprocess as _subprocess
 
 
 if not int(_os.getenv("NO_VCS_VERSION", "0")):
