@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
-from importlib.metadata import version as _dist_version
 import os as _os  # noqa: I001
 import subprocess as _subprocess
+from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
+from importlib.metadata import version as _dist_version
 
 
 MAJOR = 0
