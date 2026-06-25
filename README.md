@@ -1,4 +1,13 @@
-# nemo-lens
+<div align="center">
+
+# NeMo Lens
+
+[![codecov](https://codecov.io/github/NVIDIA-NeMo/Lens/graph/badge.svg?token=16WHHLY0RA)](https://codecov.io/github/NVIDIA-NeMo/Lens)
+[![CICD NeMo Lens](https://github.com/NVIDIA-NeMo/Lens/actions/workflows/cicd-main.yml/badge.svg)](https://github.com/NVIDIA-NeMo/Lens/actions/workflows/cicd-main.yml)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/release/python-3130/)
+[![GitHub Stars](https://img.shields.io/github/stars/NVIDIA-NeMo/Lens.svg?style=social&label=Star&cacheSeconds=14400)](https://github.com/NVIDIA-NeMo/Lens/stargazers/)
+
+</div>
 
 > **Early development:** This library is under active development. Expect breaking changes between releases.
 
