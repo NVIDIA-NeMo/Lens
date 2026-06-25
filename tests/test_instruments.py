@@ -74,6 +74,30 @@ class TestRecordRLMetrics:
         ]
         assert "rl.kl_divergence" in metric_names
 
+    def test_records_all_metrics(self, meter_and_reader):
+        meter, reader = meter_and_reader
+        record_rl_metrics(
+            meter,
+            reward_mean=0.85,
+            kl_divergence=0.02,
+            policy_loss=0.3,
+            value_loss=0.4,
+            entropy=0.5,
+            response_length_mean=128.0,
+            generation_duration_ms=50.0,
+            rollout_duration_ms=100.0,
+        )
+        data = reader.get_metrics_data()
+        metric_names = [
+            m.name for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics
+        ]
+        assert "rl.policy_loss" in metric_names
+        assert "rl.value_loss" in metric_names
+        assert "rl.entropy" in metric_names
+        assert "rl.response_length.mean" in metric_names
+        assert "rl.generation.duration_ms" in metric_names
+        assert "rl.rollout.duration_ms" in metric_names
+
 
 class TestRecordGymMetrics:
     def test_records_server_duration(self, meter_and_reader):
@@ -84,3 +108,22 @@ class TestRecordGymMetrics:
             m.name for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics
         ]
         assert "gym.server.request_duration_ms" in metric_names
+
+    def test_records_all_metrics(self, meter_and_reader):
+        meter, reader = meter_and_reader
+        record_gym_metrics(
+            meter,
+            server_request_duration_ms=50.0,
+            rollout_duration_ms=75.0,
+            verify_duration_ms=25.0,
+            verify_success_rate=0.95,
+            active_servers=3,
+        )
+        data = reader.get_metrics_data()
+        metric_names = [
+            m.name for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics
+        ]
+        assert "gym.rollout.duration_ms" in metric_names
+        assert "gym.verify.duration_ms" in metric_names
+        assert "gym.verify.success_rate" in metric_names
+        assert "gym.servers.active" in metric_names
