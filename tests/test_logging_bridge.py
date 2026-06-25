@@ -23,6 +23,7 @@ from nemo.lens.logging_bridge import setup_logging_bridge
 
 
 def test_setup_logging_bridge_adds_handler_for_sdk_provider(monkeypatch):
+    """Verify the bridge attaches an OTel logging handler for SDK providers."""
     logs_module = types.ModuleType("opentelemetry._logs")
     sdk_logs_module = types.ModuleType("opentelemetry.sdk._logs")
 
@@ -54,6 +55,7 @@ def test_setup_logging_bridge_adds_handler_for_sdk_provider(monkeypatch):
 
 
 def test_setup_logging_bridge_skips_non_sdk_provider(monkeypatch):
+    """Verify non-SDK logger providers are ignored without adding handlers."""
     logs_module = types.ModuleType("opentelemetry._logs")
     sdk_logs_module = types.ModuleType("opentelemetry.sdk._logs")
 

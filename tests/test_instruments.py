@@ -27,6 +27,7 @@ from nemo.lens.instruments.rl import record_rl_metrics
 
 @pytest.fixture
 def meter_and_reader():
+    """Create an isolated in-memory metrics pipeline for each test."""
     reader = InMemoryMetricReader()
     provider = MeterProvider(metric_readers=[reader])
     metrics.set_meter_provider(provider)
@@ -75,6 +76,7 @@ class TestRecordRLMetrics:
         assert "rl.kl_divergence" in metric_names
 
     def test_records_all_metrics(self, meter_and_reader):
+        """Verify all optional RL metric inputs are recorded."""
         meter, reader = meter_and_reader
         record_rl_metrics(
             meter,
@@ -110,6 +112,7 @@ class TestRecordGymMetrics:
         assert "gym.server.request_duration_ms" in metric_names
 
     def test_records_all_metrics(self, meter_and_reader):
+        """Verify all optional Gym metric inputs are recorded."""
         meter, reader = meter_and_reader
         record_gym_metrics(
             meter,

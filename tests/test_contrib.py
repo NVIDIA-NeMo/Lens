@@ -31,6 +31,7 @@ from nemo.lens.contrib.ray import (
 
 
 def test_aiohttp_instrumentor_is_invoked(monkeypatch):
+    """Verify aiohttp instrumentation delegates to the optional OTel instrumentor."""
     calls = []
     module = types.ModuleType("opentelemetry.instrumentation.aiohttp_client")
 
@@ -47,6 +48,7 @@ def test_aiohttp_instrumentor_is_invoked(monkeypatch):
 
 
 def test_aiohttp_missing_dependency_raises_helpful_error(monkeypatch):
+    """Verify missing aiohttp instrumentation dependencies raise install guidance."""
     monkeypatch.setitem(sys.modules, "opentelemetry.instrumentation.aiohttp_client", None)
 
     with pytest.raises(ImportError, match="nemo-lens\\[aiohttp\\]"):
@@ -54,6 +56,7 @@ def test_aiohttp_missing_dependency_raises_helpful_error(monkeypatch):
 
 
 def test_fastapi_instrumentor_is_invoked(monkeypatch):
+    """Verify FastAPI instrumentation delegates to the optional OTel instrumentor."""
     calls = []
     module = types.ModuleType("opentelemetry.instrumentation.fastapi")
 
@@ -72,6 +75,7 @@ def test_fastapi_instrumentor_is_invoked(monkeypatch):
 
 
 def test_fastapi_missing_dependency_raises_helpful_error(monkeypatch):
+    """Verify missing FastAPI instrumentation dependencies raise install guidance."""
     monkeypatch.setitem(sys.modules, "opentelemetry.instrumentation.fastapi", None)
 
     with pytest.raises(ImportError, match="nemo-lens\\[fastapi\\]"):
@@ -79,6 +83,7 @@ def test_fastapi_missing_dependency_raises_helpful_error(monkeypatch):
 
 
 def test_ray_context_helpers_roundtrip():
+    """Verify Ray carrier helpers produce and extract usable OTel contexts."""
     carrier = inject_ray_context()
 
     assert isinstance(carrier, dict)
@@ -87,6 +92,7 @@ def test_ray_context_helpers_roundtrip():
 
 
 def test_traced_remote_call_preserves_wrapped_function_name():
+    """Verify traced Ray wrappers preserve metadata and call the wrapped function."""
     calls = []
 
     def work(value, scale=1):
@@ -101,6 +107,7 @@ def test_traced_remote_call_preserves_wrapped_function_name():
 
 
 def test_ray_dispatch_injects_context():
+    """Verify Ray dispatch adds trace context to the remote call kwargs."""
     class RemoteFunction:
         def __init__(self):
             self.call = None
