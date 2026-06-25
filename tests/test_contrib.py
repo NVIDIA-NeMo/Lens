@@ -108,6 +108,7 @@ def test_traced_remote_call_preserves_wrapped_function_name():
 
 def test_ray_dispatch_injects_context():
     """Verify Ray dispatch adds trace context to the remote call kwargs."""
+
     class RemoteFunction:
         def __init__(self):
             self.call = None
