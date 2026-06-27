@@ -77,18 +77,18 @@ Checklist:
 
 ## No Changes Needed in `fallbacks.py`
 
-`fallbacks.py` provides canonical no-ops for `managed_span`, `trace_fn`, `span_cm`, `is_span_group_enabled`, and `safe_set_span_attributes`. Group names are plain strings — when the no-op fallback is active, `is_span_group_enabled(group)` returns `False` regardless of the name. Adding a new group does not require touching the fallbacks.
+`fallbacks.py` provides canonical no-ops for `managed_span`, `trace_fn`, `span_cm`, `is_span_group_enabled`, and `safe_set_span_attributes`. Group names are plain strings. When the no-op fallback is active, `is_span_group_enabled(group)` returns `False` regardless of the name. Adding a new group does not require touching the fallbacks.
 
-## Naming conventions
+## Naming Conventions
 
 - Lowercase, `snake_case`: `pipeline_parallel`, not `PipelineParallel` or `pipeline-parallel`.
 - Concept-oriented, not verb-oriented: `checkpoint`, not `saving_checkpoint`.
 - Short: `evaluate`, not `evaluation_phase`.
 - Skim the existing list before inventing — if a nearby concept already has a group, extend instrumentation there rather than adding a new one.
 
-## Preset inclusion
+## Preset Inclusion
 
-Don't add to `default` casually. The contract for `default` is that it stays quiet enough for production — structural job-level spans only. If your group fires more than a handful of times per iteration, it belongs in `per_step` or `all`, not `default`. Getting this wrong means every production user of the library inherits your instrumentation overhead.
+Do not add to `default` casually. The contract for `default` is that it stays quiet enough for production — structural job-level spans only. If your group fires more than a handful of times per iteration, it belongs in `per_step` or `all`, not `default`. Getting this wrong means every production user of the library inherits your instrumentation overhead.
 
 A reasonable default: add to `per_step` and `all` only, and wait for a concrete reason before promoting to `default`.
 
