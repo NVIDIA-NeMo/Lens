@@ -1,16 +1,16 @@
-# nemo-lens Documentation
+# NeMo Lens
 
-**nemo-lens** (`nemo.lens`) is a shared [OpenTelemetry](https://opentelemetry.io/) instrumentation library for the NVIDIA NeMo ecosystem. It provides unified tracing, metrics, and log bridging across distributed training, inference, and RL workloads.
+**NeMo Lens** (`nemo.lens`) is a shared [OpenTelemetry](https://opentelemetry.io/) instrumentation library for the NVIDIA NeMo ecosystem. It provides unified tracing, metrics, and optional log bridging across distributed training, inference, and RL workloads. NeMo Lens keeps hot-path overhead low with span-group gating, where disabled groups use a fast `frozenset` lookup and create no span objects. Consumer projects can integrate it as an optional dependency through canonical no-op fallbacks.
 
 ## Key Features
 
-* **Cheap when disabled** — span group gating is a `frozenset` lookup; no span objects are allocated when a group is off
-* **Distributed-training aware** — rank-based export strategies, cross-rank trace correlation
-* **Framework-agnostic primitives** — `managed_span`, `trace_fn`, `span_cm` work everywhere
-* **OTel idiomatic** — real `TracerProvider` / `MeterProvider`, W3C propagation, standard semconv
-* **Optional dependency** — consumers import via `try/except ImportError`; lens ships canonical no-op fallbacks
-* **Pluggable** — custom exporters, custom samplers, custom span groups
-* **Resource auto-detection** — SLURM, Kubernetes, local GPU count out of the box
+* **Low overhead when disabled**: span group gating is a `frozenset` lookup; no span objects are allocated when a group is off
+* **Distributed-training aware**: rank-based export strategies, cross-rank trace correlation
+* **Framework-agnostic primitives**: `managed_span`, `trace_fn`, `span_cm` work everywhere
+* **OTel idiomatic**: real `TracerProvider` / `MeterProvider`, W3C propagation, standard semconv
+* **Optional dependency**: consumers import using `try/except ImportError`; lens ships canonical no-op fallbacks
+* **Pluggable**: custom exporters, custom samplers, custom span groups
+* **Resource auto-detection**: SLURM, Kubernetes, local GPU count out of the box
 
 ## Consumers
 
@@ -18,9 +18,9 @@
 
 | Consumer | Domain | Span group extension |
 |---|---|---|
-| [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) | Transformer pre-training | `MegatronSpanGroup` — microbatch, layer, communication, activation_offload, data_loading, inference |
-| NeMo-RL | RLHF, GRPO, DPO | `RLSpanGroup` — rollout, generation, logprob, reward, advantage, policy_update, reference_policy, data_processing |
-| NeMo-Gym | RL environments | `GymSpanGroup` — server, rollout_collection, verify, aggregate_metrics |
+| [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) | Transformer pre-training | `MegatronSpanGroup`: microbatch, layer, communication, activation_offload, data_loading, inference |
+| [NeMo RL](https://github.com/NVIDIA-NeMo/RL) | RLHF, GRPO, DPO | `RLSpanGroup`: rollout, generation, logprob, reward, advantage, policy_update, reference_policy, data_processing |
+| [NeMo Gym](https://github.com/NVIDIA-NeMo/Gym) | RL environments | `GymSpanGroup`: server, rollout_collection, verify, aggregate_metrics |
 
 ```{toctree}
 :maxdepth: 2
