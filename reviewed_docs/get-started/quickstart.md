@@ -2,7 +2,7 @@
 
 Instrument a minimal script in three steps.
 
-## 1. Set environment variables
+## Set Environment Variables
 
 ```bash
 export NEMO_LENS_ENABLED=1
@@ -10,7 +10,7 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317   # where your collecto
 export NEMO_LENS_SPAN_GROUPS=per_step                        # adds per-step boundaries (step/forward_backward/optimizer)
 ```
 
-## 2. Initialize telemetry
+## Initialize Telemetry
 
 ```python
 from nemo.lens import NemoLensConfig, setup_telemetry
@@ -25,7 +25,7 @@ handle = setup_telemetry(config, rank=0, world_size=1)
 
 Call this **once per process**, typically at startup.
 
-## 3. Add instrumentation
+## Add Instrumentation
 
 Three primitives cover most cases:
 
@@ -48,7 +48,7 @@ with span_cm('demo.evaluate', tracer=handle.tracer):
     ...
 ```
 
-## 4. Shut down cleanly
+## Shut Down Cleanly
 
 ```python
 try:
@@ -57,9 +57,9 @@ finally:
     handle.shutdown()
 ```
 
-`handle.shutdown()` flushes pending spans and metrics, then shuts down the providers. Don't call `force_flush()` on the global providers manually — the handle encapsulates this correctly.
+`handle.shutdown()` flushes pending spans and metrics, then shuts down the providers. Do not call `force_flush()` on the global providers manually; the handle encapsulates this correctly.
 
-## Complete example
+## Complete Example
 
 ```python
 import time
@@ -83,9 +83,9 @@ if __name__ == "__main__":
 
 Run with `NEMO_LENS_ENABLED=1` to export; without it, the script is a no-op at the OTel level.
 
-## Next steps
+## Next Steps
 
-- [Configuration](../user-guide/configuration.md) — full env var reference and `NemoLensConfig` options
-- [Instrumentation](../user-guide/instrumentation.md) — when to use each primitive
-- [Span Groups](../user-guide/span-groups.md) — how to control granularity
-- [Observability Stack](../observability/stack.md) — run Jaeger + Prometheus + Grafana locally
+- [Configuration](../user-guide/configuration.md) for the full env var reference and `NemoLensConfig` options
+- [Instrumentation](../user-guide/instrumentation.md) for guidance on when to use each primitive
+- [Span Groups](../user-guide/span-groups.md) for information on how to control granularity
+- [Observability Stack](../observability/stack.md) to run Jaeger, Prometheus, and Grafana locally

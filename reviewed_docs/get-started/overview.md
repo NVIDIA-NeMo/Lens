@@ -1,46 +1,50 @@
 # Overview
 
-`nemo-lens` solves a narrow but important problem: giving NeMo-ecosystem training and inference workloads a **shared, idiomatic OpenTelemetry instrumentation layer** — cheap when disabled, ergonomic when enabled — that consumers can opt into without taking on a hard dependency.
+`nemo-lens` solves a narrow but important problem: giving the NeMo ecosystem training and inference workloads a **shared, idiomatic OpenTelemetry instrumentation layer** (cheap when disabled and ergonomic when enabled) that consumers can opt into without taking on a hard dependency.
 
-## What it is
+## What It Is
 
-A thin, well-tested library built on OpenTelemetry (API required, SDK optional) that provides:
+NeMo Lens is a thin, well-tested library built on OpenTelemetry (API required, SDK optional) that provides:
 
-- A unified configuration object (`NemoLensConfig`) with prefix/fallback env var support
-- Three instrumentation primitives designed for hot paths: `managed_span`, `trace_fn`, `span_cm`
-- Span-group gating for granularity control (coarse for production, fine-grained for debugging)
-- Rank-aware export strategies for distributed training (single rank, all ranks, sampled)
-- Cross-rank trace context broadcast and span linking for pipeline-parallel correlation
-- Resource auto-detection for SLURM, Kubernetes, and local environments
-- Framework contrib modules for FastAPI, aiohttp, Ray, and NCCL
+- **Unified configuration.** A configuration object (`NemoLensConfig`) with prefix and fallback environment variable support.
+- **Instrumentation primitives.** Three hot-path primitives designed for performance: `managed_span`, `trace_fn`, and `span_cm`.
+- **Span-group gating.** Granularity control that is coarse for production and fine-grained for debugging.
+- **Rank-aware export.** Export strategies for distributed training including single rank, all ranks, and sampled.
+- **Trace context propagation.** Cross-rank trace context broadcast and span linking for pipeline-parallel correlation.
+- **Resource auto-detection.** Automatic environment detection for SLURM, Kubernetes, and local environments.
+- **Framework integration.** Contrib modules for FastAPI, aiohttp, Ray, and NCCL.
 
-## What it isn't
+## What It Is Not
 
-- **Not a tracer.** OpenTelemetry SDK does the tracing. Lens configures it and provides ergonomic primitives.
-- **Not an observability solution.** Lens emits OTLP and stops at that boundary. Choosing, running, securing, scaling, and retaining a backend is the user's decision — driven by their organisation's existing observability stack and the scale of their workloads. The `docker-compose.otel.yml` shipped with the repo is a **demo / PoC** to help you try lens locally, not a recommended production deployment.
-- **Not a backend.** Spans and metrics export via standard OTLP to any compliant backend (Jaeger, Grafana Tempo, Honeycomb, Datadog, W&B Weave, etc.).
-- **Not a requirement.** Consumers integrate via `try/except ImportError`. Lens ships canonical no-op fallbacks so instrumented code runs unchanged when lens isn't installed.
+NeMo Lens maintains clear operational boundaries and does not duplicate functionality provided by the core OpenTelemetry framework or backend storage platforms.
 
-## Architectural principles
+- **Not a tracer.** The OpenTelemetry SDK does the tracing. NeMo Lens configures it and provides ergonomic primitives.
+- **Not an observability solution.** NeMo Lens emits OTLP and stops at that boundary. Choosing, running, securing, scaling, and retaining a backend is your decision, which is driven by your organization's existing observability stack and the scale of your workloads. The `docker-compose.otel.yml` file shipped with the repository is a demo and proof of concept to help you try NeMo Lens locally, not a recommended production deployment.
+- **Not a backend.** Spans and metrics export through standard OTLP to any compliant backend (Jaeger, Grafana Tempo, Honeycomb, Datadog, W&B Weave, etc.).
+- **Not a requirement.** Consumers integrate by using `try/except ImportError`. NeMo Lens ships canonical no-op fallbacks so instrumented code runs unchanged when NeMo Lens is not installed.
 
-### Cheap when disabled
+## Architectural Principles
 
-Every `managed_span` / `trace_fn` call checks `is_span_group_enabled(group)` before doing any real work. The check is a `frozenset` lookup. When the group is disabled, `managed_span` yields `None` and the body executes without creating any span objects.
+NeMo Lens is designed around several key architectural principles to ensure high performance and minimal overhead during training and inference.
 
-### Lazy SDK imports
+### Cheap When Disabled
 
-`opentelemetry-api` is the only required dependency (it ships a no-op implementation). The full SDK (`opentelemetry-sdk`, OTLP exporters) is imported only on **exporting ranks** — non-exporting ranks never pay the import cost.
+Every `managed_span` or `trace_fn` call checks `is_span_group_enabled(group)` before doing any real work. The check is a `frozenset` lookup. When the group is disabled, `managed_span` yields `None` and the body executes without creating any span objects.
 
-### Single entry point
+### Lazy SDK Imports
 
-`setup_telemetry(config, rank, world_size)` is the only initialization call. It decides whether this rank exports, builds the right providers (real SDK or no-op), registers enabled span groups, and returns a `TelemetryHandle`.
+`opentelemetry-api` is the only required dependency (it ships a no-op implementation). The full SDK (`opentelemetry-sdk` and OTLP exporters) is imported only on **exporting ranks**; non-exporting ranks never pay the import cost.
 
-### Rank-aware by default
+### Single Entry Point
 
-Distributed training doesn't need every rank to export telemetry. The default `single_rank` strategy exports from one rank only (last rank by default). `all_ranks` and `sampled` strategies are available for specific use cases.
+`setup_telemetry(config, rank, world_size)` is the only initialization call. It decides whether this rank exports, builds the correct providers (the real SDK or no-op), registers enabled span groups, and returns a `TelemetryHandle`.
 
-## Next steps
+### Rank-Aware by Default
 
-- [Install](installation.md) nemo-lens
-- Follow the [quickstart](quickstart.md) to instrument a minimal script
-- Read the [user guide](../user-guide/configuration.md) for details on each feature
+Distributed training does not need every rank to export telemetry. The default `single_rank` strategy exports from one rank only (last rank by default). `all_ranks` and `sampled` strategies are available for specific use cases.
+
+## Next Steps
+
+- [Install NeMo Lens](installation.md)
+- Follow the [Quickstart](quickstart.md) guide to instrument a minimal script
+- Read the [User Guide](../user-guide/configuration.md) for details on each feature
