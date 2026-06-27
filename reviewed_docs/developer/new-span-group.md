@@ -1,10 +1,10 @@
-# Adding a New Span Group
+# Add a New Span Group
 
-Span groups are a runtime knob — you add one, wire instrumentation to it, and users get a new opt-in slice of telemetry without any code changes on their side. This page walks through adding one to either the base `SpanGroup` or a consumer-specific subclass.
+Span groups are a runtime knob. You add one, wire instrumentation to it, and users get a new opt-in slice of telemetry without any code changes on their side. This page walks through adding one to either the base `SpanGroup` or a consumer-specific subclass.
 
 See [Span Groups](../user-guide/span-groups.md) for how groups work at runtime; this page is for library authors.
 
-## Decide where it belongs
+## Decide Where It Belongs
 
 The decision is about scope, not implementation:
 
@@ -13,7 +13,7 @@ The decision is about scope, not implementation:
 
 When in doubt, start in the subclass. Promoting to the base later is cheap; demoting is not.
 
-## Adding to the base class
+## Add to the Base Class
 
 File: `lens/src/nemo/lens/groups.py`.
 
@@ -44,7 +44,7 @@ Checklist:
 - [ ] Instrumentation added at the relevant call site(s) using `managed_span("my_new_group", ...)` or `@trace_fn("my_new_group", ...)`.
 - [ ] Entry added to [Span Groups](../user-guide/span-groups.md).
 
-## Adding to a consumer subclass
+## Add to a Consumer Subclass
 
 Example: Megatron. File: `Megatron-LM/megatron/core/telemetry/span_groups.py`.
 
@@ -75,7 +75,7 @@ Checklist:
 - [ ] Instrumentation added in the consumer source tree.
 - [ ] Entry added to the consumer's observability docs (e.g. `Megatron-LM/docs/user-guide/observability/span-groups.md`).
 
-## No changes needed in `fallbacks.py`
+## No Changes Needed in `fallbacks.py`
 
 `fallbacks.py` provides canonical no-ops for `managed_span`, `trace_fn`, `span_cm`, `is_span_group_enabled`, and `safe_set_span_attributes`. Group names are plain strings — when the no-op fallback is active, `is_span_group_enabled(group)` returns `False` regardless of the name. Adding a new group does not require touching the fallbacks.
 
