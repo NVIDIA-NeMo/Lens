@@ -1,12 +1,12 @@
-# Demo Stack (PoC)
+# Demo Stack
 
-This page describes the **demo** `docker-compose.otel.yml` included in the repo — a docker-compose stack for trying nemo-lens locally. It stands up one plausible observability pipeline (OTel Collector → Jaeger + Prometheus + Grafana + Elasticsearch + Kibana) so you can point an instrumented application at it and see spans, metrics, and logs without wiring up a full backend first. It is a proof of concept and a development convenience — not a reference architecture, not a supported deployment, and not something lens is opinionated about.
+This page describes the **demo** `docker-compose.otel.yml` included in the repository, a Docker Compose stack for trying `nemo-lens` locally. It stands up one plausible observability pipeline (OTel Collector to Jaeger, Prometheus, Grafana, Elasticsearch, and Kibana) so you can point an instrumented application to it and see spans, metrics, and logs without wiring up a full backend first. It is a proof of concept and a development convenience, not a reference architecture, not a supported deployment, and not something NeMo Lens prescribes.
 
-**nemo-lens itself does not provide an observability solution.** It's an instrumentation library: it emits OTLP. Where that OTLP goes, how long it's retained, how it's queried, and how it's visualised are the user's choices — driven by their organisation's existing observability investments and the scale of their workloads. The demo stack exists only to give you something to point at while you evaluate lens.
+**NeMo Lens does not provide an observability solution.** It is an instrumentation library: it emits OTLP. Where that OTLP goes, how long it is retained, how it is queried, and how it is visualized are your choices, which are driven by your organization's existing observability investments and the scale of your workloads. The demo stack exists only to give you a destination while you evaluate NeMo Lens.
 
-For production, see [Sending Telemetry to a Backend](backends.md) — the same OTLP stream can go to any compliant destination.
+For production, see [Send Telemetry to a Backend](backends.md). The same OTLP stream can go to any compliant destination.
 
-## What the demo stack includes
+## What the Demo Stack Includes
 
 ```
 Your application
@@ -28,17 +28,17 @@ Prometheus ─► Grafana (dashboards)
 | Jaeger | 16686 | Trace search UI |
 | Prometheus | 9090 | Metric storage |
 | Grafana | 3000 | Metric dashboards |
-| Elasticsearch | 9200 | Trace + log storage |
+| Elasticsearch | 9200 | Trace and log storage |
 | Kibana | 5601 | Log UI |
 | DCGM Exporter | 9400 | GPU metrics (internal scrape target, not published to host) |
 | Node Exporter | 9100 | Host metrics (internal scrape target, not published to host) |
 
-This is a **lot of moving parts for a demo**. If all you need is trace viewing, you can run Jaeger alone. If you only care about metrics, Prometheus + Grafana is enough. Pick what matches your needs; the compose file is a starting point, not a prescription.
+This setup includes many components for a demo environment. If you only need to view traces, you can run Jaeger alone. If you only need to analyze metrics, Prometheus and Grafana are sufficient. Select the services that match your requirements; the Docker Compose file is a starting point rather than a strict requirement.
 
-## Starting the demo
+## Start the Demo
 
 ```{note}
-The committed `docker-compose.otel.yml` ships with the **W&B Weave** collector mode active. For the local Jaeger + Prometheus + Grafana + Elasticsearch + Kibana pipeline described here, edit the `otel-collector` service in `docker-compose.otel.yml`: uncomment `command: ["--config=/etc/otel/collector.yaml"]` and comment out the `--config=/etc/otel/collector-weave.yaml` line. With Weave active, traces go to W&B Weave and metrics/logs are accepted-and-dropped, so the local UIs below stay empty.
+The committed `docker-compose.otel.yml` ships with the **W&B Weave** collector mode active. For the local Jaeger, Prometheus, Grafana, Elasticsearch, and Kibana pipeline described here, edit the `otel-collector` service in `docker-compose.otel.yml`: uncomment `command: ["--config=/etc/otel/collector.yaml"]` and comment out the `--config=/etc/otel/collector-weave.yaml` line. With Weave active, traces go to W&B Weave, and metrics and logs are accepted and dropped, so the local UIs below stay empty.
 ```
 
 ```bash
@@ -58,7 +58,7 @@ export NEMO_LENS_ENABLED=1
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 ```
 
-UIs:
+Access the UIs:
 
 | Service | URL |
 |---|---|
@@ -67,40 +67,40 @@ UIs:
 | Prometheus | http://localhost:9090 |
 | Kibana | http://localhost:5601 |
 
-Stop it:
+Stop the demo:
 
 ```bash
 docker compose -f docker-compose.otel.yml down        # keep volumes
 docker compose -f docker-compose.otel.yml down -v     # delete volumes too
 ```
 
-## What this is good for
+## Intended Benefits
 
-- **Trying lens locally** before deciding whether you want telemetry in your workflow at all.
-- **Developing new instrumentation** — spans you add show up in Jaeger in seconds, so you can iterate on naming and attribute choices.
-- **Debugging a specific issue** — run training against the local stack, reproduce the issue, inspect the trace.
-- **Sharing a minimal reproduction** of an observability question — "I see this in Jaeger on the demo stack, is this what you expected?"
+- **Local evaluation.** Decide whether you want telemetry in your workflow.
+- **Instrumentation development.** Spans you add show up in Jaeger in seconds, so you can iterate on naming and attribute choices.
+- **Issue troubleshooting.** Run training against the local stack, reproduce the issue, and inspect the trace.
+- **Observability reproduction.** Share an observability question, such as "I see this in Jaeger on the demo stack. Is this what you expected?"
 
-## What this is NOT good for
+## Design Limitations
 
-- **Production**. Nothing here is hardened, authenticated, or scaled. Jaeger in-memory storage will happily lose your traces on restart. Elasticsearch is a single node with no replication. Grafana has anonymous admin with no auth.
-- **Long-running analysis**. Elasticsearch's default retention and Jaeger's in-memory store will exhaust disk / RAM on a multi-day training run.
+- **Production**. Nothing here is hardened, authenticated, or scaled. Jaeger in-memory storage will happily lose your traces on restart. Elasticsearch is a single node with no replication. Grafana has anonymous admin with no authentication.
+- **Long-running analysis**. Elasticsearch's default retention and Jaeger's in-memory store will exhaust disk or RAM on a multi-day training run.
 - **Multi-user access**. Everything binds to `localhost`; extending it to a shared host is explicitly out of scope for the demo.
-- **A recommendation for any specific backend**. Jaeger, Prometheus, and Grafana are in the demo because they're free to run locally, not because lens endorses them over alternatives.
+- **A recommendation for any specific backend**. Jaeger, Prometheus, and Grafana are in the demo because they are free to run locally, not because NeMo Lens endorses them over alternatives.
 
-## Where to go from here
+## Choose a Production Backend
 
-Once you've confirmed lens is instrumenting what you expect, move to a real backend:
+After you confirm that NeMo Lens is instrumenting what you expect, move to a real backend:
 
-- **Managed / hosted**: [W&B Weave](backends.md#wb-weave), Grafana Cloud, Honeycomb, Datadog, New Relic, ... — see [Backends](backends.md#other-hosted-backends).
-- **Self-hosted production**: an [OTel Collector](backends.md#otel-collector) fronting your chosen storage (Tempo + Mimir + Loki, Jaeger + Prometheus at scale, etc.).
-- **Just a file for offline analysis**: see [File](backends.md#file).
+- **Managed or hosted.** Use [W&B Weave](backends.md#integrate-with-wb-weave), Grafana Cloud, Honeycomb, Datadog, New Relic, or another hosted backend. See [Send Telemetry to Other Hosted Backends](backends.md#send-telemetry-to-other-hosted-backends).
+- **Self-hosted production.** Use an [OTel Collector](backends.md#configure-otel-collector) in front of your chosen storage, such as Tempo, Mimir, Loki, Jaeger, or Prometheus at scale.
+- **File export for offline analysis.** See [Export Telemetry to a File](backends.md#export-telemetry-to-a-file).
 
-Lens doesn't change between these. Point at a different `OTEL_EXPORTER_OTLP_ENDPOINT` and everything else stays the same.
+NeMo Lens does not change between these options. Point to a different `OTEL_EXPORTER_OTLP_ENDPOINT`, and everything else stays the same.
 
-## File layout of the demo
+## Demo File Layout
 
-The compose file mounts its observability configuration from this (lens) repo under `observability/`. Only the application container (Megatron-LM in this case) is built/mounted from the parent directory. In `lens/`:
+The compose file mounts its observability configuration from this NeMo Lens repository under `observability/`. Only the application container (Megatron-LM in this case) is built and mounted from the parent directory. In `lens/`:
 
 ```
 docker-compose.otel.yml
@@ -119,9 +119,9 @@ observability/
         └── system-overview.json   — host/GPU/network overview dashboard
 ```
 
-If you're using lens from a different consumer (NeMo-RL, NeMo-Gym, a fresh project), you'll need your own collector config and dashboards. The demo isn't trying to be a one-size-fits-all deployment — it's a worked example.
+If you are using NeMo Lens from a different consumer (NeMo-RL, NeMo-Gym, or a fresh project), you need your own collector configuration and dashboards. The demo is not trying to be a one-size-fits-all deployment; it is a worked example.
 
-## What lens provides vs. what you provide
+## Compare What NeMo Lens Provides and What You Provide
 
 | Concern | Provided by lens | Provided by you |
 |---|---|---|
@@ -137,4 +137,4 @@ If you're using lens from a different consumer (NeMo-RL, NeMo-Gym, a fresh proje
 | Access control | — | Configured at the backend |
 | Sampling strategy | Hooks and primitives | Business policy (keep errors? cost budget?) |
 
-Lens stops at the OTLP boundary. Everything downstream is yours.
+NeMo Lens stops at the OTLP boundary. Everything downstream is yours.
