@@ -1,4 +1,4 @@
-# Testing
+# Test
 
 The NeMo Lens test suite is small and focused. Over 180 tests cover every public API, with a strong emphasis on:
 
