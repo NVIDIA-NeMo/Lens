@@ -1,6 +1,6 @@
 # Quickstart
 
-Instrument a minimal script in three steps.
+Instrument a minimal script in four steps.
 
 ## Set Environment Variables
 
