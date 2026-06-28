@@ -258,7 +258,7 @@ export NEMO_LENS_ENABLED=1
 - **`x-honeycomb-dataset`**: The dataset name. This name is required for metrics, and it is optional but recommended for traces and logs. Choose any meaningful name; Honeycomb automatically creates the dataset on the first write.
 - **`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`**: Honeycomb supports both gRPC and HTTP, but HTTP is more forgiving behind load balancers. Default to HTTP unless you have a reason otherwise.
 
-Lens honours `OTEL_EXPORTER_OTLP_PROTOCOL` (and the signal-specific variants `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL`) when picking between gRPC and HTTP exporters, so this works without code changes.
+NeMo Lens honors `OTEL_EXPORTER_OTLP_PROTOCOL` (and the signal-specific variants `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL`) when picking between gRPC and HTTP exporters, so this works without code changes.
 
 For EU instance, substitute `https://api.eu1.honeycomb.io:443`.
 

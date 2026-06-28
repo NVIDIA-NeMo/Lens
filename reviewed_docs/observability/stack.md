@@ -123,9 +123,9 @@ If you are using NeMo Lens from a different consumer (NeMo-RL, NeMo-Gym, or a fr
 
 ## Compare What NeMo Lens Provides and What You Provide
 
-| Concern | Provided by lens | Provided by you |
+| Concern | Provided by NeMo Lens | Provided by you |
 |---|---|---|
-| SDK initialisation | ✅ `setup_telemetry()` | — |
+| SDK initialization | ✅ `setup_telemetry()` | — |
 | Instrumentation primitives | ✅ `managed_span`, `trace_fn`, `span_cm` | — |
 | OTLP wire format | ✅ (via OTel SDK) | — |
 | Resource detection | ✅ SLURM, K8s, local | Any custom attributes |
