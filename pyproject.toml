@@ -87,5 +87,10 @@ known-first-party = ["nemo.lens"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.coverage.run]
+omit = [
+    "src/nemo/lens/semconv.py",
+]
+
 [tool.uv]
 managed = true
