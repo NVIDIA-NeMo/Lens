@@ -225,7 +225,11 @@ def _build_span_exporter(config: NemoLensConfig):
     if config.exporter == "console":
         from opentelemetry.sdk.trace.export import ConsoleSpanExporter
 
-        return ConsoleSpanExporter()
+        # Default formatter pretty-prints with indent=4, which produces
+        # multi-line records instead of one-JSON-object-per-line (real
+        # JSONL). Emit compact single-line JSON so downstream tooling
+        # (e.g. perfetto conversion) can read these files as plain JSONL.
+        return ConsoleSpanExporter(formatter=lambda span: span.to_json(indent=None) + "\n")
 
     protocol = _resolve_otlp_protocol("traces")
     prefer_http = protocol in ("http/protobuf", "http/json")
@@ -262,7 +266,11 @@ def _build_metric_exporter(config: NemoLensConfig):
     if config.exporter == "console":
         from opentelemetry.sdk.metrics.export import ConsoleMetricExporter
 
-        return ConsoleMetricExporter()
+        # Same rationale as the span exporter above: avoid indent=4 so each
+        # exported metrics batch is a single JSON line.
+        return ConsoleMetricExporter(
+            formatter=lambda metrics_data: metrics_data.to_json(indent=None) + "\n"
+        )
 
     protocol = _resolve_otlp_protocol("metrics")
     prefer_http = protocol in ("http/protobuf", "http/json")
