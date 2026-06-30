@@ -1,10 +1,10 @@
 # Custom Exporters
 
-`setup_telemetry` supports injecting custom `SpanExporter` and `MetricReader` instances, bypassing the config-based construction. This is the extension point for:
+`setup_telemetry` supports injecting custom `SpanExporter` and `MetricReader` instances, which bypasses the configuration-based construction. This is the extension point for the following use cases:
 
 - In-memory exporters for testing
 - Custom exporters for proprietary backends
-- Exporters that require fine-grained configuration lens doesn't expose
+- Exporters that require fine-grained configuration that NeMo Lens does not expose
 
 ## Signature
 
@@ -19,9 +19,9 @@ setup_telemetry(
 )
 ```
 
-When provided, these override the config's `exporter` field for that signal. You can mix: pass a custom `span_exporter` and let metrics use the config's exporter.
+When provided, these override the config's `exporter` field for that signal. You can mix these options by passing a custom `span_exporter` and letting metrics use the config's exporter.
 
-## Custom span exporter
+## Custom Span Exporter
 
 ```python
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -42,7 +42,7 @@ spans = exporter.get_finished_spans()
 
 This is how the lens test suite captures spans for assertions.
 
-## Custom metric reader
+## Custom Metric Reader
 
 ```python
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
@@ -61,7 +61,7 @@ handle = setup_telemetry(
 data = reader.get_metrics_data()
 ```
 
-## Writing a custom exporter
+## Write a Custom Exporter
 
 To route telemetry to a backend not supported by OTLP, subclass `SpanExporter`:
 
@@ -93,11 +93,11 @@ class MyBackendExporter(SpanExporter):
 handle = setup_telemetry(config, span_exporter=MyBackendExporter(my_client))
 ```
 
-Same pattern for `MetricReader` — see [OTel docs](https://opentelemetry-python.readthedocs.io/en/latest/sdk/metrics.html).
+Use the same pattern for `MetricReader` (refer to the [OpenTelemetry documentation](https://opentelemetry-python.readthedocs.io/en/latest/sdk/metrics.html)).
 
-## Custom exporters and sampling
+## Custom Exporters and Sampling
 
-Custom exporters plug into the `BatchSpanProcessor` that lens installs. By default (`sampler_enabled=False`) no span-level sampling occurs, so a custom exporter receives every span produced on an exporting rank. When `sampler_enabled=True`, lens's `RankAwareSampler` makes a single per-rank decision at construction time (sampling.py): all spans on a rank are either kept or dropped together — it is not a per-span sample. If you want a parallel processor regardless of sampling, install your own `SpanProcessor` as shown below:
+Custom exporters plug into the `BatchSpanProcessor` that NeMo Lens installs. By default (`sampler_enabled=False`), no span-level sampling occurs, and a custom exporter receives every span produced on an exporting rank. When `sampler_enabled=True`, NeMo Lens's `RankAwareSampler` makes a single per-rank decision at construction time (`sampling.py`), where all spans on a rank are either kept or dropped together, meaning it is not a per-span sample. If you want a parallel processor regardless of sampling, install your own `SpanProcessor` as shown below:
 
 ```python
 from opentelemetry import trace
@@ -108,12 +108,14 @@ provider = trace.get_tracer_provider()
 provider.add_span_processor(BatchSpanProcessor(MyArchiveExporter()))
 ```
 
-> Note: this only works on an exporting rank with traces enabled — i.e. when `handle.is_exporting` is True. On disabled or non-exporting ranks `setup_telemetry` installs a `NoOpTracerProvider`, so `trace.get_tracer_provider()` returns a no-op provider that has no `add_span_processor` and this call raises `AttributeError`. Guard with `if handle.is_exporting:`.
+:::{note}
+This approach only works on an exporting rank with traces enabled, which occurs when `handle.is_exporting` is `True`. On disabled or non-exporting ranks, `setup_telemetry` installs a `NoOpTracerProvider`, so `trace.get_tracer_provider()` returns a no-op provider that has no `add_span_processor` method, and this call raises an `AttributeError`. Guard this call with `if handle.is_exporting:`:
+:::
 
-Lens doesn't expose an extension point for custom processors — if you need one, add it to the provider directly after `setup_telemetry` returns. This is a lower-level interface, but it's stable within OTel SDK.
+NeMo Lens does not expose an extension point for custom processors, so if you need one, add it to the provider directly after `setup_telemetry` returns. This is a lower-level interface, but it is stable within the OpenTelemetry SDK.
 
-## Why this API
+## Why This API
 
-Before this extension point, connecting lens to a non-OTLP backend required subclassing `build_providers` or monkeypatching internals. Now it's a supported extension point: pass your exporter, lens does the rest.
+Before this extension point, connecting NeMo Lens to a non-OTLP backend required subclassing `build_providers` or monkey-patching internals. Now it is a supported extension point: pass your exporter, and NeMo Lens does the rest.
 
-The design goal is to keep lens's core surface small (OTLP + console is plenty for most users) while letting power users plug in whatever they need without forking lens.
+The design goal is to keep NeMo Lens's core surface small (OTLP and console are plenty for most users) while letting power users plug in whatever they need without forking NeMo Lens.

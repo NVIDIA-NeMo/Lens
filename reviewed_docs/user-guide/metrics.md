@@ -1,8 +1,8 @@
 # Metrics
 
-Lens ships opinionated metric instruments under `nemo.lens.instruments` for common observability needs: GenAI inference, RL training, and Gym servers. Training-specific metrics (e.g. `megatron.training.loss`) live in the consumer project — they are not generic.
+NeMo Lens ships opinionated metric instruments under `nemo.lens.instruments` for common observability needs: GenAI inference, RL training, and Gym servers. Training-specific metrics (e.g., `megatron.training.loss`) live in the consumer project; they are not generic.
 
-Import each record function from its submodule, e.g. `from nemo.lens.instruments.rl import record_rl_metrics`. Only `record_inference_metrics` is also re-exported at the package level (`from nemo.lens.instruments import record_inference_metrics`); the RL and Gym functions are available only via their submodules.
+Import each record function from its submodule, e.g., `from nemo.lens.instruments.rl import record_rl_metrics`. Only `record_inference_metrics` is re-exported at the package level (`from nemo.lens.instruments import record_inference_metrics`); the RL and Gym functions are available only through their submodules.
 
 The `meter` argument is the OTel `Meter` to record on. You can use `handle.meter` from `setup_telemetry()`, or grab one directly with `get_meter(name="nemo.lens")` (`from nemo.lens import get_meter`).
 
@@ -10,20 +10,20 @@ The `meter` argument is the OTel `Meter` to record on. You can use `handle.meter
 
 Each module under `instruments/` follows the same pattern:
 
-- A module-level `WeakKeyDictionary` caches instruments per `Meter`, so re-initialising the meter doesn't leak memory.
+- A module-level `WeakKeyDictionary` caches instruments per `Meter`, so re-initializing the meter does not leak memory.
 - A `_get_*_instruments(meter)` helper creates (and caches) all instruments for a meter on first call.
 - A `record_*_metrics(meter, ...)` function takes a required `meter` plus optional per-metric arguments (best passed by keyword) and records only the ones that are not `None`.
 
-This means callers can record partial data without conditional logic:
+Callers can record partial data without conditional logic:
 
 ```python
 record_rl_metrics(handle.meter, reward_mean=r, policy_loss=p)   # only these two
 record_rl_metrics(handle.meter, kl_divergence=kl)                # just one
 ```
 
-## Inference — `instruments/inference.py`
+## Inference with `instruments/inference.py`
 
-Emits metrics following the [OTel GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/).
+This module emits metrics following the [OTel GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/).
 
 ```python
 from nemo.lens.instruments.inference import record_inference_metrics
@@ -42,13 +42,13 @@ record_inference_metrics(
 | Request duration | `gen_ai.server.request.duration` | Histogram | s |
 | Token usage | `gen_ai.client.token.usage` | Histogram | `{token}` |
 
-Token usage is labelled with `gen_ai.token.type` (`"input"` or `"output"`) — filter on that label in Prometheus/Grafana.
+Token usage is labeled with `gen_ai.token.type` (`"input"` or `"output"`); filter on that label in Prometheus or Grafana.
 
-All data points carry `gen_ai.operation.name = "text_completion"` and `gen_ai.provider.name = "nemo"` by default; override via `operation_name=` / `provider_name=` args.
+All data points carry `gen_ai.operation.name = "text_completion"` and `gen_ai.provider.name = "nemo"` by default; override through the `operation_name=` or `provider_name=` args.
 
-## RL — `instruments/rl.py`
+## NeMo RL with `instruments/rl.py`
 
-Emits RL-specific gauges and histograms in the `rl.*` namespace.
+This module emits NeMo RL-specific gauges and histograms in the `rl.*` namespace.
 
 ```python
 from nemo.lens.instruments.rl import record_rl_metrics
@@ -77,9 +77,9 @@ record_rl_metrics(
 | `rl.generation.duration_ms` | Histogram (ms) | Text generation duration |
 | `rl.rollout.duration_ms` | Histogram (ms) | Rollout collection duration |
 
-## Gym — `instruments/gym.py`
+## NeMo Gym with `instruments/gym.py`
 
-Emits Gym server metrics in the `gym.*` namespace.
+This module emits NeMo Gym server metrics in the `gym.*` namespace.
 
 ```python
 from nemo.lens.instruments.gym import record_gym_metrics
@@ -101,9 +101,9 @@ record_gym_metrics(
 | `gym.verify.success_rate` | Gauge | Fraction of successful verifications |
 | `gym.servers.active` | Gauge | Number of active Gym servers |
 
-## Writing custom instruments
+## Write Custom Instruments
 
-The same `WeakKeyDictionary` pattern works for project-specific metrics. Megatron's `instruments/training.py` (shipped in the Megatron repo, not lens) emits `megatron.training.*` metrics the same way.
+The same `WeakKeyDictionary` pattern works for project-specific metrics. Megatron's `instruments/training.py` (shipped in the Megatron repository, not NeMo Lens) emits `megatron.training.*` metrics the same way.
 
 If your project has a recurring metric shape, add a module under `nemo.lens.instruments.<domain>` with:
 
@@ -131,22 +131,22 @@ def record_my_metrics(meter, latency_ms=None, queue_depth=None):
         i["queue_depth"].set(queue_depth)
 ```
 
-## Gauge vs Histogram
+## Choose Between Gauges and Histograms
 
-- **Gauge**: point-in-time value. Prometheus shows the last reported value. Good for losses, rates, counts.
-- **Histogram**: distribution of values. Prometheus computes quantiles. Good for durations, sizes, anything where percentiles matter.
-- **Counter**: monotonic cumulative value. Prometheus shows the rate of change. Use for event counts (`skipped_iters`, `errors`).
+- **Gauge**: Point-in-time value. Prometheus shows the last reported value. Good for losses, rates, and counts.
+- **Histogram**: Distribution of values. Prometheus computes quantiles. Good for durations, sizes, and any value where percentiles matter.
+- **Counter**: Monotonic cumulative value. Prometheus shows the rate of change. Use for event counts (`skipped_iters` and `errors`).
 
-Don't put durations on gauges — you lose p99. Don't put event counts on histograms — the cardinality is wrong.
+Do not put durations on gauges; you lose the ninety-ninth percentile. Do not put event counts on histograms; the cardinality is incorrect.
 
-## Metrics vs span attributes vs resource attributes
+## Metrics, Span Attributes, and Resource Attributes
 
-A common mistake is mixing these up. Use this decision table:
+Avoid mixing these concepts. Use the following decision table to choose the correct telemetry type:
 
 | Value | Where to put it |
 |---|---|
 | Changes over time, numerical (loss, throughput) | **Metric** |
 | Categorical per-span context (iteration, microbatch_id, skipped) | **Span attribute** |
-| Stable for the process lifetime (rank, parallelism config, model arch) | **Resource attribute** (via `resource_attributes=` in `setup_telemetry`) |
+| Stable for the process lifetime (rank, parallelism configuration, model architecture) | **Resource attribute** (through `resource_attributes=` in `setup_telemetry`) |
 
-In particular: **never put a continuously-varying metric like loss on a span attribute**. It wastes span storage and Jaeger can't aggregate across spans. Use `record_*_metrics()` to emit it as a real metric.
+Specifically, do not record a continuously-varying metric, such as loss, as a span attribute. Doing so wastes span storage, and Jaeger cannot aggregate across spans. Use `record_*_metrics()` to emit the value as a real metric.

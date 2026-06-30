@@ -1,10 +1,10 @@
 # Context Propagation
 
-When a traced request crosses a process boundary — HTTP call, gRPC message, message queue, Ray remote call — its **trace context** (trace ID, parent span ID, baggage) must travel with it. Otherwise downstream spans end up in a different trace and the cross-service waterfall is lost.
+When a traced request crosses a process boundary (such as an HTTP call, gRPC message, message queue, or Ray remote call), its **trace context** (trace ID, parent span ID, and baggage) must travel with it. Otherwise, downstream spans end up in a different trace, and the cross-service waterfall is lost.
 
-Lens exposes two primitives for this, matching the OTel W3C TraceContext + Baggage propagators.
+NeMo Lens exposes two primitives for this, matching the OTel W3C TraceContext and Baggage propagators.
 
-## `inject_context` — outbound
+## `inject_context` Outbound
 
 ```python
 from nemo.lens import inject_context
@@ -16,9 +16,9 @@ inject_context(headers)
 await http_client.post(url, headers=headers, json=body)
 ```
 
-`inject_context(carrier)` writes the current OTel context into the `carrier` dict. The carrier is whatever your transport uses — HTTP headers, gRPC metadata, message attributes.
+`inject_context(carrier)` writes the current OTel context into the `carrier` dict. The carrier is whatever your transport uses, such as HTTP headers, gRPC metadata, or message attributes.
 
-## `extract_context` — inbound
+## `extract_context` Inbound
 
 ```python
 from nemo.lens import extract_context
@@ -36,35 +36,35 @@ finally:
 
 `extract_context(carrier)` parses W3C headers and returns an OTel `Context`. Attach it before starting child spans, detach when done.
 
-If the carrier has no valid trace context, the returned `Context` is empty — new spans will start a fresh trace, which is the correct behaviour.
+If the carrier has no valid trace context, the returned `Context` is empty, so new spans start a fresh trace, which is the correct behavior.
 
-## Auto-instrumentation for common transports
+## Auto-Instrumentation for Common Transports
 
-Writing `inject_context` / `extract_context` by hand on every call is error-prone. For common frameworks, lens ships auto-instrumentation helpers:
+Writing `inject_context` or `extract_context` by hand on every call is error-prone. For common frameworks, NeMo Lens ships auto-instrumentation helpers:
 
-- **FastAPI**: `nemo.lens.contrib.fastapi.instrument_fastapi(app)` — extracts context from every incoming request and makes it the current span's parent.
-- **aiohttp client**: `nemo.lens.contrib.aiohttp.instrument_aiohttp_client()` — injects context into every outgoing request.
-- **Ray**: `nemo.lens.contrib.ray.inject_ray_context()` / `extract_ray_context()` / `traced_remote_call(method)` — helpers for Ray's kwargs-based propagation.
-- **NCCL**: `nemo.lens.contrib.nccl.serialize_context()` / `extract_nccl_context(data)` — helpers for piggy-backing context on NCCL byte transfers.
+- **FastAPI.** `nemo.lens.contrib.fastapi.instrument_fastapi(app)` extracts context from every incoming request and makes it the parent of the current span.
+- **aiohttp client.** `nemo.lens.contrib.aiohttp.instrument_aiohttp_client()` injects context into every outgoing request.
+- **Ray.** `nemo.lens.contrib.ray.inject_ray_context()`, `extract_ray_context()`, and `traced_remote_call(method)` provide helpers for Ray's kwargs-based propagation.
+- **NCCL.** `nemo.lens.contrib.nccl.serialize_context()` and `extract_nccl_context(data)` provide helpers for piggy-backing context on NCCL byte transfers.
 
-See [Contrib](contrib.md) for details.
+See [Contrib Helpers](contrib.md) for details.
 
-**When auto-instrumentation is available, prefer it over manual injection** — it covers every call site, handles error paths, and doesn't rot when new code is added.
+**When auto-instrumentation is available, use it instead of manual injection.** This approach covers every call site, handles error paths, and prevents code rot as the codebase grows.
 
-## Cross-rank propagation in distributed training
+## Cross-Rank Propagation in Distributed Training
 
-HTTP-style propagation doesn't apply to `torch.distributed` — those aren't carrier-based transports. For distributed training, lens provides:
+HTTP-style propagation does not apply to `torch.distributed`, as those are not carrier-based transports. For distributed training, NeMo Lens provides:
 
-- `broadcast_trace_context(rank, src_rank=0)` — uses `torch.distributed.broadcast` to share trace context across ranks.
-- `create_linked_span(tracer, name, remote_carrier=carrier)` — creates a span with an OTel Link (not parent-child) to a remote span, useful for pipeline-parallel correlation.
+- `broadcast_trace_context(rank, src_rank=0)`, which uses `torch.distributed.broadcast` to share trace context across ranks.
+- `create_linked_span(tracer, name, remote_carrier=carrier)`, which creates a span with an OTel Link (not a parent-child relationship) to a remote span, which is useful for pipeline-parallel correlation.
 
 See [Distributed Tracing](distributed-tracing.md) for the full pattern.
 
 ## Baggage
 
-[Baggage](https://www.w3.org/TR/baggage/) is a W3C standard for propagating small key/value context alongside trace context — "which customer is this request for?", "is this a canary deployment?".
+[Baggage](https://www.w3.org/TR/baggage/) is a W3C standard for propagating small key/value context alongside trace context (such as "which customer is this request for?" or "is this a canary deployment?").
 
-Lens's propagator is a `CompositePropagator` of `TraceContextTextMapPropagator` and `W3CBaggagePropagator`, so both flow through `inject_context` / `extract_context` automatically. Set baggage with:
+NeMo Lens's propagator is a `CompositePropagator` of `TraceContextTextMapPropagator` and `W3CBaggagePropagator`, so both flow through `inject_context` and `extract_context` automatically. Set baggage with:
 
 ```python
 from opentelemetry import baggage, context

@@ -1,70 +1,70 @@
 # Sampling
 
-Sampling controls how much of the raw telemetry stream actually reaches your backend. Lens exposes two layers of control that compose:
+Sampling controls how much of the raw telemetry stream actually reaches your backend. NeMo Lens exposes two layers of control that work together:
 
-1. **Export strategy** (rank-level): which ranks send data at all.
-2. **Sampler** (SDK-level): which spans on an exporting rank are kept.
+1. **Export strategy (rank-level).** Controls which ranks send data.
+2. **Sampler (SDK-level).** Controls which spans on an exporting rank are kept.
 
 For strategy logic beyond the built-ins, see [Custom Strategies](custom-strategies.md).
 
-Understand the difference before picking a configuration.
+Review the differences between these two layers before choosing a configuration.
 
-## Export strategy
+## Choose an Export Strategy
 
-Configured via `NemoLensConfig.export_strategy` / `NEMO_LENS_EXPORT_STRATEGY`:
+Configure the export strategy through `NemoLensConfig.export_strategy` or the `NEMO_LENS_EXPORT_STRATEGY` env var:
 
-### `single_rank` (default)
+### `single_rank` (Default)
 
-Only one rank sends telemetry. The rest get no-op providers and create no spans at all — non-exporting ranks skip span creation entirely, not merely record no-ops.
+Only one rank sends telemetry. The remaining ranks get no-op providers and create no spans; non-exporting ranks skip span creation entirely instead of recording no-op spans.
 
 ```bash
 NEMO_LENS_EXPORT_STRATEGY=single_rank
 NEMO_LENS_EXPORT_RANK=-1    # last rank; 0 for first rank
 ```
 
-**Use when**: typical production training, where one rank's view is representative (loss, iteration time, etc.) and exporting from 1000 ranks would overwhelm the backend.
+**Recommended use.** Use this strategy for typical production training, where one rank's view is representative of the whole run (such as loss or iteration time), and exporting from 1,000 ranks would overwhelm the backend.
 
 ### `all_ranks`
 
-Every rank sends telemetry. Overhead multiplies by world size at the collector.
+Every rank sends telemetry. The telemetry overhead multiplies by the world size at the collector.
 
-**Use when**: debugging a specific issue that might manifest on only some ranks (e.g. hang on rank 7, NaN on rank 42).
+**Recommended use.** Use this strategy when debugging a specific issue that might manifest on only some ranks (such as a hang on rank 7 or a `NaN` value on rank 42).
 
 ### `sampled`
 
-Hash-based deterministic sampling of ranks. The `export_sample_rate` fraction of ranks export; the rest are no-op.
+This strategy performs hash-based deterministic sampling of ranks. A fraction of ranks defined by the `export_sample_rate` configuration value exports telemetry, while the remaining ranks are set to no-op.
 
 ```bash
 NEMO_LENS_EXPORT_STRATEGY=sampled
 NEMO_LENS_EXPORT_SAMPLE_RATE=0.1    # 10% of ranks
 ```
 
-Sampling is deterministic by rank — same rank + rate → same decision across re-runs.
+Sampling is deterministic by rank; the same combination of rank and sample rate yields the same decision across reruns.
 
-**Use when**: large jobs (1000+ ranks) where `all_ranks` is too much but you want more than one rank's perspective.
+**Recommended use.** Use this strategy for large jobs (over 1,000 ranks) where `all_ranks` is excessive, but you still require the perspective of more than a single rank.
 
 ### `first_rank_per_node`
 
-One rank per node sends telemetry — specifically, the rank with `LOCAL_RANK=0` on each node. Reads the `LOCAL_RANK` env var (set by torchrun, deepspeed, and similar launchers); a missing `LOCAL_RANK` is treated as `0`.
+One rank per node sends telemetry; specifically, the rank with `LOCAL_RANK=0` on each node. The library reads the `LOCAL_RANK` env var, which is typically configured by launchers such as torchrun and DeepSpeed. A missing `LOCAL_RANK` value is treated as `0`.
 
 ```bash
 NEMO_LENS_EXPORT_STRATEGY=first_rank_per_node
 ```
 
-**Use when**: you want per-node visibility (e.g., to attribute hangs or stragglers to a specific machine) without the volume of `all_ranks`. Common deployment for medium-scale jobs (8–128 nodes) where one rank's view per machine is the right granularity.
+**Recommended use.** Use this strategy when you require per-node visibility (such as attributing hangs or slow processes to a specific machine) without the volume of `all_ranks`. This is a common deployment for medium-scale jobs (8 to 128 nodes) where a single rank's view per machine provides the correct level of granularity.
 
-## `RankAwareSampler`
+## Implement the RankAwareSampler
 
-For finer control at the SDK level, lens ships a `Sampler` implementation at `nemo.lens.sampling.RankAwareSampler`. It implements the OTel `Sampler` interface so it plugs into `TracerProvider(sampler=...)`.
+For finer control at the SDK level, NeMo Lens ships a `Sampler` implementation at `nemo.lens.sampling.RankAwareSampler`. Because this sampler implements the OTel `Sampler` interface, you can plug it into `TracerProvider(sampler=...)`.
 
-Enable via config:
+Enable the sampler through the configuration:
 
 ```bash
 NEMO_LENS_SAMPLER_ENABLED=1
 NEMO_LENS_EXPORT_SAMPLE_RATE=0.1
 ```
 
-Or programmatically:
+Alternatively, configure the sampler programmatically in your Python code:
 
 ```python
 from nemo.lens import NemoLensConfig
@@ -76,47 +76,48 @@ cfg = NemoLensConfig(
 )
 ```
 
-### Behaviour
+### How It Works
 
-- Decision is **per-rank**, not per-span: once a rank is sampled, *all* its spans export; otherwise *none* do.
-- Deterministic: same rank + rate → same decision. The decision is a hash of the rank (`md5(rank)`) compared against `export_sample_rate`; `world_size` is passed to the sampler but is not used in the decision.
-- Composes with export strategy: `all_ranks` + `sampler_enabled=1` gives uniform random rank sampling at SDK level.
-- Without the OTel SDK installed, `should_sample` returns a bare bool instead of a `SamplingResult`, preserving the API for non-SDK callers.
+- **Make per-rank decisions.** The sampling decision is made per-rank instead of per-span. When a rank is sampled, all its spans export; otherwise, no spans export.
+- **Ensure deterministic decisions.** The same combination of rank and sample rate yields the same decision. The decision is made by comparing a hash of the rank (`md5(rank)`) against the `export_sample_rate` value. The `world_size` value is passed to the sampler but is not used in the decision.
+- **Combine with export strategies.** The sampler works together with your export strategy. For example, combining `all_ranks` and `sampler_enabled=True` provides uniform random rank sampling at the SDK level.
+- **Preserve the API without the SDK.** If the OTel SDK is not installed, the `should_sample` method returns a bare boolean value instead of a `SamplingResult` object, which preserves the API for non-SDK callers.
 
-### When to use it vs export strategy
+### Choose Between RankAwareSampler and Export Strategy
 
-The export strategy works at provider construction: non-exporting ranks get no-op providers, so they don't even create spans. The sampler works at span creation: spans are created, then dropped.
+The export strategy operates during provider construction; non-exporting ranks receive no-op providers and skip span creation entirely. By contrast, the sampler operates during span creation, where spans are built and then discarded.
 
-| Goal | Better choice |
+| Goal | Better Choice |
 |---|---|
 | 1000-rank training, only rank 0 matters | `single_rank` (no sampler; non-exporting ranks skip span creation entirely) |
-| 1000-rank training, want random 10% of ranks | `all_ranks` + `sampler_enabled=1` with rate 0.1 |
+| 1000-rank training, want random 10% of ranks | `all_ranks` and `sampler_enabled=1` with rate 0.1 |
 | Debugging, want spans on all ranks for local inspection | `all_ranks` (no sampler) |
 
-Prefer the export strategy when it fits — it's cheaper because non-exporting ranks skip span creation entirely, whereas the sampler still builds and then drops spans.
+The export strategy is more efficient than the sampler when both approaches fit your requirements. Non-exporting ranks bypass span creation entirely, whereas the sampler still constructs and then discards spans.
 
-## OTel SDK samplers
+## Configure OTel SDK Samplers
 
-For **per-trace** sampling (not per-rank), use standard OTel SDK samplers via env vars:
+For **per-trace** sampling (instead of per-rank), use standard OTel SDK samplers through env vars:
 
 ```bash
 OTEL_TRACES_SAMPLER=parentbased_traceidratio
 OTEL_TRACES_SAMPLER_ARG=0.1    # keep 10% of traces
 ```
 
-This is orthogonal to lens's sampler — you can run both. Typical production setup: export from one rank (`single_rank`), sample 10% of traces at that rank (`parentbased_traceidratio`), because even one rank of `per_step` spans for a long job is a lot of data.
+This configuration is independent of the NeMo Lens sampler; both can be run simultaneously. A typical production setup exports from a single rank using `single_rank` and then samples 10% of the traces at that rank using `parentbased_traceidratio`. This setup is recommended because even a single rank of `per_step` spans for a long job produces a large volume of data.
 
-## Composing samplers
 
-| Export strategy | `sampler_enabled` | `OTEL_TRACES_SAMPLER` | Result |
+## Compose Samplers
+
+| Export Strategy | `sampler_enabled` | `OTEL_TRACES_SAMPLER` | Result |
 |---|---|---|---|
 | `single_rank` | `0` | default (always_on) | All spans from one rank |
 | `single_rank` | `0` | `traceidratio 0.1` | 10% of traces from one rank |
 | `all_ranks` | `1` (rate 0.1) | default | All spans from 10% of ranks |
 | `all_ranks` | `1` (rate 0.1) | `traceidratio 0.1` | 10% of traces from 10% of ranks (1% total) |
 
-## Cost implications
+## Performance and Cost Implications
 
-- Span creation has a per-span cost that scales with attribute count and recording decisions; non-exporting ranks skip this entirely.
-- `BatchSpanProcessor` adds queueing work on top of span creation (only on exporting ranks).
-- Network egress scales with export volume: 1000 ranks × 100 spans/step × 1 step/sec = 100,000 spans/sec, which is more than most collectors want to handle. Sample.
+- **Understand span creation cost.** Span creation carries a per-span performance cost that scales with the number of attributes and recording decisions. Non-exporting ranks skip this entire process.
+- **Account for queueing overhead.** The `BatchSpanProcessor` adds queueing work on top of span creation, which occurs only on exporting ranks.
+- **Manage network egress.** Network egress scales with the total export volume. For example, exporting from 1,000 ranks with 100 spans per step at one step per second produces 100,000 spans per second, which exceeds what most collectors can handle. Always use sampling to manage this volume.
