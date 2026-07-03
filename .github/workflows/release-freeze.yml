@@ -46,7 +46,6 @@ jobs:
       dry-run: ${{ inputs.dry-run }}
       next-pre-release: ""
       next-dev: ""
-      packaging: uv
       use-pat: true
     secrets:
       SLACK_WEBHOOK: ${{ secrets.SLACK_CI_CHANNEL_WEBHOOK }}
