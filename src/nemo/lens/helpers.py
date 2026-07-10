@@ -65,16 +65,23 @@ def span_cm(
     name: str,
     tracer: trace.Tracer | None = None,
     record_exception: bool = True,
+    group: str | None = None,
     **attributes: Any,
 ):
     """Context manager that creates an OTel span for a code block.
 
     Safe to use with no-op tracers.
 
+    Unlike :func:`managed_span`, this does NOT gate on a span group (the caller
+    decides whether to enter). Pass *group* purely so the span still carries the
+    ``lens.group`` / ``lens.span_category`` attributes for offline slicing.
+
     Args:
         name: Span name.
         tracer: OTel tracer. Defaults to the global tracer.
         record_exception: If True, record exceptions as span events.
+        group: Optional span group for ``lens.group``/``lens.span_category``
+            tagging only (no gating).
         **attributes: Key/value pairs set as span attributes.
 
     Yields:
@@ -84,6 +91,13 @@ def span_cm(
         tracer = trace.get_tracer(__name__)
 
     with tracer.start_as_current_span(name, record_exception=record_exception) as span:
+        if group is not None:
+            from nemo.lens.state import category_of
+
+            span.set_attribute("lens.group", group)
+            _category = category_of(group)
+            if _category is not None:
+                span.set_attribute("lens.span_category", _category)
         if attributes:
             safe_set_span_attributes(span, attributes)
         yield span
