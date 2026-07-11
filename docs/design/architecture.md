@@ -3,7 +3,7 @@
 Lens is intentionally small. The design prioritises three properties:
 
 1. **Cheap when disabled** — instrumented code should pay a trivial gating cost (a `frozenset` lookup) when telemetry is off, and never construct span objects.
-2. **Optional dependency** — consumers should be able to ship without bundling lens.
+2. **Optional dependency**: consumer libraries (such as Megatron-LM, NeMo RL, and NeMo Gym) can ship without bundling NeMo Lens.
 3. **Clean layering** — each module has one responsibility and stable boundaries.
 
 ## Layer diagram
@@ -58,7 +58,7 @@ Each layer depends only on layers above it. No circular imports.
 |---|---|
 | `__init__.py` | Public API re-exports |
 | `config.py` | `NemoLensConfig` dataclass, env var parsing, validation |
-| `state.py` | Thread-safe global state: enabled span groups + PP trace carrier |
+| `state.py` | Thread-safe global state: enabled span groups and PP trace carrier |
 | `groups.py` | `SpanGroup` base class, preset resolution |
 | `helpers.py` | `managed_span`, `trace_fn`, `span_cm`, attribute safety |
 | `handle.py` | `setup_telemetry` entry point, `TelemetryHandle`, export strategy |
@@ -66,11 +66,11 @@ Each layer depends only on layers above it. No circular imports.
 | `propagation.py` | W3C context inject/extract |
 | `distributed.py` | `broadcast_trace_context`, `create_linked_span` |
 | `sampling.py` | `RankAwareSampler` (OTel `Sampler` impl) |
-| `semconv.py` | Attribute name constants + version tracking |
+| `semconv.py` | Attribute name constants and version tracking |
 | `fallbacks.py` | Canonical no-op implementations for consumers |
 | `logging_bridge.py` | Python logging → OTel LoggerProvider bridge |
 
-## Call flow: `setup_telemetry`
+## Call Flow for `setup_telemetry`
 
 ```
 setup_telemetry(config, rank, world_size, resource_attributes)
@@ -105,7 +105,7 @@ setup_telemetry(config, rank, world_size, resource_attributes)
   returns TelemetryHandle(tracer, meter, is_exporting)
 ```
 
-## Call flow: `managed_span`
+## Call Flow for `managed_span`
 
 ```
 with managed_span('step', 'train.step', iteration=42) as span:
@@ -150,10 +150,12 @@ Lens's global state is protected where it matters:
 
 - `state._ENABLED_GROUPS` is written under a lock, read lock-free (a frozenset is immutable so readers see a consistent snapshot).
 - `state._PP_TRACE_CARRIER` is written during `setup_telemetry` (single-threaded) and read from multiple threads in the pipeline schedule.
-- Instrument caches use `WeakKeyDictionary`, which is thread-safe under CPython's GIL for the operations lens performs.
+- Instrument caches use `WeakKeyDictionary`, which is thread-safe under CPython's GIL for the operations NeMo Lens performs.
 
 `setup_telemetry` itself is not thread-safe — it's documented as "call once per process." The [double-init guard](double-init-guard.md) surfaces violations.
 
 ## What's out of scope
 
-Lens is deliberately narrow. Log shipping beyond the OTel logging bridge stays with your existing log stack; profiling CPU, memory, or GPU activity is the job of PyTorch profiler or nsys, not a tracing library; and APM-style features such as service maps and error tracking are concerns of whichever backend consumes the OTLP stream (Datadog, Sentry, and so on). The scope is also restricted to the NeMo ecosystem's training and inference workloads — the core primitives are domain-agnostic, but the opinionated pieces (span groups, metric instruments, resource attributes) lean toward ML workloads, and lens does not try to be a general-purpose instrumentation library for unrelated domains.
+NeMo Lens is deliberately narrow. Log shipping beyond the OTel logging bridge remains with your existing log stack. Profiling CPU, memory, or GPU activity is the responsibility of the PyTorch profiler or `nsys`, not a tracing library. APM-style features such as service maps and error tracking are handled by whichever backend consumes the OTLP stream (such as Datadog, Sentry, or other compliant platforms).
+
+The scope is also restricted to the NeMo ecosystem's training and inference workloads. The core primitives are domain-agnostic, but the opinionated components (span groups, metric instruments, and resource attributes) lean toward machine learning workloads. NeMo Lens does not serve as a general-purpose instrumentation library for unrelated domains.
