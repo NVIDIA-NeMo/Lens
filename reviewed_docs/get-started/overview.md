@@ -1,6 +1,6 @@
 # Overview
 
-`nemo-lens` solves a narrow but important problem: giving the NeMo ecosystem training and inference workloads a **shared, idiomatic OpenTelemetry instrumentation layer** (cheap when disabled and ergonomic when enabled) that consumers can opt into without taking on a hard dependency.
+NeMo Lens solves a narrow but important problem: giving the NeMo ecosystem training and inference workloads a **shared, idiomatic OpenTelemetry instrumentation layer** (cheap when disabled and ergonomic when enabled) that consumers can opt into without taking on a hard dependency.
 
 ## What It Is
 

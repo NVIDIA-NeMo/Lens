@@ -36,7 +36,7 @@ pip install --group dev -e .
 pre-commit install
 ```
 
-The `dev` dependency group includes the SDK, pytest, pytest-cov, pre-commit, and ruff. See [Developer Guide](../developer/contributing.md).
+The `dev` dependency group includes the SDK, `pytest`, `pytest-cov`, `pre-commit`, and `Ruff`. See [Developer Guide](../developer/contributing.md).
 
 ## Python Support
 
@@ -44,4 +44,4 @@ The `dev` dependency group includes the SDK, pytest, pytest-cov, pre-commit, and
 
 ## Packaging Notes
 
-`nemo.lens` is a **PEP 420 namespace package**, so it coexists peacefully with NeMo Framework's `nemo.*` packages. The `src/nemo/__init__.py` contains only an explanatory comment (no code), so it does not shadow other `nemo.*` packages on the path.
+`nemo.lens` is a **PEP 420 namespace package**, so it coexists peacefully with NeMo Framework's `nemo.*` packages. The `src/nemo/__init__.py` file contains only an explanatory comment (no code), so it does not shadow other `nemo.*` packages on the path.
