@@ -2,9 +2,9 @@
 
 The NeMo Lens test suite is small and focused. Over 180 tests cover every public API, with a strong emphasis on:
 
-- **State isolation** ensures that tests touching global OTel state reset it before and after.
-- **No-op equivalence** ensures that the `fallbacks.py` behavior matches the real API.
-- **Config edge cases** covers every environment variable combination and validation path.
+- **State isolation** ensures that tests touching global OTel state reset it before and after running.
+- **No-op equivalence** ensures that the behavior of `fallbacks.py` matches the real API.
+- **Configuration edge cases** cover every environment variable combination and validation path.
 
 ## Run Tests
 
@@ -126,13 +126,13 @@ def test_managed_span_accepts_kwargs():
         assert span is None
 ```
 
-## Test double-init
+## Test Double-Init
 
 ```python
 def test_double_init_raises():
     cfg = NemoLensConfig(enabled=True, exporter="console")
     setup_telemetry(cfg, rank=0, world_size=1)
-    with pytest.raises(RuntimeError, match="already been initialised"):
+    with pytest.raises(RuntimeError, match="already been initialized"):
         setup_telemetry(cfg, rank=0, world_size=1)
 ```
 
@@ -162,7 +162,7 @@ def test_sampler_returns_proper_sampling_result():
     assert result.decision == Decision.RECORD_AND_SAMPLE
 ```
 
-The sampler is wrapped in a try/except block inside `should_sample` to fall back to `bool` if the SDK is not installed, which is covered by a separate test.
+The sampler is wrapped in a `try/except` block inside `should_sample` to fall back to `bool` if the SDK is not installed, which is covered by a separate test.
 
 ## Lint Code
 

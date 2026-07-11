@@ -78,9 +78,9 @@ The `__all__` list in `__init__.py` defines the public API contract. Before addi
 
 ## Changes to `fallbacks.py`
 
-Whenever a signature in `helpers.py`, `state.py`, or wherever else is mirrored in `fallbacks.py` changes, update `fallbacks.py` too — and add a test in `test_fallbacks.py` that exercises the new signature.
+Whenever a signature in `helpers.py`, `state.py`, or wherever else is mirrored in `fallbacks.py` changes, update `fallbacks.py` too, and add a test in `test_fallbacks.py` that exercises the new signature.
 
-## Changes to semconv
+## Changes to `semconv`
 
 When adding an attribute name constant:
 

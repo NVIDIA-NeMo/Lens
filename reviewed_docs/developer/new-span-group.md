@@ -8,8 +8,8 @@ See [Span Groups](../user-guide/span-groups.md) for how groups work at runtime; 
 
 The decision is about scope, not implementation:
 
-- **Base `SpanGroup`**: only for groups meaningful across every consumer (Megatron, RL, Gym, any hypothetical new one). The current base set — `job`, `checkpoint`, `evaluate`, `model_init`, `load_checkpoint`, `step`, `forward_backward`, `optimizer` — is tight on purpose. Adding to it is a commitment.
-- **Consumer subclass** (`MegatronSpanGroup`, `RLSpanGroup`, `GymSpanGroup`): everything else. If the concept isn't universal, it goes here.
+- **Base `SpanGroup`**: only for groups meaningful across every consumer (Megatron, RL, Gym, and any hypothetical new one). The current base set (which includes `job`, `checkpoint`, `evaluate`, `model_init`, `load_checkpoint`, `step`, `forward_backward`, and `optimizer`) is tight on purpose. Adding to it is a commitment.
+- **Consumer subclass** (`MegatronSpanGroup`, `RLSpanGroup`, `GymSpanGroup`): everything else. If the concept is not universal, it goes here.
 
 When in doubt, start in the subclass. Promoting to the base later is cheap; demoting is not.
 
@@ -84,11 +84,11 @@ Checklist:
 - Lowercase, `snake_case`: `pipeline_parallel`, not `PipelineParallel` or `pipeline-parallel`.
 - Concept-oriented, not verb-oriented: `checkpoint`, not `saving_checkpoint`.
 - Short: `evaluate`, not `evaluation_phase`.
-- Skim the existing list before inventing — if a nearby concept already has a group, extend instrumentation there rather than adding a new one.
+- Skim the existing list before inventing; if a nearby concept already has a group, extend instrumentation there rather than adding a new one.
 
 ## Preset Inclusion
 
-Do not add to `default` casually. The contract for `default` is that it stays quiet enough for production — structural job-level spans only. If your group fires more than a handful of times per iteration, it belongs in `per_step` or `all`, not `default`. Getting this wrong means every production user of the library inherits your instrumentation overhead.
+Do not add to `default` casually. The contract for `default` is that it stays quiet enough for production (structural job-level spans only). If your group fires more than a handful of times per iteration, it belongs in `per_step` or `all`, and not `default`. Getting this wrong means every production user of the library inherits your instrumentation overhead.
 
 A reasonable default: add to `per_step` and `all` only, and wait for a concrete reason before promoting to `default`.
 
@@ -111,4 +111,4 @@ At minimum, cover:
 
 - The group resolves from its bare name.
 - The group is included in every preset you added it to, and excluded from the ones you didn't.
-- An instrumentation site wrapped in `managed_span("my_new_group", ...)` emits a span when the group is enabled, and emits nothing when it's not.
+- An instrumentation site wrapped in `managed_span("my_new_group", ...)` emits a span when the group is enabled, and emits nothing when it is not.

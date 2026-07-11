@@ -154,7 +154,7 @@ You added an entry to a toctree but the file does not exist. Check spelling and 
 
 A `.md` file exists, but no pages reference it. Add the file to a toctree or delete it.
 
-### "duplicate label" / "duplicate anchor"
+### "duplicate label" or "duplicate anchor"
 
 Two pages use the exact same heading text. MyST generates anchors from headings, which causes duplicates to collide. Rename one of the headings.
 
