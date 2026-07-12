@@ -8,7 +8,7 @@
 * **Distributed-training aware**: rank-based export strategies, cross-rank trace correlation
 * **Framework-agnostic primitives**: `managed_span`, `trace_fn`, `span_cm` work everywhere
 * **OTel idiomatic**: real `TracerProvider` / `MeterProvider`, W3C propagation, standard semconv
-* **Optional dependency**: consumers import using `try/except ImportError`; lens ships canonical no-op fallbacks
+* **Optional dependency**: consumers import using `try/except ImportError`; NeMo Lens ships canonical no-op fallbacks
 * **Pluggable**: custom exporters, custom samplers, custom span groups
 * **Resource auto-detection**: SLURM, Kubernetes, local GPU count out of the box
 
@@ -73,7 +73,7 @@ observability/backends
 observability/stack
 ```
 
-Lens emits OTLP; choosing and running an observability stack is up to you. Quick links for sending telemetry to common destinations:
+NeMo Lens emits OTLP; choosing and running an observability stack is up to you. Quick links for sending telemetry to common destinations:
 
 - [Send telemetry to a file](observability/backends.md#file)
 - [Send telemetry to W&B Weave](observability/backends.md#wb-weave)

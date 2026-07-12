@@ -8,7 +8,7 @@ As of the architectural fixes, a second call with `config.enabled=True` raises `
 
 OTel SDK enforces a one-shot rule: `trace.set_tracer_provider(p)` only works if no provider has been set yet. Later calls log a warning and silently no-op. Same for `MeterProvider`.
 
-Before the guard, this failure mode was invisible to lens callers:
+Before the guard, this failure mode was invisible to NeMo Lens callers:
 
 ```python
 setup_telemetry(config)   # builds real providers, installs them
@@ -33,7 +33,7 @@ def setup_telemetry(config, ..., _allow_reinit=False):
     global _INITIALIZED
     if _INITIALIZED and config.enabled and not _allow_reinit:
         raise RuntimeError(
-            "setup_telemetry() has already been initialised for this process. "
+            "setup_telemetry() has already been initialized for this process. "
             "Call it once at startup. Pass _allow_reinit=True to override (testing only)."
         )
     ...
@@ -50,7 +50,7 @@ The guard does not fire when calling with a disabled configuration or during tes
 
 ### Calling Twice with a Disabled Configuration
 
-Calling `setup_telemetry(config_disabled)` twice is fine. No provider is installed either time, so there's no conflict. The `_INITIALIZED` flag stays `False`.
+Calling `setup_telemetry(config_disabled)` twice is fine. No provider is installed either time, so there is no conflict. The `_INITIALIZED` flag stays `False`.
 
 ### Testing
 
@@ -108,6 +108,6 @@ The escape hatch exists for testing; making it public would encourage working ar
 
 ## Interaction with the Global OTel State
 
-The guard tracks the NeMo Lens `_INITIALIZED` flag. The OTel SDK's own one-shot rule also still applies. Resetting `_INITIALIZED` in a test without also resetting the SDK's `_TRACER_PROVIDER_SET_ONCE` would leave the test with lens thinking it can re-init but the SDK refusing. The test would produce spans on a no-op provider and assertions would fail mysteriously.
+The guard tracks the NeMo Lens `_INITIALIZED` flag. The OTel SDK's own one-shot rule also still applies. Resetting `_INITIALIZED` in a test without also resetting the SDK's `_TRACER_PROVIDER_SET_ONCE` would cause NeMo Lens to permit reinitialization while the SDK blocks it. The test would produce spans on a no-op provider and assertions would fail mysteriously.
 
 The NeMo Lens `conftest.py` resets both. If you have a test infrastructure that needs to reset state, copy the pattern from there.
