@@ -4,7 +4,7 @@ When a traced request crosses a process boundary (such as an HTTP call, gRPC mes
 
 NeMo Lens exposes two primitives for this, matching the OTel W3C TraceContext and Baggage propagators.
 
-## `inject_context` Outbound
+## `inject_context` for Outbound Calls
 
 ```python
 from nemo.lens import inject_context
@@ -18,7 +18,7 @@ await http_client.post(url, headers=headers, json=body)
 
 `inject_context(carrier)` writes the current OTel context into the `carrier` dict. The carrier is whatever your transport uses, such as HTTP headers, gRPC metadata, or message attributes.
 
-## `extract_context` Inbound
+## `extract_context` for Inbound Calls
 
 ```python
 from nemo.lens import extract_context
@@ -42,10 +42,10 @@ If the carrier has no valid trace context, the returned `Context` is empty, so n
 
 Writing `inject_context` or `extract_context` by hand on every call is error-prone. For common frameworks, NeMo Lens ships auto-instrumentation helpers:
 
-- **FastAPI.** `nemo.lens.contrib.fastapi.instrument_fastapi(app)` extracts context from every incoming request and makes it the parent of the current span.
-- **aiohttp client.** `nemo.lens.contrib.aiohttp.instrument_aiohttp_client()` injects context into every outgoing request.
-- **Ray.** `nemo.lens.contrib.ray.inject_ray_context()`, `extract_ray_context()`, and `traced_remote_call(method)` provide helpers for Ray's kwargs-based propagation.
-- **NCCL.** `nemo.lens.contrib.nccl.serialize_context()` and `extract_nccl_context(data)` provide helpers for piggy-backing context on NCCL byte transfers.
+- **FastAPI**: `nemo.lens.contrib.fastapi.instrument_fastapi(app)` extracts context from every incoming request and makes it the parent of the current span.
+- **aiohttp client**: `nemo.lens.contrib.aiohttp.instrument_aiohttp_client()` injects context into every outgoing request.
+- **Ray**: `nemo.lens.contrib.ray.inject_ray_context()`, `extract_ray_context()`, and `traced_remote_call(method)` provide helpers for Ray's kwargs-based propagation.
+- **NCCL**: `nemo.lens.contrib.nccl.serialize_context()` and `extract_nccl_context(data)` provide helpers for piggy-backing context on NCCL byte transfers.
 
 See [Contrib Helpers](contrib.md) for details.
 

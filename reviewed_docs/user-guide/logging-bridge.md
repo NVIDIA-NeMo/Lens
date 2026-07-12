@@ -40,7 +40,7 @@ By default, the bridge processes log records at the `INFO` level and above. Pass
 setup_logging_bridge(level=logging.DEBUG)
 ```
 
-Be deliberate with `DEBUG` — training codebases log prolifically at that level.
+Be deliberate with `DEBUG`, as training codebases log prolifically at that level.
 
 ## Bridge a Specific Logger
 

@@ -56,7 +56,7 @@ Controls which ranks send telemetry to the collector. Three strategies are avail
 
 | Field | Default | Description |
 |---|---|---|
-| `export_strategy` | `"single_rank"` | `"single_rank"`, `"all_ranks"`, `"sampled"`, `"first_rank_per_node"`, or any name registered via [`register_export_strategy`](custom-strategies.md). |
+| `export_strategy` | `"single_rank"` | `"single_rank"`, `"all_ranks"`, `"sampled"`, `"first_rank_per_node"`, or any name registered through [`register_export_strategy`](custom-strategies.md). |
 | `export_rank` | `-1` | For `single_rank`: which rank exports. `-1` means the last rank. |
 | `export_sample_rate` | `1.0` | For `sampled`: fraction of ranks in `[0.0, 1.0]`. Validated at config time. |
 | `sampler_enabled` | `False` | Install `RankAwareSampler` on the TracerProvider for SDK-level per-rank filtering. See [Sampling](sampling.md). |
@@ -164,8 +164,10 @@ setup_telemetry(
 
 Returns a `TelemetryHandle` exposing:
 
-- `.tracer` / `.meter` — read-only properties holding the OTel tracer and meter (no-op objects on non-exporting ranks).
-- `.is_exporting` — `bool` indicating whether this rank built real exporting providers.
-- `.shutdown(timeout_ms=5000)` — force-flushes and shuts down both the tracer and meter providers.
+- `.tracer` and `.meter`: read-only properties holding the OTel tracer and meter (no-op objects on non-exporting ranks).
+- `.is_exporting`: a `bool` indicating whether this rank built real exporting providers.
+- `.shutdown(timeout_ms=5000)`: force-flushes and shuts down both the tracer and meter providers.
 
-**Call once per process.** A second call with `config.enabled=True` raises `RuntimeError`. See [Double-Init Guard](../design/double-init-guard.md) for rationale.
+:::{important}
+Call `setup_telemetry` once per process. A second call with `config.enabled=True` raises `RuntimeError`. See [Double-Init Guard](../design/double-init-guard.md) for rationale.
+:::

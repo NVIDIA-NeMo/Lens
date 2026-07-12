@@ -40,7 +40,7 @@ handle = setup_telemetry(
 spans = exporter.get_finished_spans()
 ```
 
-This is how the lens test suite captures spans for assertions.
+This is how the NeMo Lens test suite captures spans for assertions.
 
 ## Custom Metric Reader
 

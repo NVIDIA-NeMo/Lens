@@ -13,7 +13,7 @@ These strategies are registered automatically at import time and exposed as the 
 
 These built-in strategies cannot be unregistered, and replacing them requires `allow_override=True`.
 
-## Selecting a strategy
+## Select a Strategy
 
 Select a strategy by name, through the config or env var:
 

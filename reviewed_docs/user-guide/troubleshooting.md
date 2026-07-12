@@ -87,7 +87,7 @@ Alternatively, you can extract the context manually. See [Context Propagation](c
 
 
 ```
-RuntimeError: setup_telemetry() has already been initialised for this process.
+RuntimeError: setup_telemetry() has already been initialized for this process.
 ```
 
 You're calling `setup_telemetry` twice with `config.enabled=True`. This is almost always a bug, as double-init silently breaks telemetry on the OTel SDK, and NeMo Lens fails loudly instead. See [Double-Init Guard](../design/double-init-guard.md) for the rationale.
