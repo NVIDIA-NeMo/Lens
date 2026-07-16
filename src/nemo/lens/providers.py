@@ -100,10 +100,25 @@ def build_providers(
         from opentelemetry import trace
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.sdk.trace.id_generator import IdGenerator
+
+        # Seed-INDEPENDENT span/trace IDs. OTel's default RandomIdGenerator draws from Python's
+        # `random`, which training frameworks (Megatron) seed IDENTICALLY across data-parallel ranks
+        # -> every rank would emit the SAME span/trace IDs, so a backend sees many spans sharing one
+        # span ID and parent links resolve to the wrong span. os.urandom is unaffected by
+        # random.seed(). Covers EVERY setup_telemetry caller -- trainer, ckpt worker, nvrx -- since
+        # they all build their TracerProvider here (the worker/nvrx set telemetry up in their own
+        # process via from_env, so a caller-side patch would miss them; fixing it here does not).
+        class _SeedIndependentIdGenerator(IdGenerator):
+            def generate_span_id(self) -> int:
+                return int.from_bytes(os.urandom(8), "big") or 1
+
+            def generate_trace_id(self) -> int:
+                return int.from_bytes(os.urandom(16), "big") or 1
 
         _span_exporter = span_exporter or _build_span_exporter(config)
 
-        kwargs: dict = {"resource": resource}
+        kwargs: dict = {"resource": resource, "id_generator": _SeedIndependentIdGenerator()}
         if config.sampler_enabled:
             from nemo.lens.sampling import RankAwareSampler
 
