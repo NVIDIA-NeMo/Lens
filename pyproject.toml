@@ -37,6 +37,13 @@ aiohttp = [
     "nemo-lens[sdk]",
     "opentelemetry-instrumentation-aiohttp-client>=0.40b0",
 ]
+observability = [
+    "matplotlib>=3.8",
+    "jinja2>=3.1",
+]
+all = [
+    "nemo-lens[sdk,fastapi,aiohttp,observability]",
+]
 
 [dependency-groups]
 dev = [
