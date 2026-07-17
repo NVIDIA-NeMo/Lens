@@ -86,6 +86,9 @@ class TestRecordRLMetrics:
             value_loss=0.4,
             entropy=0.5,
             response_length_mean=128.0,
+            grad_norm=1.7,
+            learning_rate=3e-6,
+            tokens_per_sec=18500.0,
             generation_duration_ms=50.0,
             rollout_duration_ms=100.0,
         )
@@ -97,6 +100,9 @@ class TestRecordRLMetrics:
         assert "rl.value_loss" in metric_names
         assert "rl.entropy" in metric_names
         assert "rl.response_length.mean" in metric_names
+        assert "rl.grad_norm" in metric_names
+        assert "rl.learning_rate" in metric_names
+        assert "rl.tokens_per_sec" in metric_names
         assert "rl.generation.duration_ms" in metric_names
         assert "rl.rollout.duration_ms" in metric_names
 

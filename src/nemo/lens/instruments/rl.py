@@ -54,6 +54,18 @@ def _get_rl_instruments(meter: metrics.Meter) -> dict:
                 name="rl.response_length.mean",
                 description="Mean generated response length (tokens).",
             ),
+            "grad_norm": meter.create_gauge(
+                name="rl.grad_norm",
+                description="Gradient norm of the policy update.",
+            ),
+            "learning_rate": meter.create_gauge(
+                name="rl.learning_rate",
+                description="Current optimizer learning rate.",
+            ),
+            "tokens_per_sec": meter.create_gauge(
+                name="rl.tokens_per_sec",
+                description="Training throughput in tokens per second.",
+            ),
             "generation_duration_ms": meter.create_histogram(
                 name="rl.generation.duration_ms",
                 unit="ms",
@@ -77,6 +89,9 @@ def record_rl_metrics(
     value_loss: float | None = None,
     entropy: float | None = None,
     response_length_mean: float | None = None,
+    grad_norm: float | None = None,
+    learning_rate: float | None = None,
+    tokens_per_sec: float | None = None,
     generation_duration_ms: float | None = None,
     rollout_duration_ms: float | None = None,
 ) -> None:
@@ -99,6 +114,12 @@ def record_rl_metrics(
         instruments["entropy"].set(entropy)
     if response_length_mean is not None:
         instruments["response_length_mean"].set(response_length_mean)
+    if grad_norm is not None:
+        instruments["grad_norm"].set(grad_norm)
+    if learning_rate is not None:
+        instruments["learning_rate"].set(learning_rate)
+    if tokens_per_sec is not None:
+        instruments["tokens_per_sec"].set(tokens_per_sec)
     if generation_duration_ms is not None:
         instruments["generation_duration_ms"].record(generation_duration_ms)
     if rollout_duration_ms is not None:
