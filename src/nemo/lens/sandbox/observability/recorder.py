@@ -581,9 +581,9 @@ def log_wandb_artifact(output_dir: Path, cfg: dict[str, Any]) -> None:
 
     service_name = os.environ.get(
         "OTEL_SERVICE_NAME",
-        os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_OTEL_SERVICE_NAME", "nemo-rl-sandbox-eval"),
+        os.environ.get("LENS_SANDBOX_OBSERVABILITY_OTEL_SERVICE_NAME", "nemo-rl-sandbox-eval"),
     )
-    run_id = os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_RUN_ID")
+    run_id = os.environ.get("LENS_SANDBOX_OBSERVABILITY_RUN_ID")
     try:
         export_trace_artifacts(output_dir, service_name=service_name, run_id=run_id)
     except Exception:
@@ -1127,26 +1127,26 @@ def build_recorder_from_config(
 
 def build_recorder_from_env() -> SandboxEventRecorder | None:
     """Build a recorder from eval-job environment variables."""
-    output_dir = os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_DIR")
+    output_dir = os.environ.get("LENS_SANDBOX_OBSERVABILITY_DIR")
     if not output_dir:
         return None
     return SandboxEventRecorder(
         output_dir=Path(output_dir),
         resource_sample_interval_s=float(
-            os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_RESOURCE_INTERVAL_S", "10")
+            os.environ.get("LENS_SANDBOX_OBSERVABILITY_RESOURCE_INTERVAL_S", "10")
         ),
         max_rendered_trajectories=int(
-            os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_MAX_RENDERED", "40")
+            os.environ.get("LENS_SANDBOX_OBSERVABILITY_MAX_RENDERED", "40")
         ),
         artifacts={
-            "enabled": os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_ARTIFACTS", "1")
+            "enabled": os.environ.get("LENS_SANDBOX_OBSERVABILITY_ARTIFACTS", "1")
             != "0",
-            "render_html": os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_RENDER_HTML", "1")
+            "render_html": os.environ.get("LENS_SANDBOX_OBSERVABILITY_RENDER_HTML", "1")
             != "0",
-            "render_png": os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_RENDER_PNG", "1")
+            "render_png": os.environ.get("LENS_SANDBOX_OBSERVABILITY_RENDER_PNG", "1")
             != "0",
             "export_otlp_json": os.environ.get(
-                "NEMO_RL_SANDBOX_OBSERVABILITY_EXPORT_OTLP_JSON",
+                "LENS_SANDBOX_OBSERVABILITY_EXPORT_OTLP_JSON",
                 "1",
             )
             != "0",
@@ -1155,104 +1155,104 @@ def build_recorder_from_env() -> SandboxEventRecorder | None:
             "service_name": os.environ.get(
                 "OTEL_SERVICE_NAME",
                 os.environ.get(
-                    "NEMO_RL_SANDBOX_OBSERVABILITY_OTEL_SERVICE_NAME",
+                    "LENS_SANDBOX_OBSERVABILITY_OTEL_SERVICE_NAME",
                     "nemo-rl-sandbox-eval",
                 ),
             ),
-            "export_logs": os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_OTEL_LOGS", "0")
+            "export_logs": os.environ.get("LENS_SANDBOX_OBSERVABILITY_OTEL_LOGS", "0")
             == "1",
         },
         wandb={
             "enabled": _env_wandb_enabled(
-                os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_WANDB", "auto")
+                os.environ.get("LENS_SANDBOX_OBSERVABILITY_WANDB", "auto")
             ),
             "artifact_name": os.environ.get(
-                "NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_ARTIFACT",
+                "LENS_SANDBOX_OBSERVABILITY_WANDB_ARTIFACT",
                 "sandbox-observability",
             ),
-            "project": os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_PROJECT"),
-            "entity": os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_ENTITY"),
-            "run_name": os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_RUN_NAME"),
+            "project": os.environ.get("LENS_SANDBOX_OBSERVABILITY_WANDB_PROJECT"),
+            "entity": os.environ.get("LENS_SANDBOX_OBSERVABILITY_WANDB_ENTITY"),
+            "run_name": os.environ.get("LENS_SANDBOX_OBSERVABILITY_WANDB_RUN_NAME"),
             "log_artifact": os.environ.get(
-                "NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_LOG_ARTIFACT",
+                "LENS_SANDBOX_OBSERVABILITY_WANDB_LOG_ARTIFACT",
                 "1",
             )
             != "0",
             "log_metrics": os.environ.get(
-                "NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_LOG_METRICS",
+                "LENS_SANDBOX_OBSERVABILITY_WANDB_LOG_METRICS",
                 "1",
             )
             != "0",
             "log_time_series": os.environ.get(
-                "NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_LOG_TIME_SERIES",
+                "LENS_SANDBOX_OBSERVABILITY_WANDB_LOG_TIME_SERIES",
                 "1",
             )
             != "0",
             "max_time_series_points": int(
                 os.environ.get(
-                    "NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_MAX_TIME_SERIES_POINTS",
+                    "LENS_SANDBOX_OBSERVABILITY_WANDB_MAX_TIME_SERIES_POINTS",
                     "10000",
                 )
             ),
             "log_reports": os.environ.get(
-                "NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_LOG_REPORTS",
+                "LENS_SANDBOX_OBSERVABILITY_WANDB_LOG_REPORTS",
                 "1",
             )
             != "0",
             "max_media_items": int(
                 os.environ.get(
-                    "NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_MAX_MEDIA_ITEMS",
+                    "LENS_SANDBOX_OBSERVABILITY_WANDB_MAX_MEDIA_ITEMS",
                     "20",
                 )
             ),
             "log_tables": os.environ.get(
-                "NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_LOG_TABLES",
+                "LENS_SANDBOX_OBSERVABILITY_WANDB_LOG_TABLES",
                 "1",
             )
             != "0",
             "max_table_rows": int(
                 os.environ.get(
-                    "NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_MAX_TABLE_ROWS",
+                    "LENS_SANDBOX_OBSERVABILITY_WANDB_MAX_TABLE_ROWS",
                     "10000",
                 )
             ),
             "metric_prefix": os.environ.get(
-                "NEMO_RL_SANDBOX_OBSERVABILITY_WANDB_METRIC_PREFIX",
+                "LENS_SANDBOX_OBSERVABILITY_WANDB_METRIC_PREFIX",
                 "sandbox/observability",
             ),
         },
         process_trace={
             "enabled": os.environ.get(
-                "NEMO_RL_SANDBOX_OBSERVABILITY_PROCESS_TRACE",
+                "LENS_SANDBOX_OBSERVABILITY_PROCESS_TRACE",
                 "0",
             )
             == "1",
             "sample_interval_s": float(
                 os.environ.get(
-                    "NEMO_RL_SANDBOX_OBSERVABILITY_PROCESS_TRACE_INTERVAL_S",
+                    "LENS_SANDBOX_OBSERVABILITY_PROCESS_TRACE_INTERVAL_S",
                     "1.0",
                 )
             ),
             "max_processes_per_sample": int(
                 os.environ.get(
-                    "NEMO_RL_SANDBOX_OBSERVABILITY_PROCESS_TRACE_MAX_PROCESSES",
+                    "LENS_SANDBOX_OBSERVABILITY_PROCESS_TRACE_MAX_PROCESSES",
                     "128",
                 )
             ),
             "include_cmdline": os.environ.get(
-                "NEMO_RL_SANDBOX_OBSERVABILITY_PROCESS_TRACE_INCLUDE_CMDLINE",
+                "LENS_SANDBOX_OBSERVABILITY_PROCESS_TRACE_INCLUDE_CMDLINE",
                 "0",
             )
             == "1",
         },
         privacy={
             "include_command_text": os.environ.get(
-                "NEMO_RL_SANDBOX_OBSERVABILITY_INCLUDE_COMMAND_TEXT",
+                "LENS_SANDBOX_OBSERVABILITY_INCLUDE_COMMAND_TEXT",
                 "0",
             )
             == "1"
         },
-        run_id=os.environ.get("NEMO_RL_SANDBOX_OBSERVABILITY_RUN_ID"),
+        run_id=os.environ.get("LENS_SANDBOX_OBSERVABILITY_RUN_ID"),
     )
 
 
