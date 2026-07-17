@@ -1,6 +1,6 @@
 # Semantic Conventions
 
-`nemo.lens.semconv` centralises every attribute name constant lens emits. Two categories of attribute coexist:
+`nemo.lens.semconv` centralizes every attribute name constant NeMo Lens emits. Two categories of attributes coexist:
 
 1. **Standard OTel semconv** — `gen_ai.*` and `k8s.*`. These track upstream OTel specs. (Resource attributes like `service.*` and `host.*` are also standard OTel names but are set as literals in `providers.py` and `resources/local.py` rather than mirrored as `semconv.py` constants.)
 2. **NeMo custom namespaces** — `dl.*` (distributed learning), `rl.*`, `gym.*`, `slurm.*`, `nemo.*`, `wandb.*`. These are NeMo-specific extensions that don't exist upstream.
@@ -11,7 +11,7 @@ Three reasons:
 
 1. **Grep-ability**: renaming an attribute across the codebase means changing one constant, not every call site.
 2. **Type safety** (weak but real): `DL_RANK` is an exported name; typos become `ImportError`s. `"dl.rank"` typos become silent data loss.
-3. **Central registry**: one file lists every attribute lens might emit. Easy to review, easy to document.
+3. **Central registry**: one file lists every attribute NeMo Lens might emit. Easy to review, easy to document.
 
 Callers who want the string can use `DL_RANK` directly — Python strings-as-constants have no boxing cost.
 
@@ -45,13 +45,13 @@ From `semconv.py`:
 
 "Stable" for custom namespaces means "we commit to not renaming these in minor releases." Breaking changes bump the major version.
 
-"Experimental" for `gen_ai.*` matches upstream — OTel considers them stable-in-practice but reserves the right to tweak until the full semconv 1.30 stabilisation.
+"Experimental" for `gen_ai.*` matches upstream; OTel considers them stable-in-practice but reserves the right to tweak until the full semconv 1.30 stabilization.
 
 ## Namespace conventions
 
 ### Standard (upstream) namespaces
 
-Follow upstream OTel spec exactly. Don't re-define, don't rename. If upstream says `gen_ai.request.model`, lens uses `gen_ai.request.model`.
+Follow upstream OTel spec exactly. Do not redefine, and do not rename. If upstream says `gen_ai.request.model`, NeMo Lens uses `gen_ai.request.model`.
 
 ### `dl.*` — distributed learning
 
@@ -98,7 +98,7 @@ Checklist before adding a constant:
 2. **Is this shared across consumers?** Use `dl.*` or another shared namespace.
 3. **Is this project-specific?** Use `<project>.*`. Such namespaces are set inline in the consumer fork (e.g. Megatron-LM), not as constants in `semconv.py`.
 4. **Is this a metric or a span attribute?** Metric instruments go in `instruments/`, span attributes go in `semconv.py`.
-5. **Is the attribute always available?** If not, document it as "optional" so query authors know to handle missing values.
+5. **Is the attribute always available?** If it is not, document it as "optional" so query authors know to handle missing values.
 
 Don't add attributes speculatively. A constant with no call site is dead code that rots.
 
@@ -109,9 +109,9 @@ Don't add attributes speculatively. A constant with no call site is dead code th
 | Categorical, per-span (which iteration, what kind of request) | Span attribute |
 | Stable for the process lifetime (rank, parallelism config) | Resource attribute |
 | Numerical, varies over time (loss, duration) | Metric |
-| Text payload (prompt, completion) | Span event, or don't emit (PII risk) |
+| Text payload (prompt, completion) | Span event, or do not emit (PII risk) |
 
-Putting a continuously-varying value like loss on a span attribute produces thousands of span-attribute time series in Jaeger that can't be aggregated. Use a metric.
+Putting a continuously-varying value such as loss on a span attribute produces thousands of span-attribute time series in Jaeger that cannot be aggregated. Use a metric.
 
 ## Attribute cardinality
 

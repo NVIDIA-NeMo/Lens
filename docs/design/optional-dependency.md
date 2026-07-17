@@ -59,7 +59,7 @@ except ImportError:
     # ... inline copies of the other no-ops ...
 ```
 
-The nested `try/except` is needed because the consumer's `_fallbacks.py` itself imports from lens when possible. Only if lens is **completely absent** does it fall back to inline definitions.
+The nested `try/except` is needed because the consumer's `_fallbacks.py` itself imports from NeMo Lens when possible. Only if NeMo Lens is **completely absent** does it fall back to inline definitions.
 
 ## Why ship canonical no-ops
 
@@ -71,19 +71,19 @@ Before this module, each consumer maintained an identical copy of the no-op func
 
 Three copies of the same file. Drift was inevitable — if lens added a new parameter to `managed_span`, all three copies needed updating separately.
 
-Shipping canonical no-ops in `nemo.lens.fallbacks` eliminates the drift: consumer `_fallbacks.py` re-exports, the inline definitions serve only the "lens not installed" case. Both paths produce identical behaviour.
+Shipping canonical no-ops in `nemo.lens.fallbacks` eliminates the drift: consumer `_fallbacks.py` re-exports, the inline definitions serve only the "NeMo Lens not installed" case. Both paths produce identical behavior.
 
 ## Signature compatibility
 
-The fallback signatures must match the real API exactly. If `managed_span` adds a new keyword argument, `fallbacks.py` must add it too (ignoring it is fine, since it's a no-op). Tests catch this — `lens/tests/test_fallbacks.py` exercises every fallback to verify signature compatibility.
+The fallback signatures must match the real API exactly. If `managed_span` adds a new keyword argument, `fallbacks.py` must add it too (ignoring it is fine, because it is a no-op). Tests catch this; `lens/tests/test_fallbacks.py` exercises every fallback to verify signature compatibility.
 
 ## The boundary: what consumers can use without ImportError fallbacks
 
 Anything under `nemo.lens.fallbacks` has a guaranteed no-op equivalent. Anything else doesn't.
 
-Safe to use with fallbacks: `managed_span`, `trace_fn`, `span_cm`, `is_span_group_enabled`, `safe_set_span_attributes`.
+The following are safe to use with fallbacks: `managed_span`, `trace_fn`, `span_cm`, `is_span_group_enabled`, and `safe_set_span_attributes`.
 
-Requires lens to be installed: `NemoLensConfig`, `setup_telemetry`, `TelemetryHandle`, `inject_context`, `extract_context`, `broadcast_trace_context`, `create_linked_span`, all of `contrib/`, all of `instruments/`.
+The following require NeMo Lens to be installed: `NemoLensConfig`, `setup_telemetry`, `TelemetryHandle`, `inject_context`, `extract_context`, `broadcast_trace_context`, `create_linked_span`, all of `contrib/`, and all of `instruments/`.
 
 For the latter group, consumers typically gate the entire setup behind `try/except ImportError`:
 
