@@ -1,0 +1,115 @@
+---
+title: "Resource Detection"
+description: ""
+position: 10
+---
+OpenTelemetry [Resources](https://opentelemetry.io/docs/specs/otel/resource/sdk/) describe the entity producing telemetry: service name, version, host, cloud provider, and other properties. NeMo Lens auto-detects a handful of environment-specific attributes to make runs filterable without manual configuration.
+
+## Default Resource Attributes
+
+Every exporter-rank process emits these attributes (set in `providers.py:build_providers`):
+
+| Attribute | Source | Example |
+|---|---|---|
+| `service.name` | `config.service_name` (populated from `OTEL_SERVICE_NAME` through `NemoLensConfig.from_env()`, default `"nemo"`) | `"megatron-lm"` |
+| `service.version` | `nemo.lens.__version__` | `"0.1.0"`, `"0.1.0.post3+gabc1234"` |
+| `service.instance.id` | `"{run_id}-rank{rank}"` | `"abc123-rank0"` |
+| `dl.rank` | `rank` argument | `0` |
+| `dl.world_size` | `world_size` argument | `8` |
+| `nemo.run.id` | `config.run_id` (auto-generated if empty) | `"abc123"` |
+| `nemo.user.id` | `config.user` (if set) | `"my-team"` |
+| `deployment.environment` | `DEPLOYMENT_ENV` or `ENVIRONMENT` env var | `"production"` |
+
+## Auto-Detected Resource Attributes
+
+The `nemo.lens.resources.detect_resource()` function merges attributes from three sources:
+
+### Local Process Attributes with `detect_local()`
+
+| Attribute | Description |
+|---|---|
+| `host.name` | Hostname from `socket.gethostname()` |
+| `process.pid` | Python's `os.getpid()` |
+| `host.gpu.count` | GPU count from `CUDA_VISIBLE_DEVICES` or `nvidia-smi`. Best-effort; omitted entirely when undetectable (no `nvidia-smi` and `CUDA_VISIBLE_DEVICES` unset). An empty `CUDA_VISIBLE_DEVICES` reports `0`. |
+
+### Slurm Environment Attributes with `detect_slurm()`
+
+These attributes are active when `SLURM_JOB_ID` is set. This helper maps the following variables:
+
+| Attribute | Source env var |
+|---|---|
+| `slurm.job.id` | `SLURM_JOB_ID` |
+| `slurm.job.name` | `SLURM_JOB_NAME` |
+| `slurm.nodelist` | `SLURM_NODELIST` |
+| `slurm.nnodes` | `SLURM_NNODES` |
+| `slurm.ntasks` | `SLURM_NTASKS` |
+| `slurm.partition` | `SLURM_PARTITION` |
+| `slurm.cluster.name` | `SLURM_CLUSTER_NAME` |
+
+### Kubernetes Environment Attributes with `detect_kubernetes()`
+
+These attributes are active when `KUBERNETES_SERVICE_HOST` is set or the `/var/run/secrets/kubernetes.io` directory exists. This helper maps the following variables:
+
+| Attribute | Source env var |
+|---|---|
+| `k8s.namespace.name` | `K8S_NAMESPACE` |
+| `k8s.pod.name` | `K8S_POD_NAME` (falls back to `HOSTNAME`) |
+| `k8s.pod.uid` | `K8S_POD_UID` |
+| `k8s.node.name` | `K8S_NODE_NAME` |
+| `k8s.container.name` | `K8S_CONTAINER_NAME` |
+| `k8s.job.name` | `K8S_JOB_NAME` |
+
+`HOSTNAME` is used as a fallback for `k8s.pod.name` only when `K8S_POD_NAME` is unset.
+
+## Add Custom Resource Attributes
+
+Pass the `resource_attributes` argument to `setup_telemetry`:
+
+```python
+handle = setup_telemetry(
+    config,
+    rank=rank,
+    world_size=world_size,
+    resource_attributes={
+        'dl.tensor_parallel.size': 4,
+        'dl.pipeline_parallel.size': 2,
+        'dl.data_parallel.size': 8,
+        'megatron.num_layers': 32,
+        'megatron.precision': 'bf16',
+    },
+)
+```
+
+These attributes merge with the auto-detected set. In Jaeger, they appear as **Process** tags and are filterable across every span in the run.
+
+## Use Cases
+
+### Filter by Global Rank
+
+In Jaeger, use: `dl.rank=0`
+
+### Compare Distinct Runs
+
+In Grafana, configure `nemo.run.id` as a dashboard variable, list all values, and then select the specific runs to compare.
+
+### Filter by Parallelism Configuration
+
+In Jaeger, use: `dl.tensor_parallel.size=4 AND dl.pipeline_parallel.size=2`
+
+Because these are resource attributes instead of span attributes, they apply to every span without cluttering the span view.
+
+## Attribute Conventions
+
+- **Use standard names.** Apply standard OTel attribute names where they exist, such as `service.*`, `k8s.*`, and `host.*`.
+- **Use distributed learning prefix.** Apply the `dl.*` (distributed learning) prefix for training-specific attributes that are shared across consumers.
+- **Use project-specific prefixes.** Apply the `&lt;project&gt;.*` prefix for project-specific attributes, such as `megatron.*`, `rl.*`, and `gym.*`.
+
+See [semconv](/design/semantic-conventions) for the full attribute namespace conventions.
+
+## Resource Detection Order
+
+The `detect_resource()` function merges resource attributes in the following order: local, Slurm, and then Kubernetes. If a key collision occurs, the attribute from the later source takes precedence. In practice, collisions are rare because each layer uses its own namespace.
+
+## Run Telemetry Locally
+
+On a development machine with no Slurm or Kubernetes environment, only the `detect_local()` helper executes. Run identifiers are automatically generated as UUID values, so you can still filter by `nemo.run.id` to isolate a single local run.

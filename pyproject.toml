@@ -46,14 +46,6 @@ dev = [
     "pre-commit>=3.0",
     "ruff>=0.15.0,<0.16",
 ]
-docs = [
-    "sphinx>=7.0",
-    "myst-parser>=2.0",
-    "sphinx-copybutton>=0.5",
-    "sphinx-autodoc2>=0.5",
-    "nvidia-sphinx-theme>=0.0.5",
-    "sphinx-autobuild>=2024.0",
-]
 
 [tool.setuptools.packages.find]
 where = ["src"]

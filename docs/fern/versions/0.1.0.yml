@@ -1,0 +1,75 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+navigation:
+  - page: "Home"
+    path: ./0.1.0/pages/index.mdx
+    slug: ""
+  - section: "Get Started"
+    contents:
+      - page: "Overview"
+        path: ./0.1.0/pages/get-started/overview.mdx
+      - page: "Installation"
+        path: ./0.1.0/pages/get-started/installation.mdx
+      - page: "Quickstart"
+        path: ./0.1.0/pages/get-started/quickstart.mdx
+  - section: "User Guide"
+    contents:
+      - page: "Configuration"
+        path: ./0.1.0/pages/user-guide/configuration.mdx
+      - page: "Instrumentation Primitives"
+        path: ./0.1.0/pages/user-guide/instrumentation.mdx
+      - page: "Span Groups"
+        path: ./0.1.0/pages/user-guide/span-groups.mdx
+      - page: "Metrics"
+        path: ./0.1.0/pages/user-guide/metrics.mdx
+      - page: "Context Propagation"
+        path: ./0.1.0/pages/user-guide/context-propagation.mdx
+      - page: "Distributed Tracing"
+        path: ./0.1.0/pages/user-guide/distributed-tracing.mdx
+      - page: "Sampling"
+        path: ./0.1.0/pages/user-guide/sampling.mdx
+      - page: "Custom Exporters"
+        path: ./0.1.0/pages/user-guide/custom-exporters.mdx
+      - page: "Custom Export Strategies"
+        path: ./0.1.0/pages/user-guide/custom-strategies.mdx
+      - page: "Resource Detection"
+        path: ./0.1.0/pages/user-guide/resources.mdx
+      - page: "Contrib Helpers"
+        path: ./0.1.0/pages/user-guide/contrib.mdx
+      - page: "Logging Bridge"
+        path: ./0.1.0/pages/user-guide/logging-bridge.mdx
+      - page: "Troubleshooting"
+        path: ./0.1.0/pages/user-guide/troubleshooting.mdx
+      - page: "Production Checklist"
+        path: ./0.1.0/pages/user-guide/production.mdx
+  - section: "Design"
+    contents:
+      - page: "Architecture"
+        path: ./0.1.0/pages/design/architecture.mdx
+      - page: "Optional Dependency"
+        path: ./0.1.0/pages/design/optional-dependency.mdx
+      - page: "Double-Init Guard"
+        path: ./0.1.0/pages/design/double-init-guard.mdx
+      - page: "Semantic Conventions"
+        path: ./0.1.0/pages/design/semconv.mdx
+  - section: "Backends & Demo Stack"
+    contents:
+      - page: "Send Telemetry to a Backend"
+        path: ./0.1.0/pages/observability/backends.mdx
+      - page: "Demo Stack"
+        path: ./0.1.0/pages/observability/stack.mdx
+  - section: "Developer Guide"
+    contents:
+      - page: "Test"
+        path: ./0.1.0/pages/developer/testing.mdx
+      - page: "Add a New Span Group"
+        path: ./0.1.0/pages/developer/new-span-group.mdx
+      - page: "Contributing"
+        path: ./0.1.0/pages/developer/contributing.mdx
+      - page: "Build the Documentation"
+        path: ./0.1.0/pages/developer/building-docs.mdx
+  - section: "API Reference"
+    contents:
+      - folder: ../product-docs/nemo-lens/Full-Library-Reference
+        title: "Python API"

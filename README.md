@@ -88,4 +88,4 @@ pytest
 
 ## Docs
 
-Full documentation: `cd docs && make serve` (requires `pip install --group docs -e .`).
+Full documentation: https://docs.nvidia.com/nemo/lens. For local development, see `docs/fern/README.md`.
