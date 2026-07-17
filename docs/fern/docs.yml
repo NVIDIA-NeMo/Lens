@@ -40,12 +40,12 @@ libraries:
     output:
       path: ./product-docs/nemo-lens/Full-Library-Reference
     lang: python
-  # nemo-lens-local:
-  #   input:
-  #     path: ../../src/nemo/lens
-  #   output:
-  #     path: ./product-docs/nemo-lens/Full-Library-Reference
-  #   lang: python
+  nemo-lens-local:
+    input:
+      path: ../../src/nemo/lens
+    output:
+      path: ./product-docs/nemo-lens/Full-Library-Reference
+    lang: python
 
 versions:
   - display-name: "0.1.0"
