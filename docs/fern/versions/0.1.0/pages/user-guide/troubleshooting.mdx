@@ -47,7 +47,7 @@ handle = setup_telemetry(config, rank=rank, world_size=world_size)
 print(f"rank {rank}: is_exporting={handle.is_exporting}")
 ```
 
-See [Sampling](/user-guide/sampling) for how to change which rank(s) export.
+See [Sampling](../user-guide/sampling.mdx) for how to change which rank(s) export.
 
 ### Wrong OTLP Protocol
 
@@ -60,7 +60,7 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://collector.internal:4318
 
 ### Verify Locally First
 
-Before debugging collector plumbing, confirm NeMo Lens itself is producing spans by routing to a file. See [Send telemetry to a file](/backends-demo-stack/send-telemetry-to-a-backend#file). If you see spans in the file, the problem is downstream; if you don't, it's in NeMo Lens or your config.
+Before debugging collector plumbing, confirm NeMo Lens itself is producing spans by routing to a file. See [Send telemetry to a file](../observability/backends.mdx#file). If you see spans in the file, the problem is downstream; if you don't, it's in NeMo Lens or your config.
 
 ## Spans Show Up in Jaeger but They Are Fragmented
 
@@ -83,7 +83,7 @@ from nemo.lens.contrib.fastapi import instrument_fastapi
 instrument_fastapi(app)
 ```
 
-Alternatively, you can extract the context manually. See [Context Propagation](/user-guide/context-propagation).
+Alternatively, you can extract the context manually. See [Context Propagation](../user-guide/context-propagation.mdx).
 
 ## `setup_telemetry` Raises Already Been Initialized
 
@@ -91,7 +91,7 @@ Alternatively, you can extract the context manually. See [Context Propagation](/
 RuntimeError: setup_telemetry() has already been initialized for this process.
 ```
 
-You're calling `setup_telemetry` twice with `config.enabled=True`. This is almost always a bug, as double-init silently breaks telemetry on the OTel SDK, and NeMo Lens fails loudly instead. See [Double-Init Guard](/design/double-init-guard) for the rationale.
+You're calling `setup_telemetry` twice with `config.enabled=True`. This is almost always a bug, as double-init silently breaks telemetry on the OTel SDK, and NeMo Lens fails loudly instead. See [Double-Init Guard](../design/double-init-guard.mdx) for the rationale.
 
 If you have a legitimate need (multi-rank simulation in one process, tests), pass `_allow_reinit=True`:
 
@@ -128,7 +128,7 @@ NEMO_LENS_SPAN_GROUPS=default,my_group
 
 ### You Are on a Non-Exporting Rank
 
-On non-exporting ranks, `setup_telemetry` sets the enabled group set to empty regardless of config. Nothing in this rank will export, by design. See [Sampling](/user-guide/sampling).
+On non-exporting ranks, `setup_telemetry` sets the enabled group set to empty regardless of config. Nothing in this rank will export, by design. See [Sampling](../user-guide/sampling.mdx).
 
 ## Metrics Not Showing Up in Prometheus
 
@@ -154,7 +154,7 @@ Toggle NeMo Lens off (`NEMO_LENS_ENABLED=0`) and retime the workload. If speed c
 
 ### Narrow the Scope
 
-Switch from `per_step` or `all` to `default`. Spans in the hot loop (microbatch, communication) are the likely cost. See [Span Groups](/user-guide/span-groups) and [Sampling](/user-guide/sampling) for how to dial this in.
+Switch from `per_step` or `all` to `default`. Spans in the hot loop (microbatch, communication) are the likely cost. See [Span Groups](../user-guide/span-groups.mdx) and [Sampling](../user-guide/sampling.mdx) for how to dial this in.
 
 ### BatchSpanProcessor Should Never Block
 
@@ -172,7 +172,7 @@ Custom exporters are attached through the `span_exporter=` argument to `setup_te
 handle = setup_telemetry(config, rank=0, world_size=1, span_exporter=my_exporter)
 ```
 
-See [Custom Exporters](/user-guide/custom-exporters).
+See [Custom Exporters](../user-guide/custom-exporters.mdx).
 
 ### Check `traces_enabled`
 

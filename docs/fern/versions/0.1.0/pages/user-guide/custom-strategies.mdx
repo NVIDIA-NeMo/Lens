@@ -3,7 +3,7 @@ title: "Custom Export Strategies"
 description: ""
 position: 9
 ---
-NeMo Lens picks which ranks export by name: `NemoLensConfig.export_strategy` selects a callable from a process-wide registry. The four built-in strategies cover the common cases (see [Sampling](/user-guide/sampling)); the registry is the extension point for everything else, including fleet-aware sampling, locality-aware selection, and anything that needs more context than the built-in strategies expose.
+NeMo Lens picks which ranks export by name: `NemoLensConfig.export_strategy` selects a callable from a process-wide registry. The four built-in strategies cover the common cases (see [Sampling](../user-guide/sampling.mdx)); the registry is the extension point for everything else, including fleet-aware sampling, locality-aware selection, and anything that needs more context than the built-in strategies expose.
 
 ## Built-In Strategies
 
@@ -92,4 +92,4 @@ unregister_export_strategy("first_two_ranks")
 
 ## Why This API
 
-Name-based dispatch lets the same env var (`NEMO_LENS_EXPORT_STRATEGY`) route to user code without touching NeMo Lens internals, allowing production runs and CI to pick a strategy from outside the program. The `setup_telemetry(export_strategy=)` argument is the lower-level escape hatch: pass any callable, skip the registry, and never name it. This parallels the `span_exporter=` argument documented in [Custom Exporters](/user-guide/custom-exporters), both of which keep the core surface small while staying open at the bottom for callers that need it.
+Name-based dispatch lets the same env var (`NEMO_LENS_EXPORT_STRATEGY`) route to user code without touching NeMo Lens internals, allowing production runs and CI to pick a strategy from outside the program. The `setup_telemetry(export_strategy=)` argument is the lower-level escape hatch: pass any callable, skip the registry, and never name it. This parallels the `span_exporter=` argument documented in [Custom Exporters](../user-guide/custom-exporters.mdx), both of which keep the core surface small while staying open at the bottom for callers that need it.

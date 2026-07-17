@@ -7,7 +7,7 @@ This page describes the **demo** `docker-compose.otel.yml` included in the repos
 
 **NeMo Lens does not provide an observability solution.** It is an instrumentation library: it emits OTLP. Where that OTLP goes, how long it is retained, how it is queried, and how it is visualized are your choices, which are driven by your organization's existing observability investments and the scale of your workloads. The demo stack exists only to give you a destination while you evaluate NeMo Lens.
 
-For production, see [Send Telemetry to a Backend](/backends-demo-stack/send-telemetry-to-a-backend). The same OTLP stream can go to any compliant destination.
+For production, see [Send Telemetry to a Backend](../observability/backends.mdx). The same OTLP stream can go to any compliant destination.
 
 ## What the Demo Stack Includes
 
@@ -96,9 +96,9 @@ docker compose -f docker-compose.otel.yml down -v     # delete volumes too
 
 After you confirm that NeMo Lens is instrumenting what you expect, move to a real backend:
 
-- **Managed or hosted.** Use [W&B Weave](/backends-demo-stack/send-telemetry-to-a-backend#integrate-with-wb-weave), Grafana Cloud, Honeycomb, Datadog, New Relic, or another hosted backend. See [Send Telemetry to Other Hosted Backends](/backends-demo-stack/send-telemetry-to-a-backend#send-telemetry-to-other-hosted-backends).
-- **Self-hosted production.** Use an [OTel Collector](/backends-demo-stack/send-telemetry-to-a-backend#configure-otel-collector) in front of your chosen storage, such as Tempo, Mimir, Loki, Jaeger, or Prometheus at scale.
-- **File export for offline analysis.** See [Export Telemetry to a File](/backends-demo-stack/send-telemetry-to-a-backend#export-telemetry-to-a-file).
+- **Managed or hosted.** Use [W&B Weave](../observability/backends.mdx#integrate-with-wb-weave), Grafana Cloud, Honeycomb, Datadog, New Relic, or another hosted backend. See [Send Telemetry to Other Hosted Backends](../observability/backends.mdx#send-telemetry-to-other-hosted-backends).
+- **Self-hosted production.** Use an [OTel Collector](../observability/backends.mdx#configure-otel-collector) in front of your chosen storage, such as Tempo, Mimir, Loki, Jaeger, or Prometheus at scale.
+- **File export for offline analysis.** See [Export Telemetry to a File](../observability/backends.mdx#export-telemetry-to-a-file).
 
 NeMo Lens does not change between these options. Point to a different `OTEL_EXPORTER_OTLP_ENDPOINT`, and everything else stays the same.
 

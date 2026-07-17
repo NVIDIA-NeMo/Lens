@@ -67,7 +67,7 @@ For every change that modifies behavior:
 4. Run the test to confirm that it passes.
 5. Run the full test suite to confirm that other functionality remains intact.
 
-Refer to the [Test](/developer-guide/test) documentation for fixture patterns and state-isolation requirements.
+Refer to the [Test](../developer/testing.mdx) documentation for fixture patterns and state-isolation requirements.
 
 ## Changes to the Public API
 
@@ -87,7 +87,7 @@ Whenever a signature in `helpers.py`, `state.py`, or wherever else is mirrored i
 
 When adding an attribute name constant:
 
-1. Place the constant in the appropriate namespace, such as `dl.*` or `&lt;project&gt;.*` (refer to the [Semantic Conventions](/design/semantic-conventions) documentation).
+1. Place the constant in the appropriate namespace, such as `dl.*` or `&lt;project&gt;.*` (refer to the [Semantic Conventions](../design/semconv.mdx) documentation).
 2. Update the stability-marker comment block if the namespace is new.
 3. Ensure that the constant is used. Unused constants are considered dead code.
 
@@ -127,7 +127,7 @@ npm --prefix docs/fern run generate:library:local
 npm --prefix docs/fern run check
 ```
 
-Refer to [Build the Documentation](/developer-guide/build-the-documentation) for local preview, authoring, versioning, and troubleshooting details.
+Refer to [Build the Documentation](../developer/building-docs.mdx) for local preview, authoring, versioning, and troubleshooting details.
 
 ## Questions
 

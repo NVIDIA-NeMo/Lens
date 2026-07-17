@@ -50,7 +50,7 @@ Writing `inject_context` or `extract_context` by hand on every call is error-pro
 - **Ray**: `nemo.lens.contrib.ray.inject_ray_context()`, `extract_ray_context()`, and `traced_remote_call(method)` provide helpers for Ray's kwargs-based propagation.
 - **NCCL**: `nemo.lens.contrib.nccl.serialize_context()` and `extract_nccl_context(data)` provide helpers for piggy-backing context on NCCL byte transfers.
 
-See [Contrib Helpers](/user-guide/contrib-helpers) for details.
+See [Contrib Helpers](../user-guide/contrib.mdx) for details.
 
 **When auto-instrumentation is available, use it instead of manual injection.** This approach covers every call site, handles error paths, and prevents code rot as the codebase grows.
 
@@ -61,7 +61,7 @@ HTTP-style propagation does not apply to `torch.distributed`, as those are not c
 - `broadcast_trace_context(rank, src_rank=0)`, which uses `torch.distributed.broadcast` to share trace context across ranks.
 - `create_linked_span(tracer, name, remote_carrier=carrier)`, which creates a span with an OTel Link (not a parent-child relationship) to a remote span, which is useful for pipeline-parallel correlation.
 
-See [Distributed Tracing](/user-guide/distributed-tracing) for the full pattern.
+See [Distributed Tracing](../user-guide/distributed-tracing.mdx) for the full pattern.
 
 ## Baggage
 

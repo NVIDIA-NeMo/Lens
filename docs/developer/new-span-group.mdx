@@ -5,7 +5,7 @@ position: 2
 ---
 Span groups are a runtime knob. You add one, wire instrumentation to it, and users get a new opt-in slice of telemetry without any code changes on their side. This page walks through adding one to either the base `SpanGroup` or a consumer-specific subclass.
 
-See [Span Groups](/user-guide/span-groups) for how groups work at runtime; this page is for library authors.
+See [Span Groups](../user-guide/span-groups.mdx) for how groups work at runtime; this page is for library authors.
 
 ## Decide Where It Belongs
 
@@ -45,7 +45,7 @@ Checklist:
 - [ ] Constant added to the appropriate presets (`default` / `per_step` / `all`).
 - [ ] Test case in `tests/test_groups.py` covering resolution of the new name.
 - [ ] Instrumentation added at the relevant call site(s) using `managed_span("my_new_group", ...)` or `@trace_fn("my_new_group", ...)`.
-- [ ] Entry added to [Span Groups](/user-guide/span-groups).
+- [ ] Entry added to [Span Groups](../user-guide/span-groups.mdx).
 
 ## Add to a Consumer Subclass
 
@@ -97,7 +97,7 @@ A reasonable default: add to `per_step` and `all` only, and wait for a concrete 
 
 ## Testing
 
-See [Test](/developer-guide/test) for fixture conventions. A typical new-group test:
+See [Test](../developer/testing.mdx) for fixture conventions. A typical new-group test:
 
 ```python
 def test_my_new_group_in_per_step_preset():

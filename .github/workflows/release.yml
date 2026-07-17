@@ -95,6 +95,7 @@ jobs:
       gh-release-from-tag: ${{ inputs.gh-release-from-tag || '' }}
       packaging: uv
       has-src-dir: true
+      publish-docs: false
       skip-test-wheel: true
       app-id: ${{ vars.BOT_ID }}
       submodules: recursive

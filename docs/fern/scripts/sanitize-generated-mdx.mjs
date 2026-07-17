@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { readdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 
 const root =
   process.argv[2] ??
@@ -37,10 +37,21 @@ async function* mdxFiles(dir) {
 }
 
 let changed = 0;
+const files = [];
+const routes = new Map();
 
 for await (const file of mdxFiles(root)) {
+  files.push(file);
+  const content = await readFile(file, "utf8");
+  const slug = content.match(/^slug:\s*(.+)$/m)?.[1];
+  if (slug != null) {
+    routes.set(`/${slug}`, file);
+  }
+}
+
+for (const file of files) {
   const before = await readFile(file, "utf8");
-  const after = before
+  const sanitized = before
     .split("\n")
     .map((line) => {
       const sanitizedLine = line.replace(/``([^`\n]+)``/g, "`$1`");
@@ -62,6 +73,21 @@ for await (const file of mdxFiles(root)) {
       return `${left}{\`${value}\`}>`;
     })
     .join("\n");
+  const after = sanitized.replace(
+    /\]\((\/[^\s)#?]+)(#[^)]+)?\)/g,
+    (link, route, fragment = "") => {
+      const target = routes.get(route);
+      if (target == null) {
+        return link;
+      }
+
+      let targetPath = relative(dirname(file), target).split(sep).join("/");
+      if (!targetPath.startsWith(".")) {
+        targetPath = `./${targetPath}`;
+      }
+      return `](${targetPath}${fragment})`;
+    },
+  );
 
   if (after !== before) {
     await writeFile(file, after);

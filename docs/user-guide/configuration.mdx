@@ -55,14 +55,14 @@ A `NemoLensConfig` object contains fields divided into several functional catego
 
 ### Export Strategy
 
-Controls which ranks send telemetry to the collector. Three strategies are available: `single_rank` (default), `all_ranks`, and `sampled`. See [Sampling](/user-guide/sampling) for detailed semantics, when to use each, and how they compose with OTel SDK samplers. Unknown strategy names raise a `ValueError` at `setup_telemetry` time, not at configuration construction; register custom strategies before initializing telemetry. See [Custom Export Strategies](/user-guide/custom-export-strategies).
+Controls which ranks send telemetry to the collector. Three strategies are available: `single_rank` (default), `all_ranks`, and `sampled`. See [Sampling](../user-guide/sampling.mdx) for detailed semantics, when to use each, and how they compose with OTel SDK samplers. Unknown strategy names raise a `ValueError` at `setup_telemetry` time, not at configuration construction; register custom strategies before initializing telemetry. See [Custom Export Strategies](../user-guide/custom-strategies.mdx).
 
 | Field | Default | Description |
 |---|---|---|
-| `export_strategy` | `"single_rank"` | `"single_rank"`, `"all_ranks"`, `"sampled"`, `"first_rank_per_node"`, or any name registered through [`register_export_strategy`](/user-guide/custom-export-strategies). |
+| `export_strategy` | `"single_rank"` | `"single_rank"`, `"all_ranks"`, `"sampled"`, `"first_rank_per_node"`, or any name registered through [`register_export_strategy`](../user-guide/custom-strategies.mdx). |
 | `export_rank` | `-1` | For `single_rank`: which rank exports. `-1` means the last rank. |
 | `export_sample_rate` | `1.0` | For `sampled`: fraction of ranks in `[0.0, 1.0]`. Validated at config time. |
-| `sampler_enabled` | `False` | Install `RankAwareSampler` on the TracerProvider for SDK-level per-rank filtering. See [Sampling](/user-guide/sampling). |
+| `sampler_enabled` | `False` | Install `RankAwareSampler` on the TracerProvider for SDK-level per-rank filtering. See [Sampling](../user-guide/sampling.mdx). |
 
 ### Signal Toggles
 
@@ -70,13 +70,13 @@ Controls which ranks send telemetry to the collector. Three strategies are avail
 |---|---|---|
 | `traces_enabled` | `True` | Enable trace spans. |
 | `metrics_enabled` | `True` | Enable metric instruments. |
-| `logs_enabled` | `False` | Enable the OTel log bridge. See [Logging Bridge](/user-guide/logging-bridge). |
+| `logs_enabled` | `False` | Enable the OTel log bridge. See [Logging Bridge](../user-guide/logging-bridge.mdx). |
 
 ### Granularity
 
 | Field | Default | Description |
 |---|---|---|
-| `span_groups` | `"default"` | Comma-separated spec of preset keywords or group names. See [Span Groups](/user-guide/span-groups). |
+| `span_groups` | `"default"` | Comma-separated spec of preset keywords or group names. See [Span Groups](../user-guide/span-groups.mdx). |
 
 ### Backend
 
@@ -160,10 +160,10 @@ setup_telemetry(
 | `config` | The `NemoLensConfig` object, typically from `from_env()`. |
 | `rank` and `world_size` | Distributed position, used for export strategy and resource attributes. |
 | `resource_attributes` | Extra attributes to merge into the OTel `Resource` (become Jaeger "Process" tags). |
-| `span_exporter` | Optional custom `SpanExporter`, bypasses config-based construction. See [Custom Exporters](/user-guide/custom-exporters). |
+| `span_exporter` | Optional custom `SpanExporter`, bypasses config-based construction. See [Custom Exporters](../user-guide/custom-exporters.mdx). |
 | `metric_reader` | Optional custom `MetricReader`, bypasses config-based construction. |
-| `export_strategy` | Optional callable `(config, rank, world_size) -&gt; bool` that bypasses the registry-based strategy dispatch (per-call override, no global registration needed). See [Custom Export Strategies](/user-guide/custom-export-strategies). |
-| `_allow_reinit` | Escape hatch for testing only, which bypasses the [double-initialization guard](/design/double-init-guard). |
+| `export_strategy` | Optional callable `(config, rank, world_size) -&gt; bool` that bypasses the registry-based strategy dispatch (per-call override, no global registration needed). See [Custom Export Strategies](../user-guide/custom-strategies.mdx). |
+| `_allow_reinit` | Escape hatch for testing only, which bypasses the [double-initialization guard](../design/double-init-guard.mdx). |
 
 Returns a `TelemetryHandle` exposing:
 
@@ -172,6 +172,6 @@ Returns a `TelemetryHandle` exposing:
 - `.shutdown(timeout_ms=5000)`: force-flushes and shuts down both the tracer and meter providers.
 
 <Info>
-Call `setup_telemetry` once per process. A second call with `config.enabled=True` raises `RuntimeError`. See [Double-Init Guard](/design/double-init-guard) for rationale.
+Call `setup_telemetry` once per process. A second call with `config.enabled=True` raises `RuntimeError`. See [Double-Init Guard](../design/double-init-guard.mdx) for rationale.
 
 </Info>

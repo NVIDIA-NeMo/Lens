@@ -120,7 +120,7 @@ from nemo.lens.contrib.nccl import deserialize_context
 carrier = deserialize_context(data)    # dict, or None on bad input
 ```
 
-In practice, most pipeline-parallel users do not need this; `broadcast_trace_context` is simpler and more idiomatic (see [Distributed Tracing](/user-guide/distributed-tracing)). NCCL helpers exist for advanced cases where you are already passing metadata alongside tensors, and trace context can piggyback for free.
+In practice, most pipeline-parallel users do not need this; `broadcast_trace_context` is simpler and more idiomatic (see [Distributed Tracing](../user-guide/distributed-tracing.mdx)). NCCL helpers exist for advanced cases where you are already passing metadata alongside tensors, and trace context can piggyback for free.
 
 No extra install is needed, as this uses `opentelemetry-api` only.
 

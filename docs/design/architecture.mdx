@@ -155,7 +155,7 @@ The NeMo Lens global state is protected where it matters:
 - `state._PP_TRACE_CARRIER` is written during `setup_telemetry` (single-threaded) and read from multiple threads in the pipeline schedule.
 - Instrument caches use `WeakKeyDictionary`, which is thread-safe under CPython's GIL for the operations NeMo Lens performs.
 
-`setup_telemetry` itself is not thread-safe; it is documented as "call once per process." The [double-init guard](/design/double-init-guard) surfaces violations.
+`setup_telemetry` itself is not thread-safe; it is documented as "call once per process." The [double-init guard](../design/double-init-guard.mdx) surfaces violations.
 
 ## What Is Out of Scope
 

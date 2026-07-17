@@ -16,7 +16,7 @@ Use this decision flow to select your export strategy:
 - **Scale across fleets.** For fleet-scale jobs where you require the perspective of multiple ranks without full telemetry export, use the `sampled` strategy by setting the `export_strategy=sampled` or `NEMO_LENS_EXPORT_STRATEGY=sampled` environment variable with an `export_sample_rate` below `1.0`. This strategy is independent of the `sampler_enabled` setting; add SDK-level per-rank filtering only if you also require the second layer (see [Layer Your Sampling](#layer-your-sampling)).
 - **Investigate per-rank issues.** When you require fine-grained per-rank investigation (such as for hang debugging, `NaN` detection, or isolating suspected faulty nodes), use the `all_ranks` strategy for the duration of the investigation and then revert to your production default.
 
-For a full discussion, see [Sampling](/user-guide/sampling). Do not leave this configuration simply because it is the default; instead, select the strategy that best fits the specific run.
+For a full discussion, see [Sampling](../user-guide/sampling.mdx). Do not leave this configuration simply because it is the default; instead, select the strategy that best fits the specific run.
 
 ## Choose a Span Group Preset
 
@@ -24,7 +24,7 @@ For a full discussion, see [Sampling](/user-guide/sampling). Do not leave this c
 - **Production profiling window.** Use the `per_step` preset combined with aggressive SDK trace sampling. For example, setting `OTEL_TRACES_SAMPLER=parentbased_traceidratio` with a low ratio keeps telemetry volume manageable while you gather a performance profile.
 - **Active debugging.** Use the `all` preset, but only for short-duration runs. Do not leave this preset enabled in production.
 
-See [Span Groups](/user-guide/span-groups) for complete details.
+See [Span Groups](../user-guide/span-groups.mdx) for complete details.
 
 ## Layer Your Sampling
 
@@ -70,7 +70,7 @@ handle = setup_telemetry(
 )
 ```
 
-See [Resource Detection](/user-guide/resource-detection) for the full picture and the `dl.*` versus project-scoped conventions.
+See [Resource Detection](../user-guide/resources.mdx) for the full picture and the `dl.*` versus project-scoped conventions.
 
 ## Size Your Collector
 
@@ -92,7 +92,7 @@ If you use the log bridge (`NEMO_LENS_LOGS_ENABLED=1`), configure log level and 
 setup_logging_bridge(logger_name="megatron.training")
 ```
 
-See [Logging Bridge](/user-guide/logging-bridge).
+See [Logging Bridge](../user-guide/logging-bridge.mdx).
 
 ## Configure a Backup Sink
 
