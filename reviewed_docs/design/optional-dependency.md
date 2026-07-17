@@ -1,0 +1,111 @@
+# Optional Dependency
+
+NeMo Lens is designed to be an optional dependency so consumer libraries (Megatron-LM, NeMo RL, NeMo Gym) can compile and run whether NeMo Lens is installed or absent. This constraint shapes several design decisions.
+
+## Why Optional
+
+- **Foundational libraries should not enforce dependencies**: Consumer libraries are foundational ML libraries, so users should not need to install an observability stack to run them.
+- **Deployments have varying needs**: Not every deployment requires OTel instrumentation, such as local development, batch inference, or simple experiments.
+- **Dependency footprints should be configurable**: The NeMo Lens dependency footprint (`opentelemetry-api` minimum, full SDK optional) should be the user's choice, not a requirement from consumer libraries.
+
+## The Pattern
+
+Every consumer instrumentation site uses this import idiom:
+
+```python
+try:
+    from nemo.lens.state import is_span_group_enabled as _otel_sg_enabled
+    from nemo.lens.helpers import managed_span as _otel_managed_span
+    from nemo.lens.helpers import trace_fn as _otel_trace_fn
+except ImportError:
+    from <project>.telemetry._fallbacks import is_span_group_enabled as _otel_sg_enabled
+    from <project>.telemetry._fallbacks import managed_span as _otel_managed_span
+    from <project>.telemetry._fallbacks import trace_fn as _otel_trace_fn
+```
+
+The instrumented code then uses the aliased names. When NeMo Lens is installed, the code uses real implementations. When NeMo Lens is absent, it uses no-op fallbacks.
+
+## Canonical No-ops in `nemo.lens.fallbacks`
+
+NeMo Lens ships `nemo.lens.fallbacks` with canonical no-op implementations of every consumer-facing function:
+
+
+- `trace_fn(group, name, tracer=None)` → decorator that returns the function unchanged
+- `managed_span(group, name, **kwargs)` → context manager yielding `None`
+- `span_cm(name, **kwargs)` → context manager yielding `None`
+- `is_span_group_enabled(group)` → always `False`
+- `safe_set_span_attributes(span, attributes, redact_keys=None)` → no-op
+
+When NeMo Lens is installed, consumers can re-export these:
+
+```python
+# <project>/telemetry/_fallbacks.py
+try:
+    from nemo.lens.fallbacks import (
+        is_span_group_enabled, managed_span, safe_set_span_attributes,
+        span_cm, trace_fn,
+    )
+except ImportError:
+    from contextlib import contextmanager
+
+    def trace_fn(group, name, tracer=None):
+        def decorator(func):
+            return func
+        return decorator
+
+    @contextmanager
+    def managed_span(group, name, tracer=None, **attributes):
+        yield None
+
+    # ... inline copies of the other no-ops ...
+```
+
+The nested `try/except` is needed because the consumer's `_fallbacks.py` itself imports from NeMo Lens when possible. Only if NeMo Lens is **completely absent** does it fall back to inline definitions.
+
+## Why Ship Canonical No-ops
+
+Before this module, each consumer maintained an identical copy of the no-op functions:
+
+- Megatron-LM: `megatron/core/telemetry/_fallbacks.py`
+- NeMo RL: `nemo_rl/telemetry/_fallbacks.py`
+- NeMo Gym: `nemo_gym/telemetry/_fallbacks.py`
+
+Three copies of the same file. Drift was inevitable: if NeMo Lens added a new parameter to `managed_span`, all three copies needed updating separately.
+
+Shipping canonical no-ops in `nemo.lens.fallbacks` eliminates the drift: consumer `_fallbacks.py` re-exports, the inline definitions serve only the "NeMo Lens not installed" case. Both paths produce identical behavior.
+
+## Signature Compatibility
+
+The fallback signatures must match the real API exactly. If `managed_span` adds a new keyword argument, `fallbacks.py` must add it too (ignoring it is fine, because it is a no-op). Tests catch this; `lens/tests/test_fallbacks.py` exercises every fallback to verify signature compatibility.
+
+## What Consumers Can Use without ImportError Fallbacks
+
+Anything under `nemo.lens.fallbacks` has a guaranteed no-op equivalent. Anything else does not.
+
+The following are safe to use with fallbacks: `managed_span`, `trace_fn`, `span_cm`, `is_span_group_enabled`, and `safe_set_span_attributes`.
+
+The following require NeMo Lens to be installed: `NemoLensConfig`, `setup_telemetry`, `TelemetryHandle`, `inject_context`, `extract_context`, `broadcast_trace_context`, `create_linked_span`, all of `contrib/`, and all of `instruments/`.
+
+For the latter group, consumers typically gate the entire setup behind `try/except ImportError`:
+
+```python
+try:
+    from nemo.lens import NemoLensConfig, setup_telemetry
+    config = NemoLensConfig.from_env(prefix='...', fallback_prefix='NEMO_LENS')
+    handle = setup_telemetry(config, rank=rank, world_size=world_size)
+except ImportError:
+    handle = None
+```
+
+Instrumented code uses the `_otel_*` aliases from `_fallbacks.py` regardless of whether `handle` is `None`, so even without NeMo Lens, the instrumentation compiles and runs as no-ops.
+
+## What This Costs
+
+- **A bit of boilerplate** in consumer repos (the try/except import blocks).
+- **Strict API compatibility** between the NeMo Lens real implementations and `fallbacks.py`. This is enforced by tests.
+
+In return, consumers can honestly advertise "optional observability" and mean it.
+
+## What This Does Not Do
+
+This optional dependency only applies at the **import** level; NeMo Lens cannot be added to a running process dynamically. You still need to install it before the process starts. However, consumers do not need to pin a NeMo Lens version in their `pyproject.toml`, and CI can run their tests without NeMo Lens installed to verify the fallbacks work.
