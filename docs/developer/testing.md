@@ -1,12 +1,12 @@
-# Testing
+# Test
 
-The lens test suite is small and focused. Over 180 tests cover every public API, with a strong emphasis on:
+The NeMo Lens test suite is small and focused. Over 180 tests cover every public API, with a strong emphasis on:
 
-- **State isolation** — tests that touch global OTel state reset it before and after.
-- **No-op equivalence** — `fallbacks.py` behaviour must match the real API.
-- **Config edge cases** — every env var combination and validation path.
+- **State isolation** ensures that tests touching global OTel state reset it before and after running.
+- **No-op equivalence** ensures that the behavior of `fallbacks.py` matches the real API.
+- **Configuration edge cases** cover every environment variable combination and validation path.
 
-## Running tests
+## Run Tests
 
 ```bash
 # Full suite
@@ -43,9 +43,9 @@ tests/
 └── test_e2e.py                     — end-to-end with real SDK + InMemorySpanExporter
 ```
 
-## Global state isolation
+## Global State Isolation
 
-OTel SDK stores providers globally (`trace._TRACER_PROVIDER`, `metrics._METER_PROVIDER`). Lens stores enabled span groups globally. Tests that touch these must reset between runs, or test 2 inherits test 1's state.
+The OTel SDK stores providers globally (`trace._TRACER_PROVIDER`, `metrics._METER_PROVIDER`). NeMo Lens stores enabled span groups globally. Tests that touch these must reset between runs; otherwise, the second test inherits the state of the first test.
 
 `conftest.py` has three `autouse` fixtures:
 
@@ -65,9 +65,9 @@ def reset_span_groups():
     set_pp_trace_carrier(None)
 ```
 
-Because `reset_span_groups` clears the enabled set before every test, a test that needs a group active must opt in explicitly — `set_enabled_span_groups(...)` (a top-level export from `nemo.lens`) is the escape hatch for enabling groups inside a test.
+Because `reset_span_groups` clears the enabled set before every test, a test that needs a group active must opt in explicitly. The `set_enabled_span_groups(...)` function, which is a top-level export from `nemo.lens`, provides the escape hatch for enabling groups inside a test.
 
-A third autouse fixture, `reset_strategy_registry`, snapshots `nemo.lens.strategies._REGISTRY` (under `_REGISTRY_LOCK`) before each test and restores it afterward, so custom export strategies registered via `register_export_strategy` do not leak between tests:
+A third autouse fixture, `reset_strategy_registry`, snapshots `nemo.lens.strategies._REGISTRY` (under `_REGISTRY_LOCK`) before each test and restores it afterward, so custom export strategies registered through `register_export_strategy` do not leak between tests:
 
 ```python
 @pytest.fixture(autouse=True)
@@ -91,9 +91,9 @@ _metrics_mod._METER_PROVIDER_SET_ONCE = Once()
 _handle_mod._INITIALIZED = False     # lens's own double-init flag
 ```
 
-The `Once()` pointers are OTel SDK's internal "was this set?" flag. Without resetting them, `setup_telemetry` in a test would install a new provider but the SDK would log "provider already set" and silently use the previous one.
+The `Once()` pointers are the OTel SDK's internal "was this set?" flag. Without resetting them, `setup_telemetry` in a test would install a new provider, but the SDK would log "provider already set" and silently use the previous one.
 
-## Capturing spans
+## Capture Spans
 
 Tests that assert on span content use `InMemorySpanExporter` (shipped in `conftest.py`):
 
@@ -115,7 +115,7 @@ def test_my_instrumentation():
 
 For metrics, use `InMemoryMetricReader` from the OTel SDK.
 
-## Testing fallbacks
+## Test Fallbacks
 
 `tests/test_fallbacks.py` asserts that `nemo.lens.fallbacks` signatures match the real API and behave as no-ops. Whenever you add a parameter to `managed_span` or `trace_fn`, also add it to `fallbacks.py` and extend the test.
 
@@ -126,17 +126,17 @@ def test_managed_span_accepts_kwargs():
         assert span is None
 ```
 
-## Testing double-init
+## Test Double-Init
 
 ```python
 def test_double_init_raises():
     cfg = NemoLensConfig(enabled=True, exporter="console")
     setup_telemetry(cfg, rank=0, world_size=1)
-    with pytest.raises(RuntimeError, match="already been initialised"):
+    with pytest.raises(RuntimeError, match="already been initialized"):
         setup_telemetry(cfg, rank=0, world_size=1)
 ```
 
-Tests that legitimately need to call `setup_telemetry` multiple times in one test (e.g. simulating multiple ranks) pass `_allow_reinit=True`:
+Tests that legitimately need to call `setup_telemetry` multiple times in one test (e.g., simulating multiple ranks) pass `_allow_reinit=True`:
 
 ```python
 def test_all_ranks_export():
@@ -146,13 +146,13 @@ def test_all_ranks_export():
         assert handle.is_exporting
 ```
 
-## Testing distributed helpers
+## Test Distributed Helpers
 
-`broadcast_trace_context` uses `torch.distributed`, which can't run in a single-process test without mocks. The distributed tests use `torch.distributed.init_process_group(backend='gloo', ...)` with a single rank — the broadcast becomes a no-op but the code path exercises correctly.
+`broadcast_trace_context` uses `torch.distributed`, which cannot run in a single-process test without mocks. The distributed tests use `torch.distributed.init_process_group(backend='gloo', ...)` with a single rank; therefore, the broadcast becomes a no-op, but the code path exercises correctly.
 
-For genuinely multi-rank behaviour, tests would need to spawn subprocesses; currently the single-rank path plus manual carrier construction covers the contract.
+For genuinely multi-rank behavior, tests would need to spawn subprocesses; currently, the single-rank path and manual carrier construction cover the contract.
 
-## Testing the OTel interface of `RankAwareSampler`
+## Test the OTel Interface of `RankAwareSampler`
 
 ```python
 def test_sampler_returns_proper_sampling_result():
@@ -162,9 +162,9 @@ def test_sampler_returns_proper_sampling_result():
     assert result.decision == Decision.RECORD_AND_SAMPLE
 ```
 
-The sampler is wrapped in a try/except inside `should_sample` to fall back to `bool` if the SDK isn't installed — covered by a separate test.
+The sampler is wrapped in a `try/except` block inside `should_sample` to fall back to `bool` if the SDK is not installed, which is covered by a separate test.
 
-## Linting
+## Lint Code
 
 ```bash
 ruff check src tests --fix
@@ -173,10 +173,10 @@ ruff format src tests
 
 Pre-commit runs both (the `ruff` and `ruff-format` hooks in `.pre-commit-config.yaml`). CI runs `pre-commit run --all-files` and rejects PRs that fail it.
 
-## What's NOT tested
+## What Is Not Tested
 
-- **Actual export to a collector**. That's the SDK's job; mocking it correctly is more work than value.
-- **Long-running performance**. `tests/` exercises correctness, not throughput.
-- **Integration with consumer libraries**. Those have their own test suites (`Megatron-LM/tests/unit_tests/telemetry/`, etc.).
+- **Actual export to a collector**. That is the SDK's job; mocking it correctly requires more effort than it is worth.
+- **Long-running performance**. The `tests/` directory exercises correctness, not throughput.
+- **Integration with consumer libraries**. These libraries have their own test suites (`Megatron-LM/tests/unit_tests/telemetry/`, etc.).
 
-When adding features that interact with a consumer, add a corresponding test in the consumer repo. Lens tests should stay self-contained.
+When adding features that interact with a consumer, add a corresponding test in the consumer repository. NeMo Lens tests must remain self-contained.

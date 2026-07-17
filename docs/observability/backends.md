@@ -1,23 +1,23 @@
-# Sending Telemetry to a Backend
+# Send Telemetry to a Backend
 
-**Lens does not provide or recommend an observability solution.** It emits OTLP. Where that OTLP goes, how it's stored, how it's queried, and how it's visualised are your decisions — shaped by your organisation's existing observability investments and the scale of your workloads.
+**NeMo Lens does not provide or recommend an observability solution.** It emits OTLP. Where that OTLP goes, how it is stored, how it is queried, and how it is visualized are your decisions, which are shaped by your organization's existing observability investments and the scale of your workloads.
 
-This page shows how to wire lens up to common destinations. Lens exports via standard OTLP, so any OTLP-compatible backend works without code changes. Four destinations are covered in depth:
+This page shows how to configure NeMo Lens for common destinations. NeMo Lens exports through standard OTLP, so any OTLP-compatible backend works without code changes. Four destinations are covered in depth:
 
-- [File](#file) — local trace/metric capture for offline analysis or archival
-- [W&B Weave](#wb-weave) — Weights & Biases' trace UI, co-located with training run metadata
-- [Honeycomb](#honeycomb) — hosted APM that accepts all three signals on one OTLP endpoint
-- [OTel Collector](#otel-collector) — a routing / aggregation layer in front of other backends
+- [File](#export-telemetry-to-a-file): local trace and metric capture for offline analysis or archival
+- [W&B Weave](#integrate-with-wb-weave): Weights & Biases' trace UI, co-located with training run metadata
+- [Honeycomb](#send-telemetry-to-honeycomb): hosted APM that accepts all three signals on one OTLP endpoint
+- [OTel Collector](#configure-otel-collector): a routing and aggregation layer in front of other backends
 
-Plus a quick reference for other hosted backends.
+This guide also provides a quick reference for other hosted backends.
 
 ---
 
-## File
+## Export Telemetry to a File
 
-Writing traces to a local file is useful for offline analysis, CI captures, and archival. Three approaches, in order of simplicity:
+Writing traces to a local file is useful for offline analysis, CI captures, and archival. Choose one of the following four approaches depending on your requirements.
 
-### Approach 1: Console exporter + shell redirect (simplest)
+### Use Console Exporter with Shell Redirect (Simplest)
 
 ```bash
 export NEMO_LENS_ENABLED=1
@@ -26,14 +26,14 @@ export NEMO_LENS_EXPORTER=console
 python train.py > traces.jsonl 2>&1
 ```
 
-`NEMO_LENS_EXPORTER=console` installs `ConsoleSpanExporter`, which writes one JSON line per span to stdout. Redirect stdout to a file and you have a span log.
+Setting `NEMO_LENS_EXPORTER=console` installs the `ConsoleSpanExporter`, which writes one JSON line per span to stdout. Redirect stdout to a file, and you have a span log.
 
 **Drawbacks:**
 
-- Mixes application stdout with span data — separate them with selective logging to stderr.
-- Doesn't capture metrics (the metric exporter writes a different format).
+- Mixes application stdout with span data; separate them with selective logging to stderr.
+- Does not capture metrics (the metric exporter writes a different format).
 
-### Approach 2: Custom `ConsoleSpanExporter` pointing at a file handle
+### Point Custom ConsoleSpanExporter to a File Handle
 
 ```python
 from pathlib import Path
@@ -58,15 +58,15 @@ finally:
     trace_file.close()
 ```
 
-`ConsoleSpanExporter` accepts any file-like object via `out=`. This separates trace data from application stdout without the shell-redirect hack.
+The `ConsoleSpanExporter` accepts any file-like object using `out=`. This separates trace data from application stdout without a shell redirect.
 
 **Caveats:**
 
-- Line-buffer (`buffering=1`) so lines aren't lost if the process crashes.
-- Remember to close the file after `handle.shutdown()`.
-- Each line is a Python `repr` of the span, not strict JSON. For strict JSON, write a custom exporter (next approach).
+- Line-buffer the output using `buffering=1` so that lines are not lost if the process crashes.
+- Close the file after calling `handle.shutdown()`.
+- Each line is a Python `repr` representation of the span, not strict JSON. For strict JSON, write a custom exporter as described in the next approach.
 
-### Approach 3: Custom `SpanExporter` (full control)
+### Implement Custom SpanExporter for Full Control
 
 For structured JSON, compression, rotation, or any custom format:
 
@@ -112,11 +112,11 @@ handle = setup_telemetry(
 )
 ```
 
-This gives you strict JSONL that's trivial to `jq` over. Extend with gzip, rotation, or remote write as needed.
+This approach provides strict JSONL that is trivial to query using `jq`. Extend this implementation with gzip compression, rotation, or remote write as needed.
 
-### Approach 4: OTel Collector file exporter
+### Use OTel Collector File Exporter
 
-If you're already running an OTel Collector (see below), add a `file` exporter to its pipeline:
+If you are already running an OTel Collector, add a `file` exporter to its pipeline:
 
 ```yaml
 # otel-collector.yaml
@@ -135,13 +135,13 @@ service:
       exporters: [file/traces, jaeger]   # fan out to both
 ```
 
-Your application still exports OTLP as normal; the Collector handles file writes, rotation, and retention.
+The application still exports OTLP as normal, and the Collector handles file writes, rotation, and retention.
 
-**Use this** when you want a single file with spans from multiple ranks or multiple services.
+Use this approach when you want a single file with spans from multiple ranks or multiple services.
 
-### Metrics to file
+### Export Metrics to a File
 
-For metrics, use a `PeriodicExportingMetricReader` with `ConsoleMetricExporter`:
+For metrics, use a `PeriodicExportingMetricReader` with a `ConsoleMetricExporter`:
 
 ```python
 from opentelemetry.sdk.metrics.export import ConsoleMetricExporter, PeriodicExportingMetricReader
@@ -155,19 +155,21 @@ reader = PeriodicExportingMetricReader(
 handle = setup_telemetry(config, metric_reader=reader)
 ```
 
-Or use the Collector's file exporter in its metrics pipeline (same pattern as traces).
+Alternatively, use the file exporter of the Collector in the metrics pipeline using the same pattern as traces.
 
 ---
 
-## W&B Weave
+## Integrate with W&B Weave
 
-[Weave](https://wandb.ai/site/weave) is Weights & Biases' trace visualisation tool. It ingests OTLP spans and renders them in the same UI as your W&B training runs — so traces and training metrics live together.
+[Weave](https://wandb.ai/site/weave) is the Weights & Biases trace visualization tool. It ingests OTLP spans and renders them in the same UI as your training runs, so that traces and training metrics live together.
 
-### Configure
+### Configure the Integration
 
-Two patterns work. Pick one.
+Configure the integration by choosing one of the two patterns below depending on whether you are using a collector.
 
-#### Pattern A: direct from app (no collector)
+#### Configure Pattern A for Direct Export from the Application
+
+Use this pattern when you want to export telemetry directly to Weights & Biases without running a local OTel Collector.
 
 ```bash
 # Required: W&B identification (set as resource attributes)
@@ -187,32 +189,32 @@ export NEMO_LENS_LOGS_ENABLED=0
 export NEMO_LENS_ENABLED=1
 ```
 
-A ready-to-run compose file for this pattern is at `docker-compose.weave.yml` — brings up only the Megatron container and points traces straight at Weave. Use when you don't want to run the local stack.
+A ready-to-run compose file for this pattern is at `docker-compose.weave.yml`, which brings up only the Megatron container and points traces straight to Weave. Use this file when you do not want to run the local stack.
 
-#### Pattern B: through a collector
+#### Configure Pattern B for Export Through an OTel Collector
 
-Useful when you want batching, filtering, or multi-backend fan-out. See `observability/otel-collector-weave.yaml` in the repo for a ready-to-run example, toggled via `docker-compose.otel.yml`'s `--config=/etc/otel/collector-weave.yaml` mode.
+Use this pattern when you want batching, filtering, or multi-backend fan-out. See `observability/otel-collector-weave.yaml` in the repository for a ready-to-run example, toggled through the `--config=/etc/otel/collector-weave.yaml` mode of the `docker-compose.otel.yml` file.
 
-### Notes on the direct path
+### Notes on the Direct Path
 
-- Weave currently ingests **traces only** (as of early 2026). Metrics still need a separate sink (Prometheus, OTel Collector, native `wandb.log()`, etc.).
-- Use the `OTEL_EXPORTER_OTLP_TRACES_*` variants (not the signal-agnostic `OTEL_EXPORTER_OTLP_*`). The Weave URL is a full path ending in `/v1/traces`; signal-specific env vars are treated as full URLs, the generic variant appends `/v1/traces` automatically — setting both would produce `/v1/traces/v1/traces` and 404.
-- Lens honours `OTEL_EXPORTER_OTLP_PROTOCOL` and signal-specific variants, so `http/protobuf` routes to the HTTP exporter class (Weave is HTTP-only).
-- `NemoLensConfig.from_env()` reads `WANDB_ENTITY` and `WANDB_PROJECT` directly and sets them as `wandb.entity` / `wandb.project` resource attributes on every span — required for Weave to route correctly.
+- W&B Weave currently ingests **traces only** (as of early 2026). Metrics still require a separate sink, such as Prometheus, an OTel Collector, or native `wandb.log()`.
+- Use the `OTEL_EXPORTER_OTLP_TRACES_*` variants instead of the signal-agnostic `OTEL_EXPORTER_OTLP_*`. The Weave URL is a full path ending in `/v1/traces`. Signal-specific environment variables are treated as full URLs, whereas the generic variant appends `/v1/traces` automatically; setting both would produce `/v1/traces/v1/traces` and a 404 error.
+- NeMo Lens honors `OTEL_EXPORTER_OTLP_PROTOCOL` and signal-specific variants, so `http/protobuf` routes to the HTTP exporter class because Weave is HTTP-only.
+- `NemoLensConfig.from_env()` reads `WANDB_ENTITY` and `WANDB_PROJECT` directly and sets them as `wandb.entity` and `wandb.project` resource attributes on every span, which is required for Weave to route correctly.
 
-### Run
+### Run the Application
 
 ```bash
 python pretrain_gpt.py ...
 ```
 
-Traces appear in the Weave tab of your W&B run within a few seconds. The trace tree mirrors Jaeger's structure: a `megatron.train_step` root span with child spans for forward_backward, optimizer, etc.
+Traces appear in the Weave tab of your W&B run within a few seconds. The trace tree mirrors Jaeger's structure: a `megatron.train_step` root span with child spans for `forward_backward`, `optimizer`, and other tasks.
 
-### Linking traces to runs
+### Link Traces to Runs
 
-Because `WANDB_ENTITY` / `WANDB_PROJECT` are set as span attributes, Weave automatically associates traces with the right W&B run. The `nemo.run.id` resource attribute (auto-generated or from `SLURM_JOB_ID`) serves as a unique run identifier you can filter on in the Weave UI.
+Because `WANDB_ENTITY` and `WANDB_PROJECT` are set as span attributes, Weave automatically associates traces with the right W&B run. The `nemo.run.id` resource attribute (auto-generated or from `SLURM_JOB_ID`) serves as a unique run identifier you can filter on in the Weave UI.
 
-### Sampling for cost
+### Configure Sampling for Cost Management
 
 W&B bills by ingested trace volume. For long `per_step` runs, sample aggressively:
 
@@ -221,28 +223,27 @@ export OTEL_TRACES_SAMPLER=parentbased_traceidratio
 export OTEL_TRACES_SAMPLER_ARG=0.01    # keep 1% of traces
 ```
 
-See [sampling](../user-guide/sampling.md) for how this composes with lens's export strategies.
+See the [sampling](../user-guide/sampling.md) documentation for how this composes with NeMo Lens's export strategies.
 
-### What gets sent
+### Understand Exported Data
 
-Everything the SDK exports — span names, attributes, events, links, status. Weave renders:
+Everything the SDK exports, including span names, attributes, events, links, and status. Weave renders:
 
-- Span waterfall timelines
-- Attribute key/value pairs
-- Error events (via `span.record_exception`)
-- OTel Links as clickable references (useful for pipeline-parallel correlation)
+- Attribute key-value pairs
+- Error events through `span.record_exception`
+- OTel links as clickable references, which are useful for pipeline-parallel correlation
 
 ---
 
-## Honeycomb
+## Send Telemetry to Honeycomb
 
-[Honeycomb](https://honeycomb.io) is a hosted APM that ingests OpenTelemetry data natively. Unlike Weave, it accepts all three signals — traces, metrics, and logs — on a single OTLP endpoint. Good fit if you want one hosted destination for everything and already have (or are happy to adopt) Honeycomb's query model.
+[Honeycomb](https://honeycomb.io) is a hosted APM that ingests OpenTelemetry data natively. Unlike W&B Weave, it accepts all three signals (traces, metrics, and logs) on a single OTLP endpoint. This is a good fit if you want one hosted destination for everything and already have (or are happy to adopt) Honeycomb's query model.
 
-### Configure
+### Configure Honeycomb
 
-Two patterns work. Pick one.
+Configure the integration with Honeycomb by choosing one of the following two patterns.
 
-#### Pattern A: direct from app (no collector)
+#### Configure Pattern A for Direct Export from the Application
 
 ```bash
 # One endpoint covers all three signals.
@@ -253,19 +254,19 @@ export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 export NEMO_LENS_ENABLED=1
 ```
 
-- **`x-honeycomb-team`**: your ingest API key. Find it in the Honeycomb UI under **Environment settings → API Keys**.
-- **`x-honeycomb-dataset`**: dataset name. Required for metrics; optional but recommended for traces and logs. Pick anything meaningful; Honeycomb auto-creates the dataset on first write.
+- **`x-honeycomb-team`**: Your ingest API key. In the Honeycomb UI, select **Environment Settings**, and then select **API Keys** to find this key.
+- **`x-honeycomb-dataset`**: The dataset name. This name is required for metrics, and it is optional but recommended for traces and logs. Choose any meaningful name; Honeycomb automatically creates the dataset on the first write.
 - **`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`**: Honeycomb supports both gRPC and HTTP, but HTTP is more forgiving behind load balancers. Default to HTTP unless you have a reason otherwise.
 
-Lens honours `OTEL_EXPORTER_OTLP_PROTOCOL` (and the signal-specific variants `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL`) when picking between gRPC and HTTP exporters, so this works without code changes.
+NeMo Lens honors `OTEL_EXPORTER_OTLP_PROTOCOL` (and the signal-specific variants `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` and `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL`) when picking between gRPC and HTTP exporters, so this works without code changes.
 
 For EU instance, substitute `https://api.eu1.honeycomb.io:443`.
 
-A ready-to-run compose file for this pattern is at `docker-compose.honeycomb.yml` — brings up only the Megatron container and points it straight at Honeycomb. Use when you don't want to run the local stack.
+A ready-to-run compose file for this pattern is at `docker-compose.honeycomb.yml`, which brings up only the Megatron container and points it straight to Honeycomb. Use this file when you do not want to run the local stack.
 
-#### Pattern B: through a collector
+#### Configure Pattern B for Export Through an OTel Collector
 
-Useful when you want batching, filtering, or multi-backend fan-out between the app and Honeycomb. See [collector-honeycomb.yaml](../../observability/otel-collector-honeycomb.yaml) in the repo for a ready-to-run example:
+Use this pattern when you want batching, filtering, or multi-backend fan-out between the application and Honeycomb. See [collector-honeycomb.yaml](../../observability/otel-collector-honeycomb.yaml) in the repository for a ready-to-run example:
 
 ```yaml
 exporters:
@@ -284,37 +285,37 @@ service:
 
 The application then points at your collector (`OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317`), and the collector handles Honeycomb auth and routing.
 
-The repo's `docker-compose.otel.yml` has a one-line toggle for this: uncomment `--config=/etc/otel/collector-honeycomb.yaml` and set `HONEYCOMB_API_KEY` / `HONEYCOMB_DATASET` in `.env`.
+The repo's `docker-compose.otel.yml` has a one-line toggle for this: uncomment `--config=/etc/otel/collector-honeycomb.yaml` and set `HONEYCOMB_API_KEY` and `HONEYCOMB_DATASET` in `.env`.
 
-### Classic vs current Honeycomb
+### Compare Classic and Current Honeycomb Accounts
 
-Honeycomb migrated from dataset-per-service (Classic) to environment-based organisation. If you're on a Classic account, the `x-honeycomb-dataset` header is required for every signal, and the dataset field has specific semantics. For current Honeycomb it's still required for metrics and optional-but-recommended for traces/logs. If you're unsure which you have, your account page will tell you.
+Honeycomb migrated from dataset-per-service (Classic) to environment-based organization. If you are on a Classic account, the `x-honeycomb-dataset` header is required for every signal, and the dataset field has specific semantics. For current Honeycomb it is still required for metrics and optional but recommended for traces and logs. If you are unsure which account type you have, your account page displays this information.
 
-### Sampling
+### Manage Data Volume through Sampling
 
 Honeycomb bills on event volume. A `per_step` Megatron run on many ranks will ship a lot of events. Layer your sampling:
 
-1. Lens `export_strategy` — rank-level (start with `single_rank`).
-2. OTel SDK `OTEL_TRACES_SAMPLER=parentbased_traceidratio` — per-trace.
-3. Honeycomb **Refinery** — tail sampling with access to the full trace before deciding. Recommended for production; see [Honeycomb's Refinery docs](https://docs.honeycomb.io/manage-data-volume/refinery/).
+1. NeMo Lens `export_strategy` at the rank level (start with `single_rank`).
+2. OTel SDK `OTEL_TRACES_SAMPLER=parentbased_traceidratio` at the trace level.
+3. Honeycomb **Refinery** tail sampling, which provides access to the full trace before making a decision. This is recommended for production; see [Honeycomb's Refinery docs](https://docs.honeycomb.io/manage-data-volume/refinery/).
 
-### What gets sent
+### Understand Exported Honeycomb Data
 
-Every attribute, event, and link the SDK exports. Honeycomb's UI is especially good at high-cardinality attribute queries (`BubbleUp`, `HEATMAP`, etc.), so set span attributes liberally — attribute cardinality is what Honeycomb is best at.
+Every attribute, event, and link the SDK exports. Honeycomb's UI is especially good at high-cardinality attribute queries (`BubbleUp`, `HEATMAP`, etc.), so set span attributes liberally; attribute cardinality is what Honeycomb is best at.
 
 ---
 
-## OTel Collector
+## Configure OTel Collector
 
-The OpenTelemetry Collector is a common intermediary between your application and your observability backends. Running a Collector (vs. exporting directly from the SDK) can give you:
+The OpenTelemetry Collector is a common intermediary between your application and your observability backends. Running a Collector instead of exporting directly from the SDK can provide several benefits:
 
-- **Fan-out**: send the same telemetry to multiple backends (Jaeger + Prometheus + S3 archive).
-- **Sampling and filtering**: drop spans at the Collector rather than in every SDK instance.
-- **Batching and resilience**: buffer during network outages without losing data.
-- **Transforms**: rename attributes, redact PII, enrich with external metadata.
-- **Centralised config**: change backends without restarting training jobs.
+- **Fan-out capabilities.** Send the same telemetry to multiple backends, such as Jaeger, Prometheus, and an S3 archive.
+- **Sampling and filtering.** Drop spans at the Collector instead of within each SDK instance.
+- **Batching and resilience.** Buffer during network outages without losing data.
+- **Transforms.** Rename attributes, redact PII, or enrich with external metadata.
+- **Centralized configuration.** Change backends without restarting training jobs.
 
-### Minimum configuration
+### Set Minimum Configuration
 
 ```yaml
 # otel-collector.yaml
@@ -371,15 +372,15 @@ docker run --rm \
   --config=/etc/otel-collector.yaml
 ```
 
-This is a generic standalone example. The repo's bundled configs live under `observability/` and are mounted at `/etc/otel/collector*.yaml` by `docker-compose.otel.yml` (selected via the `--config` line) — adjust the path if you copy from there.
+This is a generic standalone example. The repository's bundled configurations live under `observability/` and are mounted at `/etc/otel/collector*.yaml` by `docker-compose.otel.yml` (selected using the `--config` line); adjust the path if you copy from there.
 
 On a cluster, deploy as a sidecar, DaemonSet, or shared service. Typical patterns:
 
-- **Sidecar**: one Collector per application pod. Low latency, isolated failure domain.
-- **DaemonSet**: one Collector per host, every local app exports to it. Good for Kubernetes.
-- **Shared service**: one fleet of Collectors behind a load balancer. Cheapest, but adds a hop.
+- **Sidecar deployment.** Deploy one Collector per application pod. This provides low latency and an isolated failure domain.
+- **DaemonSet deployment.** Deploy one Collector per host, where every local application exports to it. This is a good fit for Kubernetes.
+- **Shared service deployment.** Deploy one fleet of Collectors behind a load balancer. This is the most cost-effective option but adds a network hop.
 
-### Configure the application
+### Configure the Application
 
 ```bash
 export NEMO_LENS_ENABLED=1
@@ -388,7 +389,7 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://collector.internal:4317
 
 That's it. Lens discovers the endpoint from the standard env var; no code changes.
 
-### Useful processors
+### Apply Useful Processors
 
 Beyond `batch`, consider:
 
@@ -436,9 +437,9 @@ service:
       exporters: [otlp/jaeger, file]
 ```
 
-### Multi-backend routing
+### Configure Multi-Backend Routing
 
-Send traces to two places simultaneously — e.g. Jaeger for interactive debugging and W&B Weave for run history:
+Send traces to two places simultaneously, such as Jaeger for interactive debugging and W&B Weave for run history:
 
 ```yaml
 exporters:
@@ -459,22 +460,22 @@ service:
       exporters: [otlp/jaeger, otlphttp/wandb]
 ```
 
-Your application exports to one endpoint (the Collector); the Collector fans out.
+The application exports to one endpoint (the Collector), and the Collector fans out the telemetry.
 
-### Collector-side sampling
+### Configure Collector-Side Sampling
 
-Instead of sampling at the SDK (via `OTEL_TRACES_SAMPLER`), sample at the Collector. Advantage: you can make the decision based on the complete trace (e.g. keep all traces containing an error), which the SDK can't do because it hasn't seen the whole trace yet.
+Instead of sampling at the SDK through `OTEL_TRACES_SAMPLER`, sample at the Collector. The advantage of this approach is that you can make the decision based on the complete trace (for example, keep all traces containing an error), which the SDK cannot do because it has not seen the whole trace yet.
 
-The `tail_sampling` processor is the standard tool. See the full [tail sampling docs](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/tailsamplingprocessor).
+The `tail_sampling` processor is the standard tool. See the full [tail sampling documentation](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/tailsamplingprocessor).
 
-### Production considerations
+### Production Considerations
 
-- **Backpressure**: if a backend is slow, the Collector buffers. Configure `sending_queue` limits to cap memory.
-- **TLS**: enable TLS between SDK and Collector, and between Collector and backends, in any multi-tenant setup.
-- **Health checks**: enable the `health_check` extension (as the bundled configs do) to expose `:13133/`. Monitor it.
-- **Version pinning**: the `opentelemetry-collector-contrib` image changes — pin to a version and upgrade deliberately.
+- **Backpressure**. If a backend is slow, the Collector buffers. Configure `sending_queue` limits to cap memory.
+- **TLS**. Enable TLS between the SDK and the Collector, and between the Collector and backends, in any multi-tenant setup.
+- **Health checks**. Enable the `health_check` extension (as the bundled configurations do) to expose `:13133/` and monitor it.
+- **Version pinning**. The `opentelemetry-collector-contrib` image changes, so pin to a version and upgrade deliberately.
 
-### Debugging the Collector
+### Debug the Collector
 
 ```bash
 # Increase logging
@@ -492,38 +493,40 @@ service:
       exporters: [debug]
 ```
 
-The Collector's own telemetry (`:8888/metrics`) shows incoming span rates, processor queue depth, and exporter success counts — scrape it with Prometheus to monitor the monitoring.
+The Collector's own telemetry (`:8888/metrics`) shows incoming span rates, processor queue depth, and exporter success counts; scrape it with Prometheus to monitor the monitoring.
 
 ---
 
-## Other hosted backends
+## Send Telemetry to Other Hosted Backends
 
-### Grafana Cloud
+Configure other popular hosted backends by using standard OpenTelemetry environment variables.
+
+### Configure Grafana Cloud
 
 ```bash
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-<region>.grafana.net/otlp
 export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64-encoded-instance-id-and-token>"
 ```
 
-Traces → Tempo, metrics → Mimir, logs → Loki — queryable from a unified Grafana UI.
+This routes traces to Tempo, metrics to Mimir, and logs to Loki, all queryable from a unified Grafana UI.
 
-### Datadog
+### Configure Datadog
 
 ```bash
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://trace.agent.datadoghq.com
 export OTEL_EXPORTER_OTLP_HEADERS="DD-API-KEY=<your-api-key>"
 ```
 
-Datadog also ships their own Collector preset; see their docs for advanced config.
+Datadog also ships their own Collector preset; see their documentation for advanced configuration.
 
-### New Relic
+### Configure New Relic
 
 ```bash
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.nr-data.net
 export OTEL_EXPORTER_OTLP_HEADERS="api-key=<your-ingest-key>"
 ```
 
-### Self-hosted Jaeger or Tempo
+### Configure Self-Hosted Jaeger or Tempo
 
 Both accept OTLP natively:
 
@@ -533,32 +536,32 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger.internal:4317    # or tempo.int
 
 ---
 
-## Choosing between them
+## Select a Backend
 
 | Factor | Prefer |
 |---|---|
-| Quick local iteration | [Console / File](#file) |
-| Small team, no infra team | Hosted ([W&B Weave](#wb-weave), [Honeycomb](#honeycomb), Grafana Cloud) |
-| Training runs tied to W&B | [W&B Weave](#wb-weave) |
-| One hosted destination for all three signals | [Honeycomb](#honeycomb) |
-| High-cardinality attribute queries matter | [Honeycomb](#honeycomb) |
-| Production with multi-backend routing | [OTel Collector](#otel-collector) + your chosen backends |
-| Data residency / compliance | Self-hosted Collector + self-hosted backends |
+| Quick local iteration | [Console or File](#export-telemetry-to-a-file) |
+| Small team, no infrastructure team | Hosted ([W&B Weave](#integrate-with-wb-weave), [Honeycomb](#send-telemetry-to-honeycomb), Grafana Cloud) |
+| Training runs tied to W&B | [W&B Weave](#integrate-with-wb-weave) |
+| One hosted destination for all three signals | [Honeycomb](#send-telemetry-to-honeycomb) |
+| High-cardinality attribute queries matter | [Honeycomb](#send-telemetry-to-honeycomb) |
+| Production with multi-backend routing | [OTel Collector](#configure-otel-collector) and your chosen backends |
+| Data residency and compliance | Self-hosted Collector and self-hosted backends |
 | Already have one APM vendor | Their OTLP endpoint |
 
-All destinations work the same from lens's perspective — the choice is about cost, operational burden, and integration with your existing stack.
+All destinations work the same from NeMo Lens's perspective; the choice is about cost, operational burden, and integration with your existing stack.
 
-## Partitioning by run
+## Partition Telemetry by Run
 
-Regardless of backend, filter by `nemo.run.id` (auto-set by lens) to isolate a specific training run's data:
+Regardless of the backend, filter by `nemo.run.id` (auto-set by NeMo Lens) to isolate a specific training run's data:
 
-- **Jaeger**: tag filter `nemo.run.id=<value>`
-- **Grafana**: dashboard variable `nemo_run_id`
-- **Honeycomb**: filter `nemo.run.id`
-- **Datadog**: facet `@nemo.run.id`
-- **Weave**: run-level association via `WANDB_ENTITY` + `WANDB_PROJECT`
+- **Jaeger**: Use the tag filter `nemo.run.id=<value>`.
+- **Grafana**: Use the dashboard variable `nemo_run_id`.
+- **Honeycomb**: Use the filter `nemo.run.id`.
+- **Datadog**: Use the facet `@nemo.run.id`.
+- **Weave**: Use the run-level association through `WANDB_ENTITY` and `WANDB_PROJECT`.
 
-Multiple runs land in the same index/project; the attribute is the partition key.
+Multiple runs land in the same index or project; the attribute is the partition key.
 
 ## gRPC vs HTTP
 
@@ -574,14 +577,14 @@ OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
 ```
 
-Lens's `providers.py` tries gRPC first, falls back to HTTP if the gRPC exporter isn't installed. If you only installed `opentelemetry-exporter-otlp-proto-http`, set the protocol explicitly.
+The NeMo Lens `providers.py` tries gRPC first, and falls back to HTTP if the gRPC exporter is not installed. If you only installed `opentelemetry-exporter-otlp-proto-http`, set the protocol explicitly.
 
-## Don't send everything
+## Limit Ingested Spans
 
-A `per_step` run on 1,000 ranks can produce 100k+ spans/second. Most backends can't (or won't affordably) ingest that. Layer your sampling:
+A `per_step` run on 1,000 ranks can produce over 100,000 spans per second. Most backends cannot (or will not affordably) ingest that volume. Layer your sampling:
 
-1. **Export strategy** (rank level): `single_rank` sends one rank's data. Usually the right starting point.
-2. **OTel SDK sampler** (trace level): `OTEL_TRACES_SAMPLER=parentbased_traceidratio` with `OTEL_TRACES_SAMPLER_ARG=0.1` keeps 10% of traces.
-3. **Collector tail sampling** (smart): keep all errors, sample 1% of successes.
+1. NeMo Lens `export_strategy` at the rank level, where `single_rank` sends one rank's data. This is usually the correct starting point.
+2. The OTel SDK sampler at the trace level, where setting `OTEL_TRACES_SAMPLER=parentbased_traceidratio` with `OTEL_TRACES_SAMPLER_ARG=0.1` keeps 10% of traces.
+3. Collector tail sampling for intelligent decisions, which keeps all errors and samples 1% of successes.
 
-Combine aggressively. It's easier to re-enable telemetry when you're debugging than to pay for ingestion nobody looks at.
+Combine aggressively. It is easier to re-enable telemetry when you are debugging than to pay for ingestion nobody looks at.

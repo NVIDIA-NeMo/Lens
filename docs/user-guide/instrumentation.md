@@ -1,8 +1,8 @@
 # Instrumentation Primitives
 
-Lens provides three span primitives. They cover the full spectrum from "cheap when off, gated by a frozenset lookup" to "always-on ergonomic context manager." Pick based on the call site.
+NeMo Lens provides three span primitives. These primitives cover the full spectrum from a "cheap when off, gated by a frozenset lookup" approach to an "always-on ergonomic context manager." Select a primitive based on the call site.
 
-## `managed_span` — group-gated context manager
+## `managed_span` as a Group-Gated Context Manager
 
 ```python
 from nemo.lens import managed_span
@@ -13,21 +13,21 @@ with managed_span('step', 'train.step', iteration=42) as span:
         span.set_attribute('loss', loss_value)
 ```
 
-### Behaviour
+### How It Behaves
 
-- When the `step` group is **disabled**: yields `None`, the body runs unchanged, **no span object is created**. The gating check is a `frozenset` lookup.
-- When the `step` group is **enabled**: starts a span, sets attributes, attaches its context, yields the span. On exit, detaches context and ends the span. If the body raises, the exception is recorded on the span with `StatusCode.ERROR` before re-raising.
+- When the `step` group is **disabled**, the function yields `None`, the body runs unchanged, and no span object is created. The gating check is a fast `frozenset` lookup.
+- When the `step` group is **enabled**, the function starts a span, sets attributes, attaches its context, and yields the span. On exit, the function detaches the context and ends the span. If the body raises an exception, that exception is recorded on the span with `StatusCode.ERROR` before re-raising.
 
-### When to use it
+### When to Use It
 
-- Hot paths where you need configurable granularity (training steps, microbatches, communication ops).
-- Any block where the cost must be minimised when telemetry is off.
+- **Hot paths with configurable granularity.** Use this for training steps, microbatches, or communication operations where configurable granularity is required.
+- **Blocks where telemetry is frequently disabled.** Use this for any block of code where performance overhead must be minimized when telemetry is disabled.
 
-### Tracer resolution
+### Tracer Resolution
 
-If `tracer=` is not passed, `managed_span` obtains a named tracer from the global `TracerProvider` using the instrumentation scope `nemo.lens.helpers` (the same default used by `span_cm`; note that `trace_fn` defaults to the `nemo.lens` scope instead). Passing `tracer=handle.tracer` (scope `nemo.lens`) skips this `get_tracer` call and makes spans share the handle's instrumentation scope.
+If you do not pass a `tracer` argument, `managed_span` obtains a named tracer from the global `TracerProvider` using the `nemo.lens.helpers` instrumentation scope. This defaults to the same scope used by `span_cm`, whereas `trace_fn` defaults to the `nemo.lens` scope instead. Passing `tracer=handle.tracer` (which uses the `nemo.lens` scope) skips this `get_tracer` call, allowing spans to share the handle's instrumentation scope.
 
-## `trace_fn` — group-gated decorator
+## `trace_fn` as a Group-Gated Decorator
 
 ```python
 from nemo.lens import trace_fn
@@ -37,20 +37,20 @@ def forward_step(batch):
     ...
 ```
 
-### Behaviour
+### How It Behaves
 
-Identical gating semantics to `managed_span`, but applied as a function decorator — no re-indentation of the function body. The span group is checked **at call time**, not at decoration time, so toggling groups dynamically works.
+This decorator has identical gating semantics to `managed_span`, but is applied as a function decorator, requiring no re-indentation of the function body. The span group is checked at call time rather than at decoration time, which enables dynamic toggling of groups.
 
-### When to use it
+### When to Use It
 
-- Instrumenting existing functions without restructuring them.
-- When the span name matches the function name (which is usually the case).
+- **Instrument existing functions.** Use this to instrument existing functions without restructuring their bodies.
+- **Span name matches function name.** Use this when the desired span name matches the function name, which is typical.
 
 ### Limitations
 
 `trace_fn` cannot set span attributes from function arguments without a custom wrapper. For attribute-rich spans, use `managed_span` inside the function body instead.
 
-## `span_cm` — simple ungated context manager
+## `span_cm` as a Simple Ungated Context Manager
 
 ```python
 from nemo.lens import span_cm
@@ -59,23 +59,23 @@ with span_cm('evaluate', tracer=handle.tracer, dataset='mmlu'):
     ...
 ```
 
-### Behaviour
+### How It Behaves
 
-**Always** creates a span — no group gating. Attributes are set via `safe_set_span_attributes` (scalars and scalar-sequences only; non-scalars silently dropped).
+This context manager always creates a span with no group gating. Attributes are set through `safe_set_span_attributes`, which processes only scalars and scalar sequences; non-scalar values are silently dropped.
 
-### When to use it
+### When to Use It
 
-- Code paths where you always want the span if telemetry is active (evaluation, setup, shutdown).
-- Utility modules that don't know about span groups.
-- Spans outside hot paths where the per-call cost of always creating a span doesn't matter.
+- **Required code paths.** Use this in code paths where you always want a span when telemetry is active, such as evaluation, setup, or shutdown procedures.
+- **Utility modules.** Use this in utility modules that do not contain information about span groups.
+- **Cold paths.** Use this for spans outside hot paths where the per-call cost of always creating a span is negligible.
 
-### No-op interaction
+### No-Op Interaction
 
-When the global `TracerProvider` is no-op (non-exporting rank or telemetry disabled), `start_as_current_span` is still called but becomes a cheap no-op inside the OTel API — no exporter round-trip, no attribute processing cost. It doesn't skip the span object entirely the way `managed_span` does when its group is disabled, but the cost is small.
+When the global `TracerProvider` is a no-op instance (such as on a non-exporting rank or when telemetry is disabled), `start_as_current_span` is still called but behaves as a cheap no-op operation within the OTel API, resulting in no exporter round-trip and no attribute processing cost. This call does not bypass span object creation entirely the way `managed_span` does when its group is disabled, but the performance cost is negligible.
 
 ## `safe_set_span_attributes`
 
-Utility for bulk-setting span attributes with sensible filtering and redaction:
+Use this utility to bulk-set span attributes with sensible filtering and redaction:
 
 ```python
 from nemo.lens import safe_set_span_attributes
@@ -89,15 +89,15 @@ safe_set_span_attributes(span, {
 })
 ```
 
-### Rules
+### Behavior and Evaluation Rules
 
-1. If `span.is_recording()` is `False`, the call is a no-op.
-2. `None` values are silently skipped.
-3. Non-scalar values (dicts, objects) are silently skipped. OTel attributes must be scalars or sequences of scalars.
-4. Sequences of scalars are converted to `list`.
-5. String values whose key matches a **redact key** are replaced with `'[REDACTED]'`.
+1. **Verify recording status.** If `span.is_recording()` is `False`, the call is a no-op.
+2. **Skip null values.** `None` values are silently skipped.
+3. **Drop non-scalars.** Non-scalar values (such as dictionaries or complex objects) are silently skipped, as OTel attributes must be scalars or sequences of scalars.
+4. **Format sequences.** Sequences of scalars are converted to a `list`.
+5. **Redact sensitive strings.** String values whose keys match a redact key are replaced with the string `'[REDACTED]'`.
 
-### Default redact keys
+### Default Redact Keys
 
 ```python
 from nemo.lens import DEFAULT_REDACT_KEYS
@@ -118,7 +118,7 @@ redact_value('prompt', 'user input here')   # '[REDACTED]'  (key is in DEFAULT_R
 redact_value('iteration', 'user input here') # 'user input here' (key not redacted)
 ```
 
-It returns `'[REDACTED]'` iff `key` is in `redact_keys`, otherwise it returns `value` unchanged. Redaction is decided by the **attribute-key name**, not by inspecting the value.
+The function returns `'[REDACTED]'` if and only if the `key` is present in `redact_keys`; otherwise, it returns `value` unchanged. Redaction is decided by the attribute key name rather than by inspecting the value itself.
 
 ## `get_tracer` and `get_meter`
 
@@ -131,9 +131,9 @@ tracer = get_tracer()   # default instrumentation scope 'nemo.lens'
 meter = get_meter()     # default instrumentation scope 'nemo.lens'
 ```
 
-Each accepts an optional `name=` argument to set the instrumentation scope (default `'nemo.lens'`). Use these when you need a tracer or meter outside the span primitives — for example, to create custom metric instruments.
+Each function accepts an optional `name` argument to set the instrumentation scope, which defaults to `'nemo.lens'`. Use these functions when you require a tracer or meter outside the span primitives; for example, you can use them to create custom metric instruments.
 
-## Choosing between primitives
+## Choose the Correct Primitive
 
 | Call frequency | Attribute-heavy? | Need group gating? | Use |
 |---|---|---|---|
@@ -142,7 +142,7 @@ Each accepts an optional `name=` argument to set the instrumentation scope (defa
 | Cold (per-job, per-eval) | Yes | No | `span_cm` |
 | Cold (per-job, per-eval) | No | No | `span_cm` |
 
-## Checking group status before expensive prep
+## Check Group Status Before Expensive Preparation
 
 If building the attributes dict is itself expensive, gate it:
 

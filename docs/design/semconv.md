@@ -2,33 +2,35 @@
 
 `nemo.lens.semconv` centralizes every attribute name constant NeMo Lens emits. Two categories of attributes coexist:
 
-1. **Standard OTel semconv** — `gen_ai.*` and `k8s.*`. These track upstream OTel specs. (Resource attributes like `service.*` and `host.*` are also standard OTel names but are set as literals in `providers.py` and `resources/local.py` rather than mirrored as `semconv.py` constants.)
-2. **NeMo custom namespaces** — `dl.*` (distributed learning), `rl.*`, `gym.*`, `slurm.*`, `nemo.*`, `wandb.*`. These are NeMo-specific extensions that don't exist upstream.
+1. **Standard OTel semconv**: `gen_ai.*` and `k8s.*`. These track upstream OTel specs. (Resource attributes like `service.*` and `host.*` are also standard OTel names but are set as literals in `providers.py` and `resources/local.py` rather than mirrored as `semconv.py` constants.)
+2. **NeMo custom namespaces**: `dl.*` (distributed learning), `rl.*`, `gym.*`, `slurm.*`, `nemo.*`, `wandb.*`. These are NeMo-specific extensions that do not exist upstream.
 
-## Why constants instead of strings
+## Why Constants Instead of Strings
 
-Three reasons:
+Using constants instead of raw strings provides three key benefits:
 
 1. **Grep-ability**: renaming an attribute across the codebase means changing one constant, not every call site.
 2. **Type safety** (weak but real): `DL_RANK` is an exported name; typos become `ImportError`s. `"dl.rank"` typos become silent data loss.
 3. **Central registry**: one file lists every attribute NeMo Lens might emit. Easy to review, easy to document.
 
-Callers who want the string can use `DL_RANK` directly — Python strings-as-constants have no boxing cost.
+Callers who want the string can use `DL_RANK` directly; Python strings-as-constants have no boxing cost.
 
-## Version tracking
+## Version Tracking
 
 ```python
 SEMCONV_VERSION = "1.29.0"
 ```
 
-This documents which upstream OTel semconv version the standard namespaces (`gen_ai.*`, `k8s.*`) are aligned with. Upstream bumps namespace conventions periodically — `gen_ai.*` graduated from experimental to stable around 1.30. When upgrading lens to a new semconv version:
+This constant documents which upstream OTel semconv version the standard namespaces (`gen_ai.*`, `k8s.*`) are aligned with. Upstream bumps namespace conventions periodically; `gen_ai.*` graduated from experimental to stable around 1.30.
+
+When upgrading NeMo Lens to a new semconv version, complete these tasks:
 
 1. Review the upstream changelog for renamed or removed attributes.
 2. Update `SEMCONV_VERSION`.
 3. Update any changed constants.
-4. Note the version bump in lens's changelog so consumers know to update.
+4. Add the version bump to the NeMo Lens changelog so consumers know to update.
 
-## Stability markers
+## Stability Markers
 
 From `semconv.py`:
 
@@ -43,19 +45,21 @@ From `semconv.py`:
 # wandb.*   — NeMo custom (stable within NeMo ecosystem)
 ```
 
-"Stable" for custom namespaces means "we commit to not renaming these in minor releases." Breaking changes bump the major version.
+"Stable" for custom namespaces means these names will not change in minor releases. Breaking changes bump the major version.
 
 "Experimental" for `gen_ai.*` matches upstream; OTel considers them stable-in-practice but reserves the right to tweak until the full semconv 1.30 stabilization.
 
-## Namespace conventions
+## Namespace Conventions
 
-### Standard (upstream) namespaces
+NeMo Lens organizes attributes into standard upstream namespaces and NeMo-specific custom namespaces.
+
+### Standard Upstream Namespaces
 
 Follow upstream OTel spec exactly. Do not redefine, and do not rename. If upstream says `gen_ai.request.model`, NeMo Lens uses `gen_ai.request.model`.
 
-### `dl.*` — distributed learning
+### `dl.*` Distributed Learning
 
-Shared across Megatron-LM, NeMo-RL, NeMo-Gym. Anything a distributed training job needs:
+Shared across Megatron-LM, NeMo RL, NeMo Gym. Anything a distributed training job needs:
 
 ```
 dl.rank                      — global rank
@@ -71,26 +75,26 @@ dl.loss, dl.grad_norm, dl.learning_rate
 dl.throughput_tflops, dl.throughput_tokens_per_sec
 ```
 
-### `<project>.*` — project-specific
+### `<project>.*` Project-Specific Attributes
 
-For attributes that don't generalise across the ecosystem:
+Use project-specific namespaces for attributes that apply to one consumer rather than the full NeMo ecosystem:
 
-- `megatron.*` — Megatron-LM consumer-specific span attributes (e.g. model architecture `megatron.num_layers`/`megatron.hidden_size`, iteration-level `megatron.skipped`/`megatron.update_successful`). These are set as inline string attributes in the Megatron-LM fork and are **not** defined as constants in `nemo.lens.semconv` — the central registry only holds the shared/standard namespaces (`dl.*`, `gen_ai.*`, `rl.*`, `gym.*`, `slurm.*`, `nemo.*`, `wandb.*`, `k8s.*`).
+- `megatron.*`: Megatron-LM consumer-specific span attributes (e.g., model architecture `megatron.num_layers`/`megatron.hidden_size`, iteration-level `megatron.skipped`/`megatron.update_successful`). These are set as inline string attributes in the Megatron-LM fork and are **not** defined as constants in `nemo.lens.semconv`. The central registry only holds the shared and standard namespaces (`dl.*`, `gen_ai.*`, `rl.*`, `gym.*`, `slurm.*`, `nemo.*`, `wandb.*`, `k8s.*`).
 - `rl.*` — RL-specific (`reward`, `kl_divergence`, `policy_loss`)
 - `gym.*` — Gym server-specific (`verify.success_rate`, `rollout.batch_size`)
 
-### `nemo.*` — NeMo-wide identification
+### `nemo.*` NeMo-Wide Identification
 
 - `nemo.run.id` — unique run identifier, shared across all ranks
 - `nemo.user.id` — optional team/user label
 
-### Environment namespaces
+### Environment Namespaces
 
 - `slurm.*` — SLURM job attributes
 - `k8s.*` — Kubernetes pod/node attributes (standard OTel)
 - `wandb.*` — W&B Weave integration metadata
 
-## Adding new attributes
+## Adding New Attributes
 
 Checklist before adding a constant:
 
@@ -100,9 +104,9 @@ Checklist before adding a constant:
 4. **Is this a metric or a span attribute?** Metric instruments go in `instruments/`, span attributes go in `semconv.py`.
 5. **Is the attribute always available?** If it is not, document it as "optional" so query authors know to handle missing values.
 
-Don't add attributes speculatively. A constant with no call site is dead code that rots.
+Do not add attributes speculatively. A constant with no call site is dead code that becomes stale.
 
-## Attribute vs metric decision
+## Attribute vs. Metric Decision
 
 | Value | Goes where |
 |---|---|
@@ -113,7 +117,7 @@ Don't add attributes speculatively. A constant with no call site is dead code th
 
 Putting a continuously-varying value such as loss on a span attribute produces thousands of span-attribute time series in Jaeger that cannot be aggregated. Use a metric.
 
-## Attribute cardinality
+## Attribute Cardinality
 
 OTel metric attributes have a cardinality budget — each distinct combination of attribute values creates a new time series. `gen_ai.operation.name="text_completion"` is fine (one value). `gen_ai.request.model="llama-3-8b"` is fine (a handful of values). `user.session.id="abc-123"` is dangerous (unbounded cardinality — one time series per user session).
 

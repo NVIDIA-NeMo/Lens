@@ -1,8 +1,8 @@
 # Contrib Helpers
 
-`nemo.lens.contrib` contains framework-specific integration helpers. Each is optional and isolated — installing lens without the corresponding extra raises a clear ImportError (with an install hint) when you call the helper, not when you import it.
+`nemo.lens.contrib` contains framework-specific integration helpers. Each is optional and isolated, so installing NeMo Lens without the corresponding extra raises a clear `ImportError` (with an install hint) when you call the helper, not when you import it.
 
-## FastAPI — `contrib.fastapi`
+## FastAPI with `contrib.fastapi`
 
 ```python
 from nemo.lens.contrib.fastapi import instrument_fastapi
@@ -13,11 +13,13 @@ instrument_fastapi(app)
 
 Wraps `opentelemetry-instrumentation-fastapi`. After this call, every incoming HTTP request gets a span covering its lifetime, with W3C trace context automatically extracted from request headers (so upstream traces flow through).
 
-Note: `instrument_fastapi` does accept a `service_name` parameter, but it is currently a no-op (the implementation ignores it). The service name is set via `setup_telemetry` / the `OTEL_SERVICE_NAME` environment variable, not here.
+:::{note}
+`instrument_fastapi` does accept a `service_name` parameter, but it is currently a no-op (the implementation ignores it). The service name is set through `setup_telemetry` or the `OTEL_SERVICE_NAME` environment variable, not here.
+:::
 
 Install: `pip install 'nemo-lens[fastapi]'`
 
-### Typical integration
+### Typical Integration
 
 Gate on a span group so FastAPI spans respect your telemetry toggles:
 
@@ -28,7 +30,7 @@ if is_span_group_enabled('server'):
     instrument_fastapi(app)
 ```
 
-## aiohttp client — `contrib.aiohttp`
+## aiohttp Client with `contrib.aiohttp`
 
 ```python
 from nemo.lens.contrib.aiohttp import instrument_aiohttp_client
@@ -41,9 +43,9 @@ Wraps `opentelemetry-instrumentation-aiohttp-client`. Eliminates the need to man
 
 Install: `pip install 'nemo-lens[aiohttp]'`
 
-### When to call it
+### Choose When to Call the Helper
 
-Once at startup, after `setup_telemetry` returns and confirms you're actively exporting:
+Call this helper once at startup, after `setup_telemetry` returns and confirms you are actively exporting:
 
 ```python
 handle = setup_telemetry(config)
@@ -51,13 +53,13 @@ if handle.is_exporting:
     instrument_aiohttp_client()
 ```
 
-On non-exporting ranks, there's no reason to pay the instrumentation cost.
+Avoid running this helper on non-exporting ranks to prevent unnecessary overhead.
 
-## Ray — `contrib.ray`
+## Ray with `contrib.ray`
 
-Ray remote calls don't carry HTTP headers, so trace context must be passed explicitly. Lens exposes helpers that add a conventional `_otel_carrier` kwarg to remote calls.
+Ray remote calls do not carry HTTP headers, so trace context must be passed explicitly. NeMo Lens exposes helpers that add a conventional `_otel_carrier` kwarg to remote calls.
 
-### Driver side
+### Instrument Driver Side
 
 ```python
 from nemo.lens.contrib.ray import inject_ray_context, ray_dispatch_with_context
@@ -70,7 +72,7 @@ future = my_actor.method.remote(arg1, arg2, _otel_carrier=carrier)
 future = ray_dispatch_with_context(my_actor.method, arg1, arg2)
 ```
 
-### Worker side
+### Instrument Worker Side
 
 Wrap remote methods with `traced_remote_call` to auto-extract context:
 
@@ -88,11 +90,11 @@ class MyActor:
 
 Spans created inside `method` now appear as children of the driver's span.
 
-No extra install needed — uses `opentelemetry-api` only.
+No extra install is needed, as this uses `opentelemetry-api` only.
 
-## NCCL — `contrib.nccl`
+## NCCL with `contrib.nccl`
 
-NCCL transfers are raw bytes — no native header concept. For pipeline-parallel correlation where you want to piggy-back trace context on a tensor transfer:
+NCCL transfers use raw bytes and have no native header concept. For pipeline-parallel correlation, use the following pattern to piggyback trace context on a tensor transfer:
 
 ```python
 from nemo.lens.contrib.nccl import serialize_context, extract_nccl_context
@@ -106,7 +108,7 @@ ctx = extract_nccl_context(data)
 # attach ctx as parent context for new spans
 ```
 
-If you need the intermediate carrier dict rather than a ready-to-use OTel `Context`, call `deserialize_context(data: bytes) -> dict | None` — the mid-layer that `extract_nccl_context` wraps. It returns the decoded carrier dict, or `None` if the bytes are malformed (it swallows `JSONDecodeError` and `UnicodeDecodeError`):
+If you need the intermediate carrier dict rather than a ready-to-use OTel `Context`, call `deserialize_context(data: bytes) -> dict | None`, which is the mid-layer that `extract_nccl_context` wraps. It returns the decoded carrier dict, or `None` if the bytes are malformed (it swallows `JSONDecodeError` and `UnicodeDecodeError`):
 
 ```python
 from nemo.lens.contrib.nccl import deserialize_context
@@ -114,18 +116,18 @@ from nemo.lens.contrib.nccl import deserialize_context
 carrier = deserialize_context(data)    # dict, or None on bad input
 ```
 
-In practice, most pipeline-parallel users don't need this — `broadcast_trace_context` is simpler and more idiomatic (see [Distributed Tracing](distributed-tracing.md)). NCCL helpers exist for advanced cases where you're already passing metadata alongside tensors and trace context can piggy-back for free.
+In practice, most pipeline-parallel users do not need this; `broadcast_trace_context` is simpler and more idiomatic (see [Distributed Tracing](distributed-tracing.md)). NCCL helpers exist for advanced cases where you are already passing metadata alongside tensors, and trace context can piggyback for free.
 
-No extra install needed.
+No extra install is needed, as this uses `opentelemetry-api` only.
 
-## Design notes
+## Design Notes
 
-Contrib modules are **thin** — each wraps an existing OTel instrumentation package or provides a couple of helper functions. They don't implement tracing logic themselves.
+Contrib modules are thin; each wraps an existing OTel instrumentation package or provides a couple of helper functions. They do not implement tracing logic themselves.
 
 If you need to add a contrib module:
 
 1. Check if an `opentelemetry-instrumentation-<framework>` package exists upstream. If yes, your module should be a single function that imports and calls it.
 2. Add the package as an optional extra in `pyproject.toml` (`nemo-lens[<framework>]`).
-3. Raise an `ImportError` with an actionable install hint if the instrumentation package isn't present.
+3. Raise an `ImportError` with an actionable install hint if the instrumentation package is not present.
 
 This keeps the contrib surface small and maintenance burden low.

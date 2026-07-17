@@ -1,56 +1,56 @@
 # Production Checklist
 
-Going from "telemetry works on my laptop" to "telemetry runs for the full training campaign" is a different exercise. This page is opinionated about which knobs matter in production and how to pick them deliberately rather than by accident.
+Transitioning from a local telemetry configuration to a deployment that spans an entire training campaign requires careful consideration. This page provides recommendations on which configuration options matter in production and how to select them deliberately rather than by accident.
 
-If anything here conflicts with your site's ops conventions, trust ops.
+If any recommendations here conflict with your site's operational conventions, follow those guidelines.
 
-## Pick an export strategy
+## Choose an Export Strategy
 
-Decision flow:
+Use this decision flow to select your export strategy:
 
-- One rank's view is representative and you want the simplest setup. Use `single_rank` (the default). Done.
-- Per-node visibility — attributing hangs or stragglers to specific machines on a medium-scale job (8–128 nodes). Use `first_rank_per_node`; one rank per machine, no `LOCAL_RANK=0` configuration required (torchrun and friends set it for you).
-- Fleet-scale job where you want more than one rank's perspective without full export. Use `sampled` (set `export_strategy=sampled` / `NEMO_LENS_EXPORT_STRATEGY=sampled`) with an `export_sample_rate` below 1.0. This is independent of `sampler_enabled`; add SDK-level per-rank filtering only if you also want layer 2 (see Layer your sampling).
-- You need per-rank investigation — hang debugging, NaN hunting, suspected bad nodes. Use `all_ranks` for the duration of the investigation, then revert.
+- **Ensure simple setup.** When a single rank's view is representative and you require the simplest setup, use the `single_rank` strategy (which is the default).
+- **Attribute hangs per node.** When you require per-node visibility to attribute hangs or slow processes to specific machines on a medium-scale job (eight to 128 nodes), use the `first_rank_per_node` strategy. This configuration exports from one rank per machine and does not require manual `LOCAL_RANK=0` setup because launchers such as torchrun handle this automatically.
+- **Scale across fleets.** For fleet-scale jobs where you require the perspective of multiple ranks without full telemetry export, use the `sampled` strategy by setting the `export_strategy=sampled` or `NEMO_LENS_EXPORT_STRATEGY=sampled` environment variable with an `export_sample_rate` below `1.0`. This strategy is independent of the `sampler_enabled` setting; add SDK-level per-rank filtering only if you also require the second layer (see [Layer Your Sampling](#layer-your-sampling)).
+- **Investigate per-rank issues.** When you require fine-grained per-rank investigation (such as for hang debugging, `NaN` detection, or isolating suspected faulty nodes), use the `all_ranks` strategy for the duration of the investigation and then revert to your production default.
 
-Full discussion in [Sampling](sampling.md). Don't leave this at default "because it's the default" — pick it because it fits the run.
+For a full discussion, see [Sampling](sampling.md). Do not leave this configuration simply because it is the default; instead, select the strategy that best fits the specific run.
 
-## Pick a span group preset
+## Choose a Span Group Preset
 
-- Quiet production telemetry: `default`. Job, checkpoint, evaluate. No per-step noise.
-- Production profiling window: `per_step` combined with aggressive SDK trace sampling. Something like `OTEL_TRACES_SAMPLER=parentbased_traceidratio` with a low ratio keeps volume manageable while you gather a profile.
-- Active debugging: `all`, and only for short-duration runs. Do not leave this on.
+- **Quiet production telemetry.** Use the `default` preset to emit only `job`, `checkpoint`, and `evaluate` spans without per-step overhead.
+- **Production profiling window.** Use the `per_step` preset combined with aggressive SDK trace sampling. For example, setting `OTEL_TRACES_SAMPLER=parentbased_traceidratio` with a low ratio keeps telemetry volume manageable while you gather a performance profile.
+- **Active debugging.** Use the `all` preset, but only for short-duration runs. Do not leave this preset enabled in production.
 
-See [Span Groups](span-groups.md) for the full breakdown.
+See [Span Groups](span-groups.md) for complete details.
 
-## Layer your sampling
+## Layer Your Sampling
 
-Think of sampling as four composable layers:
+You can configure sampling across four composable layers:
 
-1. **Export strategy** (`single_rank` / `all_ranks` / `sampled`) — decides which ranks emit at all. Non-exporting ranks are fully no-op.
-2. **`RankAwareSampler`** (via `sampler_enabled=1`) — SDK-level per-rank decision on whether to keep spans on an exporting rank. Driven by `export_sample_rate`; at the default `1.0` it keeps every span, so set `export_sample_rate` < 1.0 for this layer to actually drop spans.
-3. **OTel SDK trace sampler** (`OTEL_TRACES_SAMPLER`) — per-trace decision on whether to record.
-4. **Collector-side tail sampling** (optional) — lets you make smart decisions after the fact: keep all error traces, sample successful ones.
+1. **Export strategy.** Strategies such as `single_rank`, `all_ranks`, or `sampled` decide which ranks emit telemetry at all. Non-exporting ranks are fully set to no-op.
+2. **`RankAwareSampler`.** Enabled through `sampler_enabled=1`, this sampler makes an SDK-level per-rank decision on whether to keep spans on an exporting rank. This decision is driven by `export_sample_rate`. Because the default value of `1.0` keeps every span, you must set `export_sample_rate` below `1.0` for this layer to drop spans.
+3. **OTel SDK trace sampler.** Configured through `OTEL_TRACES_SAMPLER`, this sampler makes a per-trace decision on whether to record the trace.
+4. **Collector-side tail sampling.** This optional layer allows you to make routing decisions after traces are generated, such as keeping all error traces while sampling successful ones.
 
-Compose them. Layer 1 decides "who talks"; layers 2 and 3 decide "how much of what they have"; layer 4 decides "what's worth keeping". Trying to do everything at one layer either over-samples the interesting cases or under-samples and hides them.
+Combine these layers. Layer one decides which ranks emit telemetry; layers two and three decide the volume of telemetry those ranks produce; and layer four decides which traces are retained. Attempting to perform all sampling at a single layer either over-samples routine cases or under-samples and hides critical data.
 
-## Use `nemo.run.id` as the partition key
+## Use `nemo.run.id` as the Partition Key
 
-Every backend worth using needs a partition key — a way to scope queries to a single run. Lens sets `nemo.run.id` on every span and metric, automatically derived from `NEMO_LENS_RUN_ID`, `SLURM_JOB_ID`, or a generated UUID.
+Every backend requires a partition key to scope queries to a single run. NeMo Lens sets the `nemo.run.id` attribute on every span and metric, automatically deriving the value from `NEMO_LENS_RUN_ID`, `SLURM_JOB_ID`, or a generated UUID.
 
-Use it everywhere:
+Use this key in all query interfaces:
 
-- Jaeger: tag filter `nemo.run.id=<value>`
-- Grafana: dashboard variable `nemo_run_id` populated from `label_values(<metric>, nemo_run_id)`
-- Honeycomb: filter facet `nemo.run.id`
-- Datadog: facet `@nemo.run.id`
-- Kibana: filter field `nemo.run.id`
+- **Jaeger.** Filter by tag using `nemo.run.id=<value>`.
+- **Grafana.** Populate a dashboard variable `nemo_run_id` using `label_values(<metric>, nemo_run_id)`.
+- **Honeycomb.** Filter by the `nemo.run.id` facet.
+- **Datadog.** Filter by the `@nemo.run.id` facet.
+- **Kibana.** Filter by the `nemo.run.id` field.
 
-Set `NEMO_LENS_RUN_ID` explicitly when you want a human-readable identifier (`llama3-pretrain-2026-04-22`) rather than a UUID. SLURM job IDs are fine too, but "the SLURM job that OOMed last Tuesday" is harder to grep for than "llama3-pretrain-2026-04-22".
+Set `NEMO_LENS_RUN_ID` explicitly when you want a human-readable identifier (such as `llama3-pretrain-2026-04-22`) rather than a UUID. Slurm job identifiers are also compatible, but a specific job name is easier to search for than a system-generated job identifier.
 
-## Use resource attributes for run comparison
+## Use Resource Attributes for Run Comparison
 
-Parallelism config, model architecture, precision, cluster name — anything stable for the process lifetime belongs in `resource_attributes`, not on individual spans. In Jaeger these become "Process" tags, filterable across every span and metric in the run without cluttering the span view.
+Parallelism configuration, model architecture, precision, and cluster name belong in `resource_attributes` because they are stable for the process lifetime. Do not record these properties on individual spans. In Jaeger, these attributes appear as **Process** tags, allowing you to filter across every span and metric in the run without cluttering the individual span views.
 
 ```python
 handle = setup_telemetry(
@@ -67,23 +67,23 @@ handle = setup_telemetry(
 )
 ```
 
-See [Resource Detection](resources.md) for the full picture and the `dl.*` vs project-scoped conventions.
+See [Resource Detection](resources.md) for the full picture and the `dl.*` versus project-scoped conventions.
 
-## Size your collector
+## Size Your Collector
 
-The collector has to keep up with your peak trace rate. If its receive queue backs up, the SDK's `BatchSpanProcessor` will eventually back up too, and spans will drop. Monitor the collector's own telemetry (Prometheus metrics on `:8888/metrics`) and alert on processor queue saturation — `otelcol_processor_batch_send_size`, exporter send failures, and queue depth are the usual suspects.
+The collector must keep pace with your peak trace rate. If its receive queue backs up, the SDK's `BatchSpanProcessor` eventually backs up, resulting in dropped spans. Monitor the collector's own telemetry (Prometheus metrics on `:8888/metrics`) and alert on processor queue saturation, such as `otelcol_processor_batch_send_size`, exporter send failures, and queue depth.
 
-If a collector can't keep up, the honest fix is more collector capacity or more aggressive sampling, not muting alerts.
+If a collector cannot keep pace, the honest solution is to add collector capacity or apply more aggressive sampling instead of muting alerts.
 
-## Export only what you need
+## Export Only What You Need
 
-Resist the instinct to turn on `all` span groups "just in case". Span groups exist precisely so you can enable and disable without redeploying — keep `default` on by default and escalate when debugging. Every additional group is more collector volume, more backend cost, and more noise in the trace view.
+Avoid enabling the `all` span group as a default precaution. Span groups allow you to enable and disable specific telemetry sites without redeploying your code; enable only the `default` preset in production and escalate to other groups during troubleshooting. Every additional group increases collector volume, backend cost, and noise in the trace view.
 
-If you find yourself needing `all` permanently, that's a signal to move some of those groups into `default` at the library level, not to ship `all` to every production run.
+If you require the `all` preset permanently, this indicates a need to move some of those groups into `default` at the library level, rather than shipping the `all` preset to every production run.
 
-## Think before enabling logs
+## Configure Logging Scope
 
-If you're using the log bridge (`NEMO_LENS_LOGS_ENABLED=1`), be deliberate about level and scope. `DEBUG` across a fleet of ranks will overwhelm any log store. Prefer bridging specific subsystems rather than the root logger:
+If you use the log bridge (`NEMO_LENS_LOGS_ENABLED=1`), configure log level and scope deliberately. Enabling `DEBUG` logging across a large cluster can overwhelm any storage system. Bridge logs from specific subsystems instead of the root logger:
 
 ```python
 setup_logging_bridge(logger_name="megatron.training")
@@ -91,17 +91,17 @@ setup_logging_bridge(logger_name="megatron.training")
 
 See [Logging Bridge](logging-bridge.md).
 
-## Consider a backup sink
+## Configure a Backup Sink
 
-The Collector fans out cheaply. A common pattern is to route one OTLP stream from the application to the Collector, then have the Collector export to two backends — e.g. W&B Weave for trace UX and Prometheus for alerting. The application exports once; the plumbing is in the Collector config.
+The collector fans out with minimal overhead. A common pattern is to route one OTLP stream from the application to the collector, and then configure the collector to export to two backends (such as W&B Weave for trace visualization and Prometheus for alerting). The application exports once, while the plumbing remains in the collector configuration.
 
-## Before going live
+## Complete Pre-Live Checks
 
-- [ ] `setup_telemetry` is called exactly once at process startup.
-- [ ] `handle.shutdown()` runs in a `finally` block so traces flush on clean exit.
-- [ ] `nemo.run.id` is set (or auto-derived) and visible in your dashboards.
-- [ ] Jaeger / Grafana / your backend can filter by `nemo.run.id`.
-- [ ] You've tested the OTLP endpoint with `curl` from a training host.
-- [ ] Sampler and export strategy are chosen deliberately, not left at default.
-- [ ] Dashboards have panels for step duration, loss, throughput, grad norm.
-- [ ] Rollback plan exists: `NEMO_LENS_ENABLED=0` and restart, no code change required.
+- [ ] Call `setup_telemetry` exactly once at process startup.
+- [ ] Ensure `handle.shutdown()` runs in a `finally` block so that traces flush during process exit.
+- [ ] Verify that `nemo.run.id` is configured or automatically derived and visible in your dashboards.
+- [ ] Confirm that Jaeger, Grafana, or your specific backend can filter query results by `nemo.run.id`.
+- [ ] Test connection reachability to the OTLP endpoint using `curl` from a training host.
+- [ ] Select a sampler and export strategy deliberately instead of relying on default values.
+- [ ] Verify that dashboards contain panels for step duration, loss, throughput, and gradient norm.
+- [ ] Confirm a rollback plan exists (such as setting `NEMO_LENS_ENABLED=0` and restarting your application without code changes).

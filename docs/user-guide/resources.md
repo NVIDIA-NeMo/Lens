@@ -1,14 +1,14 @@
 # Resource Detection
 
-OTel [Resources](https://opentelemetry.io/docs/specs/otel/resource/sdk/) describe the entity producing telemetry: service name, version, host, cloud provider, etc. Lens auto-detects a handful of environment-specific attributes so runs are filterable without manual config.
+OpenTelemetry [Resources](https://opentelemetry.io/docs/specs/otel/resource/sdk/) describe the entity producing telemetry: service name, version, host, cloud provider, and other properties. NeMo Lens auto-detects a handful of environment-specific attributes to make runs filterable without manual configuration.
 
-## Default attributes
+## Default Resource Attributes
 
 Every exporter-rank process emits these attributes (set in `providers.py:build_providers`):
 
 | Attribute | Source | Example |
 |---|---|---|
-| `service.name` | `config.service_name` (populated from `OTEL_SERVICE_NAME` via `NemoLensConfig.from_env()`, default `"nemo"`) | `"megatron-lm"` |
+| `service.name` | `config.service_name` (populated from `OTEL_SERVICE_NAME` through `NemoLensConfig.from_env()`, default `"nemo"`) | `"megatron-lm"` |
 | `service.version` | `nemo.lens.__version__` | `"0.1.0"`, `"0.1.0.post3+gabc1234"` |
 | `service.instance.id` | `"{run_id}-rank{rank}"` | `"abc123-rank0"` |
 | `dl.rank` | `rank` argument | `0` |
@@ -17,11 +17,11 @@ Every exporter-rank process emits these attributes (set in `providers.py:build_p
 | `nemo.user.id` | `config.user` (if set) | `"my-team"` |
 | `deployment.environment` | `DEPLOYMENT_ENV` or `ENVIRONMENT` env var | `"production"` |
 
-## Auto-detected attributes
+## Auto-Detected Resource Attributes
 
-`nemo.lens.resources.detect_resource()` merges attributes from three sources:
+The `nemo.lens.resources.detect_resource()` function merges attributes from three sources:
 
-### `detect_local()` — local process
+### Local Process Attributes with `detect_local()`
 
 | Attribute | Description |
 |---|---|
@@ -29,9 +29,9 @@ Every exporter-rank process emits these attributes (set in `providers.py:build_p
 | `process.pid` | Python's `os.getpid()` |
 | `host.gpu.count` | GPU count from `CUDA_VISIBLE_DEVICES` or `nvidia-smi`. Best-effort; omitted entirely when undetectable (no `nvidia-smi` and `CUDA_VISIBLE_DEVICES` unset). An empty `CUDA_VISIBLE_DEVICES` reports `0`. |
 
-### `detect_slurm()` — SLURM env
+### Slurm Environment Attributes with `detect_slurm()`
 
-Active when `SLURM_JOB_ID` is set. Maps:
+These attributes are active when `SLURM_JOB_ID` is set. This helper maps the following variables:
 
 | Attribute | Source env var |
 |---|---|
@@ -43,9 +43,9 @@ Active when `SLURM_JOB_ID` is set. Maps:
 | `slurm.partition` | `SLURM_PARTITION` |
 | `slurm.cluster.name` | `SLURM_CLUSTER_NAME` |
 
-### `detect_kubernetes()` — K8s env
+### Kubernetes Environment Attributes with `detect_kubernetes()`
 
-Active when `KUBERNETES_SERVICE_HOST` is set or `/var/run/secrets/kubernetes.io` exists. Maps:
+These attributes are active when `KUBERNETES_SERVICE_HOST` is set or the `/var/run/secrets/kubernetes.io` directory exists. This helper maps the following variables:
 
 | Attribute | Source env var |
 |---|---|
@@ -58,9 +58,9 @@ Active when `KUBERNETES_SERVICE_HOST` is set or `/var/run/secrets/kubernetes.io`
 
 `HOSTNAME` is used as a fallback for `k8s.pod.name` only when `K8S_POD_NAME` is unset.
 
-## Adding custom attributes
+## Add Custom Resource Attributes
 
-Pass `resource_attributes=` to `setup_telemetry`:
+Pass the `resource_attributes` argument to `setup_telemetry`:
 
 ```python
 handle = setup_telemetry(
@@ -77,36 +77,36 @@ handle = setup_telemetry(
 )
 ```
 
-These merge with the auto-detected set. In Jaeger they appear as "Process" tags — filterable across every span in the run.
+These attributes merge with the auto-detected set. In Jaeger, they appear as **Process** tags and are filterable across every span in the run.
 
-## Use cases
+## Use Cases
 
-### Filter by rank
+### Filter by Global Rank
 
-In Jaeger: `dl.rank=0`
+In Jaeger, use: `dl.rank=0`
 
-### Compare two runs
+### Compare Distinct Runs
 
-In Grafana: use `nemo.run.id` as a dashboard variable, list all values, select the runs to compare.
+In Grafana, configure `nemo.run.id` as a dashboard variable, list all values, and then select the specific runs to compare.
 
-### Filter by parallelism config
+### Filter by Parallelism Configuration
 
-In Jaeger: `dl.tensor_parallel.size=4 AND dl.pipeline_parallel.size=2`
+In Jaeger, use: `dl.tensor_parallel.size=4 AND dl.pipeline_parallel.size=2`
 
-Because these are resource attributes (not span attributes), they apply to every span without cluttering the span view.
+Because these are resource attributes instead of span attributes, they apply to every span without cluttering the span view.
 
-## Conventions
+## Attribute Conventions
 
-- Use standard OTel attribute names where they exist (`service.*`, `k8s.*`, `host.*`).
-- Use `dl.*` (distributed learning) for training-specific attributes shared across consumers.
-- Use `<project>.*` for project-specific attributes (`megatron.*`, `rl.*`, `gym.*`).
+- **Use standard names.** Apply standard OTel attribute names where they exist, such as `service.*`, `k8s.*`, and `host.*`.
+- **Use distributed learning prefix.** Apply the `dl.*` (distributed learning) prefix for training-specific attributes that are shared across consumers.
+- **Use project-specific prefixes.** Apply the `<project>.*` prefix for project-specific attributes, such as `megatron.*`, `rl.*`, and `gym.*`.
 
 See [semconv](../design/semconv.md) for the full attribute namespace conventions.
 
-## Detection order
+## Resource Detection Order
 
-`detect_resource()` merges in this order: local → SLURM → Kubernetes. If a key collides, the later source wins. In practice collisions are rare because each layer uses its own namespace.
+The `detect_resource()` function merges resource attributes in the following order: local, Slurm, and then Kubernetes. If a key collision occurs, the attribute from the later source takes precedence. In practice, collisions are rare because each layer uses its own namespace.
 
-## Running locally
+## Run Telemetry Locally
 
-On a developer machine with no SLURM or K8s, only `detect_local()` fires. Run IDs auto-generate to a UUID, so you can still filter by `nemo.run.id` to isolate a single local run.
+On a development machine with no Slurm or Kubernetes environment, only the `detect_local()` helper executes. Run identifiers are automatically generated as UUID values, so you can still filter by `nemo.run.id` to isolate a single local run.

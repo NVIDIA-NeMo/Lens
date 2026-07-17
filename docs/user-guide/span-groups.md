@@ -1,53 +1,53 @@
 # Span Groups
 
-Span groups are lens's mechanism for controlling trace granularity at runtime without code changes. Every instrumentation site tags itself with a group name; at startup, only the enabled groups actually emit spans.
+Span groups are the NeMo Lens mechanism for controlling trace granularity at runtime without code changes. Every instrumentation site tags itself with a group name; at startup, only the enabled groups actually emit spans.
 
-## Why groups
+## Why Use Span Groups
 
-A training job might want:
-- `default` in production: only coarse spans (job, checkpoint, evaluate). Lowest cost.
-- `per_step` in staging: adds per-iteration boundaries. Moderate cost.
-- `all` when debugging a specific hang: every instrumented site, including per-microbatch and per-layer. Highest cost.
+A training job can use different levels of tracing detail for different environments:
+- **Minimize production overhead.** Enable the `default` preset to emit only coarse spans (such as `job`, `checkpoint`, and `evaluate`) for the lowest performance cost.
+- **Add iteration boundaries.** Enable the `per_step` preset in staging to add per-iteration boundaries for a moderate performance cost.
+- **Diagnose performance hangs.** Enable the `all` preset during active debugging to instrument every site, including per-microbatch and per-layer spans, which carries the highest performance cost.
 
-Toggling this via one env var — with no code changes and a cheap gating check when disabled — is the goal.
+The primary goal is to toggle granularity through a single env var without code changes, relying on a fast gating check when disabled.
 
-## Base groups
+## Base Span Groups
 
-`SpanGroup` ships with eight groups covering typical training workflows:
+The `SpanGroup` class ships with eight groups covering typical training workflows:
 
-### Coarse-grained (in `default` preset)
+### Coarse-Grained Groups in the `default` Preset
 
-| Group | Typical spans | Frequency |
+| Group | Typical Spans | Frequency |
 |---|---|---|
-| `job` | Pretrain/train root spans | once per job |
-| `checkpoint` | Checkpoint save | every N iterations |
-| `evaluate` | Evaluation pass | every N iterations |
+| `job` | Pretrain/train root spans | Once per job |
+| `checkpoint` | Checkpoint save | Every N iterations |
+| `evaluate` | Evaluation pass | Every N iterations |
 
-### Medium-grained (in `per_step` preset)
+### Medium-Grained Groups in the `per_step` Preset
 
-| Group | Typical spans | Frequency |
+| Group | Typical Spans | Frequency |
 |---|---|---|
-| `model_init` | Model construction | once at startup |
-| `load_checkpoint` | Checkpoint load | once at startup |
-| `step` | Training step boundary | every iteration |
-| `forward_backward` | Forward+backward pass | every iteration |
-| `optimizer` | Optimizer step | every iteration |
+| `model_init` | Model construction | Once at startup |
+| `load_checkpoint` | Checkpoint load | Once at startup |
+| `step` | Training step boundary | Every iteration |
+| `forward_backward` | Forward and backward pass | Every iteration |
+| `optimizer` | Optimizer step | Every iteration |
 
 ## Presets
 
 Presets bundle groups by use case:
 
-| Preset | Groups included | Relative cost | Use case |
+| Preset | Groups Included | Relative Cost | Use Case |
 |---|---|---|---|
-| `default` | job, checkpoint, evaluate | Lowest | Safe for production |
-| `per_step` | default + model_init, load_checkpoint, step, forward_backward, optimizer | Moderate | Staging, profiling |
-| `all` | Every group in the class | Highest | Debugging |
+| `default` | `job`, `checkpoint`, and `evaluate` | Lowest | Safe for production |
+| `per_step` | `default` plus `model_init`, `load_checkpoint`, `step`, `forward_backward`, and `optimizer` | Moderate | Staging and profiling |
+| `all` | Every group in the class | Highest | Active debugging |
 
-Presets are **per-subclass**: `MegatronSpanGroup.ALL_GROUPS` contains more than `SpanGroup.ALL_GROUPS`.
+Presets are specific to each subclass; for example, `MegatronSpanGroup.ALL_GROUPS` contains more groups than `SpanGroup.ALL_GROUPS`.
 
-## The spec string
+## Specification String
 
-`config.span_groups` is a **comma-separated spec** that mixes preset keywords and individual group names:
+The `config.span_groups` field accepts a comma-separated specification string that mixes preset keywords and individual group names:
 
 ```bash
 NEMO_LENS_SPAN_GROUPS=default                  # just default preset
@@ -57,11 +57,11 @@ NEMO_LENS_SPAN_GROUPS=step,optimizer,checkpoint # individual groups only
 NEMO_LENS_SPAN_GROUPS=all                      # everything
 ```
 
-Resolution happens once at `setup_telemetry` via `config.resolved_span_groups`. The resulting `frozenset` is registered with the `state` module and consulted at every instrumentation site.
+Resolution occurs once at `setup_telemetry` through `config.resolved_span_groups`. The resulting `frozenset` is registered with the `state` module and consulted at every instrumentation site.
 
 Unknown keywords raise `ValueError` at resolution time with a list of valid options.
 
-## State machinery
+## State Machinery
 
 Enabled groups live in a module-level `frozenset` in `nemo.lens.state`:
 
@@ -74,11 +74,11 @@ set_enabled_span_groups(frozenset(['job', 'step']))
 
 The read path (`is_span_group_enabled`) is lock-free and safe to call from any thread. The write path (`set_enabled_span_groups`) is lock-protected and typically called once by `setup_telemetry`.
 
-`set_enabled_span_groups` is also a top-level public export (`from nemo.lens import set_enabled_span_groups`), letting you override the active groups at runtime without reaching into `nemo.lens.state`.
+`set_enabled_span_groups` is also a top-level public export (`from nemo.lens import set_enabled_span_groups`), allowing you to override the active groups at runtime without reaching into `nemo.lens.state`.
 
-## Extending: library-specific subclasses
+## Extend with Library-Specific Subclasses
 
-Subclass `SpanGroup` to add domain-specific groups. Megatron's extension:
+Subclass `SpanGroup` to add domain-specific groups. For example, Megatron uses the following extension:
 
 ```python
 from nemo.lens.groups import SpanGroup
@@ -106,7 +106,7 @@ class MegatronSpanGroup(SpanGroup):
     }
 ```
 
-Pass it to `from_env`:
+Pass this subclass to `from_env`:
 
 ```python
 cfg = NemoLensConfig.from_env(
@@ -116,10 +116,10 @@ cfg = NemoLensConfig.from_env(
 )
 ```
 
-`config.resolved_span_groups` now resolves against `MegatronSpanGroup.ALL_GROUPS` and `_PRESETS`.
+The `config.resolved_span_groups` field now resolves against `MegatronSpanGroup.ALL_GROUPS` and its custom `_PRESETS`.
 
-## Design notes
+## Design Notes
 
-- Groups are **runtime knobs**, not compile-time. Toggling an env var and restarting is the full configuration workflow — no code changes needed.
-- Groups are **orthogonal** to rank sampling (`NEMO_LENS_SAMPLER_ENABLED` / `NEMO_LENS_EXPORT_SAMPLE_RATE`) and export strategy (`NEMO_LENS_EXPORT_STRATEGY`). You can combine: enable `per_step` groups, sample 10% of ranks, export from one rank only.
-- Groups are a **coarse filter**. For fine-grained control (e.g. "trace only iterations where loss > threshold"), add a runtime check inside your instrumented code — `is_span_group_enabled` is just one signal.
+- **Configure groups at runtime.** Groups are runtime knobs rather than compile-time settings. Toggling an env var and restarting your application constitutes the entire configuration workflow, requiring no code changes.
+- **Ensure orthogonal controls.** Groups operate independently of rank sampling (`NEMO_LENS_SAMPLER_ENABLED` and `NEMO_LENS_EXPORT_SAMPLE_RATE`) and export strategy (`NEMO_LENS_EXPORT_STRATEGY`). You can combine these settings to enable `per_step` groups, sample 10% of ranks, and export from only a single rank.
+- **Filter at multiple granularities.** Groups act as coarse-grained filters. For fine-grained control, such as tracing only iterations where loss exceeds a specific threshold, add a runtime check inside your instrumented code, as `is_span_group_enabled` is only one signal.
