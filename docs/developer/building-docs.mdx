@@ -1,0 +1,97 @@
+---
+title: "Build the Documentation"
+description: "Build, validate, and preview the NeMo Lens Fern documentation."
+position: 4
+---
+
+NeMo Lens documentation is authored as MDX under `docs/` and built with Fern. The Fern configuration, version navigation, and local commands live under `docs/fern/`.
+
+## Prerequisites
+
+Install Node.js 20 or newer. Docker is also required when generating the Python API reference from a local checkout.
+
+The Fern CLI does not need to be installed globally. The npm scripts run the version pinned in `docs/fern/fern.config.json`.
+
+## Validate the Documentation
+
+Generate the Python API reference from the local source tree, then run Fern's validation:
+
+```bash
+npm --prefix docs/fern run generate:library:local
+npm --prefix docs/fern run check
+```
+
+The local generator writes API pages under `docs/fern/product-docs/`. Generated pages are ignored by Git and sanitized automatically for Fern MDX compatibility.
+
+## Run a Local Preview
+
+Sign in to the NVIDIA Fern organization before starting the development server so Fern can load the shared NVIDIA theme:
+
+```bash
+npm --prefix docs/fern run login
+npm --prefix docs/fern run dev
+```
+
+The preview is available at `http://localhost:3000`.
+
+For a hosted preview, export the Fern token and run:
+
+```bash
+export FERN_TOKEN="$DOCS_FERN_TOKEN"
+npm --prefix docs/fern run preview
+```
+
+## Documentation Layout
+
+```text
+docs/
+├── index.mdx
+├── get-started/
+├── user-guide/
+├── design/
+├── observability/
+├── developer/
+└── fern/
+    ├── docs.yml
+    ├── fern.config.json
+    ├── package.json
+    ├── product-docs/                  # generated and ignored
+    └── versions/
+        ├── nightly.yml                # points to top-level docs
+        ├── 0.1.0.yml                  # points to frozen 0.1.0 pages
+        └── 0.1.0/pages/               # stable snapshot
+```
+
+The top-level MDX files are the nightly documentation and should be updated on normal documentation pull requests. The `0.1.0` tree is a frozen stable snapshot and should change only for an intentional documentation backport.
+
+## Writing Conventions
+
+- Use `.mdx` files with lowercase, hyphenated filenames.
+- Put the page title and optional description in YAML frontmatter.
+- Use version-agnostic internal links such as `/user-guide/sampling`.
+- Use fenced code blocks with a language tag.
+- Use Fern components such as `&lt;Note&gt;` and `&lt;Warning&gt;` for callouts.
+- Escape angle brackets in inline code as `&lt;` and `&gt;` when required by MDX.
+
+## Add a New Page
+
+1. Add the MDX file under the appropriate top-level `docs/` section.
+2. Register the page in `docs/fern/versions/nightly.yml` using a path relative to that file, such as `../../user-guide/my-feature.mdx`.
+3. Run the local API generation and Fern validation commands.
+
+Do not add new nightly pages under `docs/fern/versions/nightly/`. Stable version content belongs only under its frozen version directory.
+
+## Continuous Integration
+
+Pull requests that modify documentation run Fern configuration, MDX safety, API generation, and offline link checks. A second workflow can publish a hosted preview and update the pull request when `PUBLISH_FERN_PREVIEWS=true` and `DOCS_FERN_TOKEN` are configured.
+
+Merges to `main` that modify `docs/` publish the site through Fern. The deployment contains both the frozen `0.1.0` version and the current nightly version.
+
+## Troubleshooting
+
+| Error | Resolution |
+|---|---|
+| `Failed to fetch global theme "nvidia"` | Run the login command with an account that can access the NVIDIA Fern organization. |
+| `Folder not found` for the API reference | Run `generate:library:local` before validation or local preview. |
+| Generated API pages fail MDX parsing | Re-run local generation; the command runs the sanitizer automatically. |
+| A page is missing from the sidebar | Add it to `versions/nightly.yml` and verify its relative path. |
