@@ -16,7 +16,7 @@
 #
 # Required configuration:
 # - Organization secret: DOCS_FERN_TOKEN
-# - Repository or organization variable: PUBLISH_FERN_PREVIEWS=true
+# - Repository or organization variable: PUBLISH_FERN=true
 
 name: Publish Fern Docs
 
