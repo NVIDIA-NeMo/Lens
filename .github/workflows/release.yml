@@ -42,11 +42,6 @@ on:
         required: false
         default: true
         type: boolean
-      publish-docs:
-        description: Publish docs
-        required: false
-        default: false
-        type: boolean
       version-bump-branch:
         description: Branch for version bump
         required: true
@@ -100,10 +95,9 @@ jobs:
       gh-release-from-tag: ${{ inputs.gh-release-from-tag || '' }}
       packaging: uv
       has-src-dir: true
+      publish-docs: false
       skip-test-wheel: true
       app-id: ${{ vars.BOT_ID }}
-      publish-docs: ${{ inputs.publish-docs || false }}
-      docs-target-path: nemo/lens
       submodules: recursive
       restrict-to-admins: true
     secrets: inherit  # pragma: allowlist secret

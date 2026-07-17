@@ -31,9 +31,8 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Sphinx docs build output
-docs/_build/
-docs/apidocs/
+# Fern local API generation
+.tmp/
 
 # Local env (secrets like WANDB_API_KEY for docker-compose)
 .env
