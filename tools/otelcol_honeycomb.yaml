@@ -1,0 +1,28 @@
+# OVERLAY: add a LIVE Honeycomb route to the goodput subset. Merge AFTER otelcol.yaml via a second
+# `--config` (OTel deep-merges configs, so this only redefines traces/goodput.exporters and keeps the
+# base receivers/processors/other pipelines):
+#   otelcol-contrib --config otelcol.yaml --config otelcol_honeycomb.yaml \
+#                   --feature-gates=exporter.file.nativeCompression
+#
+# Apply it ONLY when you actually want the live route (e.g. the ingest key is present), so the
+# disk-only base stays the default. Scoped to the GOODPUT subset (lens.span_category == "goodput") to
+# bound live external volume -- NOT the full profiling firehose. US endpoint; auth via the
+# x-honeycomb-team header from env. Keep the key in a mode-600 file OUTSIDE git and export it to
+# HONEYCOMB_API_KEY before launch -- never commit it.
+exporters:
+  otlp_http/honeycomb:
+    endpoint: "https://api.honeycomb.io"
+    headers:
+      x-honeycomb-team: "${env:HONEYCOMB_API_KEY}"
+    # Resilience: queue + retry so a transient egress hiccup doesn't drop spans (and never blocks the
+    # workload -- the collector is out-of-band).
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+
+service:
+  pipelines:
+    traces/goodput:
+      # base had [file/goodput]; add Honeycomb so goodput spans go to disk AND live to Honeycomb.
+      exporters: [file/goodput, otlp_http/honeycomb]
