@@ -110,6 +110,10 @@ connectors:
 
 Wire `traces/goodput` to a second `file` exporter and/or an OTLP exporter pointed at your backend (see [Send Telemetry to a Backend](../observability/backends.mdx)).
 
+<Tip>
+A complete, runnable version of this two-routing config (env-composed per-node paths, rotation) ships in the repo at `tools/otelcol.yaml`, with `tools/otelcol_honeycomb.yaml` as a deep-merge overlay that adds a live Honeycomb route to the `goodput` subset.
+</Tip>
+
 ## Caveats
 
 - The collector is a **buffer and router, not a durable queue.** If loss during a downstream outage is unacceptable, enable the exporter sending queue + persistent-storage extension, or put a real broker (e.g. Kafka) in the middle.
