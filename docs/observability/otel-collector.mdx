@@ -111,7 +111,7 @@ connectors:
 Wire `traces/goodput` to a second `file` exporter and/or an OTLP exporter pointed at your backend (see [Send Telemetry to a Backend](../observability/backends.mdx)).
 
 <Tip>
-A complete, runnable version of this two-routing config (env-composed per-node paths, rotation) ships in the repo at `tools/otelcol.yaml`, with `tools/otelcol_honeycomb.yaml` as a deep-merge overlay that adds a live Honeycomb route to the `goodput` subset.
+Runnable versions ship in the repo: `tools/otelcol.yaml` is the **sensible default** — one on-disk archive of everything (no routing), env-composed per-node path, rotation. `tools/otelcol_honeycomb.yaml` is a deep-merge overlay that adds the routing connector shown above so a live `goodput` subset also goes to Honeycomb while the full archive is unchanged. Keeping the split in the overlay means the default (disk-only) config stays minimal.
 </Tip>
 
 ## Caveats

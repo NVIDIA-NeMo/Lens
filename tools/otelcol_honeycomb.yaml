@@ -1,14 +1,25 @@
-# OVERLAY: add a LIVE Honeycomb route to the goodput subset. Merge AFTER otelcol.yaml via a second
-# `--config` (OTel deep-merges configs, so this only redefines traces/goodput.exporters and keeps the
-# base receivers/processors/other pipelines):
+# OVERLAY: add a LIVE Honeycomb route for the GOODPUT subset, on top of otelcol.yaml. Deep-merged via a
+# second --config:
 #   otelcol-contrib --config otelcol.yaml --config otelcol_honeycomb.yaml \
 #                   --feature-gates=exporter.file.nativeCompression
 #
-# Apply it ONLY when you actually want the live route (e.g. the ingest key is present), so the
-# disk-only base stays the default. Scoped to the GOODPUT subset (lens.span_category == "goodput") to
-# bound live external volume -- NOT the full profiling firehose. US endpoint; auth via the
-# x-honeycomb-team header from env. Keep the key in a mode-600 file OUTSIDE git and export it to
-# HONEYCOMB_API_KEY before launch -- never commit it.
+# The base writes ONE disk archive of everything. This overlay inserts a routing connector so that:
+#   * EVERYTHING still lands in the disk archive (file/archive) -- unchanged, and
+#   * goodput-category spans ALSO go live to Honeycomb.
+# Scoping the live route to the goodput subset bounds external volume (NOT the full profiling firehose).
+# Apply ONLY when you have an ingest key; the base stays disk-only by default. US endpoint; auth via the
+# x-honeycomb-team header. Keep the key in a mode-600 file OUTSIDE git and export it to HONEYCOMB_API_KEY
+# before launch -- never commit it.
+
+connectors:
+  routing:
+    # Unmatched (non-goodput) spans -> disk archive only.
+    default_pipelines: [traces/archive]
+    table:
+      - context: span
+        condition: 'attributes["lens.span_category"] == "goodput"'
+        pipelines: [traces/archive, traces/honeycomb]   # goodput -> disk AND live
+
 exporters:
   otlp_http/honeycomb:
     endpoint: "https://api.honeycomb.io"
@@ -23,6 +34,16 @@ exporters:
 
 service:
   pipelines:
-    traces/goodput:
-      # base had [file/goodput]; add Honeycomb so goodput spans go to disk AND live to Honeycomb.
-      exporters: [file/goodput, otlp_http/honeycomb]
+    # Re-point the base traces pipeline to feed the router instead of writing the archive directly.
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [routing]
+    traces/archive:
+      receivers: [routing]
+      processors: [batch]
+      exporters: [file/archive]
+    traces/honeycomb:
+      receivers: [routing]
+      processors: [batch]
+      exporters: [otlp_http/honeycomb]
