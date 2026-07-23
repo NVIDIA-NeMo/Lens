@@ -1,24 +1,23 @@
-# Example nemo-lens job-local OTel collector -- TWO on-disk routings.
+# Example nemo-lens job-local OTel collector -- ONE on-disk archive (the sensible default).
 #
 # Pattern: run ONE instance per node, co-located with the workload (e.g. launched by node-local
 # rank 0, in-container, sharing the host network namespace so ranks reach it at localhost:4317).
-# It receives OTLP from that node's ranks and writes per-node rotated zstd archives:
-#   all/      -> EVERY span/metric/log                              (full archive)
-#   goodput/  -> ONLY spans with lens.span_category == "goodput"    (the subset goodput_report.py consumes)
-# Split via the routing connector: a `condition: "true"` copy sends everything to all/, and a second
-# copy sends the goodput-category spans to goodput/ as well. Add an external sink (see the Honeycomb
-# overlay, otelcol_honeycomb.yaml) as another route off the same connector.
+# It receives OTLP from that node's ranks and writes ONE per-node rotated zstd archive of EVERYTHING
+# (spans + metrics + logs). No routing, no subdirectories -- one file per node, simplest thing that
+# works. Any analysis can filter that archive by the span attribute purpose ("goodput" /
+# "profiling") after the fact; the split does NOT need to happen on disk.
 #
-# Per-node paths compose from env: export LENS_OTEL_ARCHIVE_DIR (constant) and mkdir all/ + goodput/
-# first; SLURMD_NODENAME is set by SLURM per node (use ${env:HOSTNAME} off SLURM). zstd needs the
-# startup flag --feature-gates=exporter.file.nativeCompression for a standard `zstd -dc`-readable file:
+# To ALSO forward a live subset to a backend, layer the Honeycomb overlay (otelcol_honeycomb.yaml)
+# with a second --config: it adds a routing connector that sends only the goodput subset live, WITHOUT
+# changing this disk archive (everything still lands here). Keeping the split in the overlay means the
+# default -- what someone without a backend key runs -- stays dead simple.
+#
+# Per-node path composes from env: export LENS_OTEL_ARCHIVE_DIR (constant) and mkdir it first;
+# SLURMD_NODENAME is set by SLURM per node (use ${env:HOSTNAME} off SLURM). zstd needs the startup
+# flag --feature-gates=exporter.file.nativeCompression for a standard `zstd -dc`-readable file:
 #   otelcol-contrib --config otelcol.yaml --feature-gates=exporter.file.nativeCompression
 
 extensions:
-  # Readiness gate: reports HTTP 200 only after every component has Start()'ed (so the file
-  # exporters' writers exist). A post-hoc producer that fires one tiny batch immediately (e.g. the
-  # reckoner) should poll this BEFORE exporting -- a blind sleep can race a file writer's startup and
-  # flush into a nil writer -> SIGSEGV in fileexporter. Harmless for long-lived producers (training).
   health_check:
     endpoint: 0.0.0.0:13133
 
@@ -39,28 +38,9 @@ processors:
     timeout: 5s
     send_batch_size: 8192
 
-connectors:
-  # Fan traces to the two file pipelines. `action: copy` = record continues to later routes, so a
-  # goodput span lands in BOTH all/ and goodput/; a profiling span lands only in all/.
-  routing:
-    table:
-      - context: span
-        condition: "true"
-        action: copy
-        pipelines: [traces/all]
-      - context: span
-        condition: 'attributes["lens.span_category"] == "goodput"'
-        action: copy
-        pipelines: [traces/goodput]
-
 exporters:
-  file/all:
-    path: ${env:LENS_OTEL_ARCHIVE_DIR}/all/node-${env:SLURMD_NODENAME}.jsonl.zst
-    format: json
-    compression: zstd
-    rotation: {max_megabytes: 500, max_backups: 24, max_days: 7, localtime: true}
-  file/goodput:
-    path: ${env:LENS_OTEL_ARCHIVE_DIR}/goodput/node-${env:SLURMD_NODENAME}.jsonl.zst
+  file/archive:
+    path: ${env:LENS_OTEL_ARCHIVE_DIR}/node-${env:SLURMD_NODENAME}.jsonl.zst
     format: json
     compression: zstd
     rotation: {max_megabytes: 500, max_backups: 24, max_days: 7, localtime: true}
@@ -71,24 +51,15 @@ service:
     logs:
       level: warn
   pipelines:
-    # traces fan through the router; metrics + logs just go to the full archive.
-    traces/in:
+    traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [routing]
-    traces/all:
-      receivers: [routing]
-      processors: [batch]
-      exporters: [file/all]
-    traces/goodput:
-      receivers: [routing]
-      processors: [batch]
-      exporters: [file/goodput]
+      exporters: [file/archive]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [file/all]
+      exporters: [file/archive]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [file/all]
+      exporters: [file/archive]
