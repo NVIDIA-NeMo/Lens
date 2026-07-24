@@ -25,14 +25,18 @@ def instrument_fastapi(app, service_name: str = "nemo-gym") -> None:
 
     Args:
         app: The FastAPI application instance.
-        service_name: Service name for span naming.
+        service_name: Service name used for the tracer provider resource.
     """
     try:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
     except ImportError as exc:
         raise ImportError(
             "FastAPI instrumentation requires opentelemetry-instrumentation-fastapi. "
             "Install with: pip install 'nemo-lens[fastapi]'"
         ) from exc
 
-    FastAPIInstrumentor.instrument_app(app)
+    resource = Resource.create({"service.name": service_name})
+    tracer_provider = TracerProvider(resource=resource)
+    FastAPIInstrumentor.instrument_app(app, tracer_provider=tracer_provider)

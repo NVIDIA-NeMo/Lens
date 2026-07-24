@@ -17,7 +17,7 @@ instrument_fastapi(app)
 Wraps `opentelemetry-instrumentation-fastapi`. After this call, every incoming HTTP request gets a span covering its lifetime, with W3C trace context automatically extracted from request headers (so upstream traces flow through).
 
 <Note>
-`instrument_fastapi` does accept a `service_name` parameter, but it is currently a no-op (the implementation ignores it). The service name is set through `setup_telemetry` or the `OTEL_SERVICE_NAME` environment variable, not here.
+`instrument_fastapi` accepts a `service_name` parameter that is used for the tracer provider resource of the instrumented app. If you have already called `setup_telemetry`, the global service name is still configured there; this parameter lets you override the service name for the FastAPI app only.
 
 </Note>
 

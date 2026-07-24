@@ -62,16 +62,19 @@ def test_fastapi_instrumentor_is_invoked(monkeypatch):
 
     class FastAPIInstrumentor:
         @staticmethod
-        def instrument_app(app):
-            calls.append(app)
+        def instrument_app(app, tracer_provider=None):
+            calls.append((app, tracer_provider))
 
     module.FastAPIInstrumentor = FastAPIInstrumentor
     monkeypatch.setitem(sys.modules, module.__name__, module)
 
     app = object()
-    instrument_fastapi(app)
+    instrument_fastapi(app, service_name="my-service")
 
-    assert calls == [app]
+    assert len(calls) == 1
+    assert calls[0][0] is app
+    assert calls[0][1] is not None
+    assert calls[0][1].resource.attributes["service.name"] == "my-service"
 
 
 def test_fastapi_missing_dependency_raises_helpful_error(monkeypatch):
