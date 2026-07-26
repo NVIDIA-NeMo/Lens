@@ -23,10 +23,40 @@ code paths that never reach this module.
 from __future__ import annotations
 
 import os
+import random
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
+
+
+class SeedIndependentIdGenerator:
+    """OTel-compatible IdGenerator whose IDs survive a global ``random.seed()``.
+
+    OTel's default ``RandomIdGenerator`` draws from the process-global ``random``
+    module, which training frameworks (Megatron) seed IDENTICALLY across
+    data-parallel ranks -> every rank would emit the SAME span/trace IDs, so a
+    backend sees many spans sharing one span ID and parent links resolve to the
+    wrong span. A private ``random.Random`` instance is seeded from the OS at
+    construction and is unaffected by ``random.seed()`` on the global module.
+
+    Duck-typed rather than subclassing ``opentelemetry.sdk.trace.id_generator.
+    IdGenerator`` (same as :class:`~nemo.lens.sampling.RankAwareSampler`) so this
+    module stays importable without the SDK installed.
+    """
+
+    def __init__(self) -> None:
+        self._rng = random.Random()  # seeded from os.urandom, not from random.seed()
+
+    def generate_span_id(self) -> int:
+        return self._rng.getrandbits(64) or 1
+
+    def generate_trace_id(self) -> int:
+        return self._rng.getrandbits(128) or 1
+
+    def is_trace_id_random(self) -> bool:
+        """Declares the W3C ``random-trace-id`` trace flag (Trace Context Level 2)."""
+        return True
 
 
 def build_providers(
@@ -100,25 +130,13 @@ def build_providers(
         from opentelemetry import trace
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.sdk.trace.id_generator import IdGenerator
-
-        # Seed-INDEPENDENT span/trace IDs. OTel's default RandomIdGenerator draws from Python's
-        # `random`, which training frameworks (Megatron) seed IDENTICALLY across data-parallel ranks
-        # -> every rank would emit the SAME span/trace IDs, so a backend sees many spans sharing one
-        # span ID and parent links resolve to the wrong span. os.urandom is unaffected by
-        # random.seed(). Covers EVERY setup_telemetry caller -- trainer, ckpt worker, nvrx -- since
-        # they all build their TracerProvider here (the worker/nvrx set telemetry up in their own
-        # process via from_env, so a caller-side patch would miss them; fixing it here does not).
-        class _SeedIndependentIdGenerator(IdGenerator):
-            def generate_span_id(self) -> int:
-                return int.from_bytes(os.urandom(8), "big") or 1
-
-            def generate_trace_id(self) -> int:
-                return int.from_bytes(os.urandom(16), "big") or 1
 
         _span_exporter = span_exporter or _build_span_exporter(config)
 
-        kwargs: dict = {"resource": resource, "id_generator": _SeedIndependentIdGenerator()}
+        # Seed-independent IDs cover EVERY setup_telemetry caller -- trainer, ckpt worker, nvrx --
+        # since they all build their TracerProvider here (the worker/nvrx set telemetry up in their
+        # own process via from_env, so a caller-side patch would miss them; fixing it here does not).
+        kwargs: dict = {"resource": resource, "id_generator": SeedIndependentIdGenerator()}
         if config.sampler_enabled:
             from nemo.lens.sampling import RankAwareSampler
 

@@ -21,7 +21,11 @@ from opentelemetry.metrics import NoOpMeterProvider
 from opentelemetry.trace import NoOpTracerProvider
 
 from nemo.lens.config import NemoLensConfig
-from nemo.lens.providers import build_noop_providers, build_providers
+from nemo.lens.providers import (
+    SeedIndependentIdGenerator,
+    build_noop_providers,
+    build_providers,
+)
 
 
 class TestBuildNoopProviders:
@@ -169,9 +173,36 @@ class TestSeedIndependentIds:
         build_providers(cfg, rank=0, world_size=1)
         id_generator = trace.get_tracer_provider().id_generator
 
-        random.seed(1234)  # what training frameworks do identically across DP ranks
-        first = (id_generator.generate_trace_id(), id_generator.generate_span_id())
-        random.seed(1234)
-        second = (id_generator.generate_trace_id(), id_generator.generate_span_id())
+        state = random.getstate()  # don't leak a deterministic global RNG into later tests
+        try:
+            random.seed(1234)  # what training frameworks do identically across DP ranks
+            first = (id_generator.generate_trace_id(), id_generator.generate_span_id())
+            random.seed(1234)
+            second = (id_generator.generate_trace_id(), id_generator.generate_span_id())
+        finally:
+            random.setstate(state)
 
         assert first != second
+
+    def test_ids_are_in_range_and_never_invalid(self):
+        gen = SeedIndependentIdGenerator()
+        for _ in range(100):
+            trace_id = gen.generate_trace_id()
+            span_id = gen.generate_span_id()
+            assert 0 < trace_id < 2**128
+            assert 0 < span_id < 2**64
+
+    def test_declares_random_trace_id(self):
+        """W3C Trace Context L2 `random-trace-id` flag: OTel's own generator sets it, and
+        dropping it forces downstream consistent-probability sampling onto its fallback."""
+        assert SeedIndependentIdGenerator().is_trace_id_random() is True
+
+    def test_spans_carry_the_random_trace_id_flag(self):
+        from opentelemetry.trace import TraceFlags
+
+        cfg = NemoLensConfig(enabled=True, exporter="console")
+        build_providers(cfg, rank=0, world_size=1)
+
+        tracer = trace.get_tracer("test")
+        with tracer.start_as_current_span("root") as span:
+            assert span.get_span_context().trace_flags & TraceFlags.RANDOM_TRACE_ID
