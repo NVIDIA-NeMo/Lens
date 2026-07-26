@@ -63,7 +63,8 @@ def _get_rl_instruments(meter: metrics.Meter) -> dict:
                 description="Current optimizer learning rate.",
             ),
             "tokens_per_sec": meter.create_gauge(
-                name="rl.tokens_per_sec",
+                name="rl.throughput.tokens_per_sec",
+                unit="{token}/s",
                 description="Training throughput in tokens per second.",
             ),
             "generation_duration_ms": meter.create_histogram(

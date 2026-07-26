@@ -93,18 +93,26 @@ class TestRecordRLMetrics:
             rollout_duration_ms=100.0,
         )
         data = reader.get_metrics_data()
-        metric_names = [
-            m.name for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics
-        ]
-        assert "rl.policy_loss" in metric_names
-        assert "rl.value_loss" in metric_names
-        assert "rl.entropy" in metric_names
-        assert "rl.response_length.mean" in metric_names
-        assert "rl.grad_norm" in metric_names
-        assert "rl.learning_rate" in metric_names
-        assert "rl.tokens_per_sec" in metric_names
-        assert "rl.generation.duration_ms" in metric_names
-        assert "rl.rollout.duration_ms" in metric_names
+        points = {
+            m.name: list(m.data.data_points)[-1]
+            for rm in data.resource_metrics
+            for sm in rm.scope_metrics
+            for m in sm.metrics
+        }
+        # Assert values, not just presence — the recorder is a run of near-identical
+        # `if x is not None: instruments[...].set(x)` blocks, so a mis-wired argument
+        # is the failure mode a name-only assertion cannot see.
+        assert points["rl.reward.mean"].value == 0.85
+        assert points["rl.kl_divergence"].value == 0.02
+        assert points["rl.policy_loss"].value == 0.3
+        assert points["rl.value_loss"].value == 0.4
+        assert points["rl.entropy"].value == 0.5
+        assert points["rl.response_length.mean"].value == 128.0
+        assert points["rl.grad_norm"].value == 1.7
+        assert points["rl.learning_rate"].value == 3e-6
+        assert points["rl.throughput.tokens_per_sec"].value == 18500.0
+        assert points["rl.generation.duration_ms"].sum == 50.0
+        assert points["rl.rollout.duration_ms"].sum == 100.0
 
 
 class TestRecordGymMetrics:
