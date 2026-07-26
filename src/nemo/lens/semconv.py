@@ -93,6 +93,9 @@ RL_ENTROPY = "rl.entropy"
 RL_GENERATION_BACKEND = "rl.generation.backend"
 RL_NUM_ROLLOUTS = "rl.num_rollouts"
 RL_RESPONSE_LENGTH_MEAN = "rl.response_length.mean"
+RL_GRAD_NORM = "rl.grad_norm"
+RL_LEARNING_RATE = "rl.learning_rate"
+RL_THROUGHPUT_TOKENS_PER_SEC = "rl.throughput.tokens_per_sec"
 
 # ------------------------------------------------------------------ #
 # Gym (gym.*)

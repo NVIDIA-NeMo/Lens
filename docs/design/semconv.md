@@ -77,6 +77,13 @@ For attributes that don't generalise across the ecosystem:
 
 - `megatron.*` — Megatron-LM consumer-specific span attributes (e.g. model architecture `megatron.num_layers`/`megatron.hidden_size`, iteration-level `megatron.skipped`/`megatron.update_successful`). These are set as inline string attributes in the Megatron-LM fork and are **not** defined as constants in `nemo.lens.semconv` — the central registry only holds the shared/standard namespaces (`dl.*`, `gen_ai.*`, `rl.*`, `gym.*`, `slurm.*`, `nemo.*`, `wandb.*`, `k8s.*`).
 - `rl.*` — RL-specific (`reward`, `kl_divergence`, `policy_loss`)
+
+  `rl.*` also carries RL-scoped copies of three quantities the `dl.*` namespace registers:
+  `rl.grad_norm`, `rl.learning_rate` and `rl.throughput.tokens_per_sec`. These are emitted by
+  `record_rl_metrics` and describe the *policy update* specifically, so an RL job can report
+  them without claiming the shared `dl.*` series that a co-resident trainer owns. Keep the
+  terms aligned with their `dl.*` counterparts (`grad_norm`, `learning_rate`,
+  `throughput_tokens_per_sec`) so the two namespaces stay queryable side by side.
 - `gym.*` — Gym server-specific (`verify.success_rate`, `rollout.batch_size`)
 
 ### `nemo.*` — NeMo-wide identification

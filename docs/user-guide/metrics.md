@@ -79,7 +79,7 @@ record_rl_metrics(
 | `rl.response_length.mean` | Gauge | Mean generated response length (tokens) |
 | `rl.grad_norm` | Gauge | Gradient norm of the policy update |
 | `rl.learning_rate` | Gauge | Current optimizer learning rate |
-| `rl.tokens_per_sec` | Gauge | Training throughput (tokens/sec) |
+| `rl.throughput.tokens_per_sec` | Gauge (`{token}/s`) | Training throughput (tokens/sec) |
 | `rl.generation.duration_ms` | Histogram (ms) | Text generation duration |
 | `rl.rollout.duration_ms` | Histogram (ms) | Rollout collection duration |
 
