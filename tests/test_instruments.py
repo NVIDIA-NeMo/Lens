@@ -20,6 +20,7 @@ from opentelemetry import metrics
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 
+from nemo.lens import semconv
 from nemo.lens.instruments.gym import record_gym_metrics
 from nemo.lens.instruments.inference import record_inference_metrics
 from nemo.lens.instruments.rl import record_rl_metrics
@@ -88,7 +89,7 @@ class TestRecordRLMetrics:
             response_length_mean=128.0,
             grad_norm=1.7,
             learning_rate=3e-6,
-            tokens_per_sec=18500.0,
+            throughput_tokens_per_sec=18500.0,
             generation_duration_ms=50.0,
             rollout_duration_ms=100.0,
         )
@@ -113,6 +114,56 @@ class TestRecordRLMetrics:
         assert points["rl.throughput.tokens_per_sec"].value == 18500.0
         assert points["rl.generation.duration_ms"].sum == 50.0
         assert points["rl.rollout.duration_ms"].sum == 100.0
+
+    def test_throughput_declares_token_rate_unit(self, meter_and_reader):
+        """Throughput is a rate, so the gauge must carry its UCUM unit."""
+        meter, reader = meter_and_reader
+        record_rl_metrics(meter, throughput_tokens_per_sec=18500.0)
+        units = {
+            m.name: m.unit
+            for rm in reader.get_metrics_data().resource_metrics
+            for sm in rm.scope_metrics
+            for m in sm.metrics
+        }
+        assert units["rl.throughput.tokens_per_sec"] == "{token}/s"
+
+    def test_metric_names_match_semconv_registry(self, meter_and_reader):
+        """The emitted names must stay pinned to the `semconv` registry.
+
+        `instruments/rl.py` spells its names as literals (the convention across every
+        instrument module), so nothing but this test stops the registry and the emitted
+        series from drifting apart after a rename.
+        """
+        meter, reader = meter_and_reader
+        record_rl_metrics(
+            meter,
+            reward_mean=0.85,
+            kl_divergence=0.02,
+            policy_loss=0.3,
+            value_loss=0.4,
+            entropy=0.5,
+            response_length_mean=128.0,
+            grad_norm=1.7,
+            learning_rate=3e-6,
+            throughput_tokens_per_sec=18500.0,
+        )
+        emitted = {
+            m.name
+            for rm in reader.get_metrics_data().resource_metrics
+            for sm in rm.scope_metrics
+            for m in sm.metrics
+        }
+        assert {
+            semconv.RL_REWARD_MEAN,
+            semconv.RL_KL_DIVERGENCE,
+            semconv.RL_POLICY_LOSS,
+            semconv.RL_VALUE_LOSS,
+            semconv.RL_ENTROPY,
+            semconv.RL_RESPONSE_LENGTH_MEAN,
+            semconv.RL_GRAD_NORM,
+            semconv.RL_LEARNING_RATE,
+            semconv.RL_THROUGHPUT_TOKENS_PER_SEC,
+        } <= emitted
 
 
 class TestRecordGymMetrics:

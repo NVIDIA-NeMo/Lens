@@ -62,7 +62,7 @@ def _get_rl_instruments(meter: metrics.Meter) -> dict:
                 name="rl.learning_rate",
                 description="Current optimizer learning rate.",
             ),
-            "tokens_per_sec": meter.create_gauge(
+            "throughput_tokens_per_sec": meter.create_gauge(
                 name="rl.throughput.tokens_per_sec",
                 unit="{token}/s",
                 description="Training throughput in tokens per second.",
@@ -92,7 +92,7 @@ def record_rl_metrics(
     response_length_mean: float | None = None,
     grad_norm: float | None = None,
     learning_rate: float | None = None,
-    tokens_per_sec: float | None = None,
+    throughput_tokens_per_sec: float | None = None,
     generation_duration_ms: float | None = None,
     rollout_duration_ms: float | None = None,
 ) -> None:
@@ -119,8 +119,8 @@ def record_rl_metrics(
         instruments["grad_norm"].set(grad_norm)
     if learning_rate is not None:
         instruments["learning_rate"].set(learning_rate)
-    if tokens_per_sec is not None:
-        instruments["tokens_per_sec"].set(tokens_per_sec)
+    if throughput_tokens_per_sec is not None:
+        instruments["throughput_tokens_per_sec"].set(throughput_tokens_per_sec)
     if generation_duration_ms is not None:
         instruments["generation_duration_ms"].record(generation_duration_ms)
     if rollout_duration_ms is not None:
