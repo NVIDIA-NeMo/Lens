@@ -156,3 +156,22 @@ class TestOtlpProtocolSelection:
 
         cfg = NemoLensConfig(enabled=True, exporter="otlp")
         assert isinstance(_build_metric_exporter(cfg), GrpcMetric)
+
+
+class TestSeedIndependentIds:
+    def test_trace_and_span_ids_survive_identical_random_seed(self):
+        """Data-parallel ranks seed Python's `random` identically, which makes OTel's
+        default RandomIdGenerator emit the SAME span/trace IDs on every rank. The
+        provider must use a seed-independent generator so IDs stay unique."""
+        import random
+
+        cfg = NemoLensConfig(enabled=True, exporter="console")
+        build_providers(cfg, rank=0, world_size=1)
+        id_generator = trace.get_tracer_provider().id_generator
+
+        random.seed(1234)  # what training frameworks do identically across DP ranks
+        first = (id_generator.generate_trace_id(), id_generator.generate_span_id())
+        random.seed(1234)
+        second = (id_generator.generate_trace_id(), id_generator.generate_span_id())
+
+        assert first != second
