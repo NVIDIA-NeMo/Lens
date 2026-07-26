@@ -47,6 +47,11 @@ class SeedIndependentIdGenerator:
 
     def __init__(self) -> None:
         self._rng = random.Random()  # seeded from os.urandom, not from random.seed()
+        # CPython reseeds only the GLOBAL random module at fork; a private Random()
+        # gets no such hook, so forked children (dataloader workers under the default
+        # "fork" start method, multiprocessing.Pool) would inherit our state and emit
+        # identical IDs -- the same collision this class exists to prevent.
+        os.register_at_fork(after_in_child=self._rng.seed)
 
     def generate_span_id(self) -> int:
         return self._rng.getrandbits(64) or 1

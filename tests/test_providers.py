@@ -15,6 +15,8 @@
 
 """Unit tests for provider construction."""
 
+import os
+
 import pytest
 from opentelemetry import metrics, trace
 from opentelemetry.metrics import NoOpMeterProvider
@@ -206,3 +208,31 @@ class TestSeedIndependentIds:
         tracer = trace.get_tracer("test")
         with tracer.start_as_current_span("root") as span:
             assert span.get_span_context().trace_flags & TraceFlags.RANDOM_TRACE_ID
+
+    @pytest.mark.skipif(not hasattr(os, "fork"), reason="requires os.fork()")
+    def test_ids_differ_across_forked_children(self):
+        """CPython reseeds only the GLOBAL random module at fork, so a private
+        random.Random() would hand every forked child (dataloader workers, Pool)
+        the same state and the same IDs -- the collision this generator prevents."""
+        gen = SeedIndependentIdGenerator()
+
+        read_fds = []
+        for _ in range(3):
+            read_fd, write_fd = os.pipe()
+            if os.fork() == 0:  # child
+                try:
+                    os.close(read_fd)
+                    os.write(write_fd, f"{gen.generate_trace_id():032x}".encode())
+                finally:
+                    os._exit(0)  # never unwind pytest's stack in the child
+            os.close(write_fd)
+            read_fds.append(read_fd)
+
+        ids = []
+        for read_fd in read_fds:
+            ids.append(os.read(read_fd, 32).decode())
+            os.close(read_fd)
+        for _ in read_fds:
+            os.wait()
+
+        assert len(set(ids)) == len(ids), f"forked children shared trace IDs: {ids}"
