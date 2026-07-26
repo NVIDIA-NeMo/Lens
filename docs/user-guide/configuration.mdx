@@ -84,7 +84,7 @@ Controls which ranks send telemetry to the collector. Three strategies are avail
 |---|---|---|
 | `exporter` | `"otlp"` | `"otlp"` (gRPC, falls back to HTTP) or `"console"` (stdout, for local debugging). |
 
-With `exporter="console"` (the env var `NEMO_LENS_EXPORTER=console`), NeMo Lens uses the `ConsoleSpanExporter` and `ConsoleMetricExporter` from the SDK, which print spans and metrics to stdout. Any value other than `"otlp"` or `"console"` raises a `ValueError("Unknown exporter type: ...")` when the providers are built.
+With `exporter="console"` (the env var `NEMO_LENS_EXPORTER=console`), NeMo Lens uses the `ConsoleSpanExporter`, `ConsoleMetricExporter`, and `ConsoleLogExporter` from the SDK, which print spans, metrics, and log records to stdout. NeMo Lens overrides the SDK's default formatter on all three: the SDK pretty-prints with `indent=4`, whereas NeMo Lens emits one compact JSON object per line. Redirecting stdout therefore yields real JSONL that line-oriented tooling can consume without reassembling records. Any value other than `"otlp"` or `"console"` raises a `ValueError("Unknown exporter type: ...")` when the providers are built.
 
 ### Identification
 

@@ -30,12 +30,12 @@ export NEMO_LENS_EXPORTER=console
 python train.py > traces.jsonl 2>&1
 ```
 
-Setting `NEMO_LENS_EXPORTER=console` installs the `ConsoleSpanExporter`, which writes one JSON line per span to stdout. Redirect stdout to a file, and you have a span log.
+Setting `NEMO_LENS_EXPORTER=console` installs the `ConsoleSpanExporter` with a compact formatter, so it writes exactly one JSON object per line to stdout. Redirect stdout to a file, and you have a JSONL span log that line-oriented tooling can read directly.
 
 **Drawbacks:**
 
 - Mixes application stdout with span data; separate them with selective logging to stderr.
-- Does not capture metrics (the metric exporter writes a different format).
+- Interleaves metric batches into the same stream when `metrics_enabled` is on. Those lines are also JSONL, but they carry a different schema than spans, so a reader must tell the two apart.
 
 ### Point Custom ConsoleSpanExporter to a File Handle
 
@@ -45,7 +45,11 @@ from opentelemetry.sdk.trace.export import ConsoleSpanExporter
 from nemo.lens import NemoLensConfig, setup_telemetry
 
 trace_file = Path("traces.jsonl").open("a", buffering=1)   # line-buffered
-exporter = ConsoleSpanExporter(out=trace_file)
+exporter = ConsoleSpanExporter(
+    out=trace_file,
+    # The SDK default is indent=4, which spreads one span over many lines.
+    formatter=lambda span: span.to_json(indent=None) + "\n",
+)
 
 config = NemoLensConfig(enabled=True, exporter="console")  # falls back if custom skipped
 handle = setup_telemetry(
@@ -68,7 +72,8 @@ The `ConsoleSpanExporter` accepts any file-like object using `out=`. This separa
 
 - Line-buffer the output using `buffering=1` so that lines are not lost if the process crashes.
 - Close the file after calling `handle.shutdown()`.
-- Each line is a Python `repr` representation of the span, not strict JSON. For strict JSON, write a custom exporter as described in the next approach.
+- Pass the compact `formatter` shown above. Constructing `ConsoleSpanExporter` yourself does not pick up the one NeMo Lens installs for `exporter="console"`, and the SDK default pretty-prints with `indent=4`, which is not valid JSONL.
+- The line format is the OTel SDK's span JSON schema. To control the field set yourself, write a custom exporter as described in the next approach.
 
 ### Implement Custom SpanExporter for Full Control
 
@@ -151,12 +156,18 @@ from opentelemetry.sdk.metrics.export import ConsoleMetricExporter, PeriodicExpo
 
 metric_file = open("metrics.jsonl", "a", buffering=1)
 reader = PeriodicExportingMetricReader(
-    ConsoleMetricExporter(out=metric_file),
+    ConsoleMetricExporter(
+        out=metric_file,
+        # As with ConsoleSpanExporter, the SDK default is indent=4.
+        formatter=lambda metrics_data: metrics_data.to_json(indent=None) + "\n",
+    ),
     export_interval_millis=10000,
 )
 
 handle = setup_telemetry(config, metric_reader=reader)
 ```
+
+One line is written per export interval, and each line holds the whole metrics batch rather than a single data point.
 
 Alternatively, use the file exporter of the Collector in the metrics pipeline using the same pattern as traces.
 
