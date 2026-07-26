@@ -216,6 +216,18 @@ def _resolve_otlp_protocol(signal: str) -> str:
     return (signal_specific or general or "grpc").strip().lower()
 
 
+def _compact_jsonl_formatter(record) -> str:
+    """Format one OTel record (span, metrics batch, or log record) as a JSON line.
+
+    The SDK's console exporters default to ``to_json(indent=4)``, which emits a
+    multi-line block per record instead of one JSON object per line. Passing
+    ``indent=None`` keeps each record on a single line, so a redirected console
+    export is real JSONL that downstream tooling (e.g. perfetto conversion) can
+    read directly.
+    """
+    return record.to_json(indent=None) + "\n"
+
+
 def _build_span_exporter(config: NemoLensConfig):
     if config.exporter not in _VALID_EXPORTERS:
         raise ValueError(
@@ -225,11 +237,7 @@ def _build_span_exporter(config: NemoLensConfig):
     if config.exporter == "console":
         from opentelemetry.sdk.trace.export import ConsoleSpanExporter
 
-        # Default formatter pretty-prints with indent=4, which produces
-        # multi-line records instead of one-JSON-object-per-line (real
-        # JSONL). Emit compact single-line JSON so downstream tooling
-        # (e.g. perfetto conversion) can read these files as plain JSONL.
-        return ConsoleSpanExporter(formatter=lambda span: span.to_json(indent=None) + "\n")
+        return ConsoleSpanExporter(formatter=_compact_jsonl_formatter)
 
     protocol = _resolve_otlp_protocol("traces")
     prefer_http = protocol in ("http/protobuf", "http/json")
@@ -266,11 +274,7 @@ def _build_metric_exporter(config: NemoLensConfig):
     if config.exporter == "console":
         from opentelemetry.sdk.metrics.export import ConsoleMetricExporter
 
-        # Same rationale as the span exporter above: avoid indent=4 so each
-        # exported metrics batch is a single JSON line.
-        return ConsoleMetricExporter(
-            formatter=lambda metrics_data: metrics_data.to_json(indent=None) + "\n"
-        )
+        return ConsoleMetricExporter(formatter=_compact_jsonl_formatter)
 
     protocol = _resolve_otlp_protocol("metrics")
     prefer_http = protocol in ("http/protobuf", "http/json")
@@ -298,6 +302,20 @@ def _build_metric_exporter(config: NemoLensConfig):
     raise ImportError("No OTLP metric exporter found. Install with: pip install 'nemo-lens[sdk]'")
 
 
+def _build_log_exporter(config: NemoLensConfig):
+    if config.exporter == "console":
+        from opentelemetry.sdk._logs.export import ConsoleLogExporter
+
+        return ConsoleLogExporter(formatter=_compact_jsonl_formatter)
+
+    try:
+        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+    except ImportError:
+        from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+
+    return OTLPLogExporter()
+
+
 def _set_propagator() -> None:
     """Set W3C TraceContext + Baggage as the global text map propagator."""
     from opentelemetry import propagate
@@ -317,19 +335,7 @@ def _setup_log_provider(config: NemoLensConfig, resource) -> None:
         from opentelemetry.sdk._logs import LoggerProvider
         from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 
-        if config.exporter == "console":
-            from opentelemetry.sdk._logs.export import ConsoleLogExporter
-
-            exporter = ConsoleLogExporter()
-        else:
-            try:
-                from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
-
-                exporter = OTLPLogExporter()
-            except ImportError:
-                from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
-
-                exporter = OTLPLogExporter()
+        exporter = _build_log_exporter(config)
 
         logger_provider = LoggerProvider(resource=resource)
         logger_provider.add_log_record_processor(BatchLogRecordProcessor(exporter))

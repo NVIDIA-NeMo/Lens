@@ -15,6 +15,9 @@
 
 """Unit tests for provider construction."""
 
+import io
+import json
+import logging
 import os
 
 import pytest
@@ -236,3 +239,108 @@ class TestSeedIndependentIds:
             os.wait()
 
         assert len(set(ids)) == len(ids), f"forked children shared trace IDs: {ids}"
+
+
+class TestConsoleExporterJsonl:
+    """Console exporters must emit real JSONL: one compact JSON object per line.
+
+    The SDK defaults to ``to_json(indent=4)``, which spreads a single record
+    over many lines and makes a redirected console export unparseable by
+    line-oriented tooling.
+    """
+
+    @staticmethod
+    def _console_cfg():
+        return NemoLensConfig(enabled=True, exporter="console")
+
+    def test_span_export_writes_one_line_per_span(self):
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+
+        from nemo.lens.providers import _build_span_exporter
+
+        exporter = _build_span_exporter(self._console_cfg())
+        buf = io.StringIO()
+        exporter.out = buf
+
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer("test")
+        for name in ("first", "second"):
+            with tracer.start_as_current_span(name) as span:
+                span.set_attribute("nested.attr", "value")
+
+        lines = [line for line in buf.getvalue().splitlines() if line.strip()]
+        assert len(lines) == 2
+        assert [json.loads(line)["name"] for line in lines] == ["first", "second"]
+
+    def test_metric_export_writes_one_line_per_batch(self):
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+
+        from nemo.lens.providers import _build_metric_exporter
+
+        exporter = _build_metric_exporter(self._console_cfg())
+        buf = io.StringIO()
+        exporter.out = buf
+
+        # A long interval keeps the background thread from exporting on its own;
+        # force_flush() below is the only export we want to observe.
+        reader = PeriodicExportingMetricReader(exporter, export_interval_millis=600_000)
+        provider = MeterProvider(metric_readers=[reader])
+        try:
+            provider.get_meter("test").create_counter("test.counter").add(1)
+            provider.force_flush()
+
+            lines = [line for line in buf.getvalue().splitlines() if line.strip()]
+            assert len(lines) == 1
+            json.loads(lines[0])
+        finally:
+            provider.shutdown()
+
+    def test_log_export_writes_one_line_per_record(self):
+        from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+        from opentelemetry.sdk._logs.export import SimpleLogRecordProcessor
+
+        from nemo.lens.providers import _build_log_exporter
+
+        exporter = _build_log_exporter(self._console_cfg())
+        buf = io.StringIO()
+        exporter.out = buf
+
+        provider = LoggerProvider()
+        provider.add_log_record_processor(SimpleLogRecordProcessor(exporter))
+
+        logger = logging.getLogger("nemo.lens.tests.jsonl")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        handler = LoggingHandler(level=logging.INFO, logger_provider=provider)
+        logger.addHandler(handler)
+        try:
+            logger.info("first")
+            logger.info("second")
+        finally:
+            logger.removeHandler(handler)
+
+        lines = [line for line in buf.getvalue().splitlines() if line.strip()]
+        assert len(lines) == 2
+        assert [json.loads(line)["body"] for line in lines] == ["first", "second"]
+
+    def test_formatter_emits_single_trailing_newline(self):
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+        from nemo.lens.providers import _compact_jsonl_formatter
+
+        captured = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(captured))
+        with provider.get_tracer("test").start_as_current_span("formatted"):
+            pass
+        (readable_span,) = captured.get_finished_spans()
+
+        formatted = _compact_jsonl_formatter(readable_span)
+        assert formatted.endswith("\n")
+        assert "\n" not in formatted[:-1]
+        assert json.loads(formatted)["name"] == "formatted"
