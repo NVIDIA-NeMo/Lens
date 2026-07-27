@@ -8,12 +8,13 @@ dynamic = ["version"]
 description = "Shared OpenTelemetry library for NVIDIA NeMo ecosystem (Megatron-LM, NeMo-RL, NeMo-Gym)"
 readme = "README.md"
 license = {file = "LICENSE"}
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 authors = [{ name = "NVIDIA", email = "nemo-toolkit@nvidia.com" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
@@ -52,7 +53,7 @@ where = ["src"]
 include = ["nemo.lens", "nemo.lens.*"]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
 
