@@ -1,0 +1,124 @@
+# NeMo Lens — RabbitMQ setup (app → collector → RabbitMQ broker)
+#
+# Unlike the Honeycomb / Weave setups (which export OTLP *directly* from the
+# app to a hosted endpoint), RabbitMQ is a local message broker and the
+# OpenTelemetry SDK has no AMQP exporter. Telemetry therefore flows through a
+# local OTel Collector, which republishes every signal to RabbitMQ over AMQP:
+#
+#   Megatron ──OTLP/gRPC──► OTel Collector ──AMQP──► exchange nemo_lens.otel.raw
+#                                                          │  (routing key #)
+#                                                          ▼
+#                                                 queue: nemo_lens-processing ──► your consumer
+#                                                 queue: nemo_lens-poison      (for dead-lettering)
+#
+# Messages are OTLP-JSON (ExportTraceServiceRequest / ...Metrics... /
+# ...Logs...), one signal per message, keyed otlp_spans / otlp_metrics /
+# otlp_logs. A downstream consumer reads nemo_lens-processing.
+#
+# Setup (zero-config — no .env required):
+#   1. docker compose -f docker-compose.rabbitmq.yml up -d
+#   2. docker compose -f docker-compose.rabbitmq.yml exec megatron bash
+#
+# UIs:
+#   RabbitMQ management  http://localhost:15672   (login: nemo_lens / example)
+#
+# Credentials are seeded from observability/rabbitmq/definitions.json. To change
+# them, update that file (user + password_hash) AND the collector's auth block
+# in observability/otel-collector-rabbitmq.yaml so the two stay in sync.
+#
+# Requires lens ≥ 0.1.0.
+
+services:
+
+  # ── Megatron-LM training container ─────────────────────────────────────────
+  # Runs training with OTel enabled, exporting OTLP to the local collector.
+  megatron:
+    image: local-megatron-lm:otel-compose
+    build:
+      context: ..
+      dockerfile_inline: |
+        FROM local-megatron-lm:otel
+        COPY lens /tmp/nemo-otel
+        RUN python3 -m pip install --no-cache-dir 'opentelemetry-api>=1.40.0' '/tmp/nemo-otel[sdk]' \
+         && /usr/bin/python -m pip install --no-cache-dir 'opentelemetry-api>=1.40.0' '/tmp/nemo-otel[sdk]' \
+         && rm -rf /tmp/nemo-otel
+    volumes:
+      - ..:/workspace
+    working_dir: /workspace/Megatron-LM
+    # .env is optional here — override RUN_ID / USER_ID / span groups if you like.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # ── Lens / Megatron telemetry config ────────────────────────────────
+      - MEGATRON_OTEL_ENABLED=1
+      - MEGATRON_OTEL_SPAN_GROUPS=default        # start conservative; raise to per_step / all as needed
+      - NEMO_LENS_LOGS_ENABLED=1
+      - NEMO_LENS_RUN_ID=my-experiment-1
+      - NEMO_LENS_USER_ID=team-alpha
+
+      # ── OTLP → local OTel Collector (which republishes to RabbitMQ) ──────
+      - OTEL_METRIC_EXPORT_INTERVAL=1000
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    stdin_open: true
+    tty: true
+    networks:
+      - otel-net
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  # ── OpenTelemetry Collector → RabbitMQ ──────────────────────────────────────
+  # Receives OTLP from Megatron and publishes every signal to the
+  # nemo_lens.otel.raw exchange over AMQP. Waits for the broker to be healthy.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.146.0
+    command: ["--config=/etc/otel/collector-rabbitmq.yaml"]
+    volumes:
+      - ./observability/otel-collector-rabbitmq.yaml:/etc/otel/collector-rabbitmq.yaml:ro,z
+    networks:
+      - otel-net
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # ── RabbitMQ broker ─────────────────────────────────────────────────────────
+  # Exchange, queues, bindings, and the nemo_lens user are loaded at boot from
+  # definitions.json (see rabbitmq.conf). Management UI on :15672.
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"          # AMQP
+      - "15672:15672"        # management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./observability/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro,z
+      - ./observability/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro,z
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:
+
+networks:
+  otel-net:
+    driver: bridge

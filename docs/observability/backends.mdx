@@ -5,11 +5,12 @@ position: 1
 ---
 **NeMo Lens does not provide or recommend an observability solution.** It emits OTLP. Where that OTLP goes, how it is stored, how it is queried, and how it is visualized are your decisions, which are shaped by your organization's existing observability investments and the scale of your workloads.
 
-This page shows how to configure NeMo Lens for common destinations. NeMo Lens exports through standard OTLP, so any OTLP-compatible backend works without code changes. Four destinations are covered in depth:
+This page shows how to configure NeMo Lens for common destinations. NeMo Lens exports through standard OTLP, so any OTLP-compatible backend works without code changes. Five destinations are covered in depth:
 
 - [File](#export-telemetry-to-a-file): local trace and metric capture for offline analysis or archival
 - [W&B Weave](#integrate-with-wb-weave): Weights & Biases' trace UI, co-located with training run metadata
 - [Honeycomb](#send-telemetry-to-honeycomb): hosted APM that accepts all three signals on one OTLP endpoint
+- [RabbitMQ](#stream-telemetry-to-rabbitmq): a message broker that queues every signal for a consumer you write
 - [OTel Collector](#configure-otel-collector): a routing and aggregation layer in front of other backends
 
 This guide also provides a quick reference for other hosted backends.
@@ -307,6 +308,82 @@ Every attribute, event, and link the SDK exports. Honeycomb's UI is especially g
 
 ---
 
+## Stream Telemetry to RabbitMQ
+
+[RabbitMQ](https://www.rabbitmq.com/) is a message broker. Instead of shipping telemetry to a query UI, it places every signal on a durable queue that a service you write consumes. This is a good fit when you want to post-process, re-route, or archive telemetry with custom logic rather than read it in a vendor dashboard.
+
+Unlike W&B Weave and Honeycomb, there is **no direct-export pattern**. The OpenTelemetry SDK has no AMQP exporter, so telemetry always flows through an OTel Collector, which republishes it to RabbitMQ over AMQP:
+
+```text
+Megatron ──OTLP──► OTel Collector ──AMQP──► exchange nemo_lens.otel.raw ──► queue nemo_lens-processing ──► your consumer
+```
+
+### Configure RabbitMQ
+
+The application exports OTLP to the collector as usual:
+
+```bash
+export NEMO_LENS_ENABLED=1
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+```
+
+The collector uses the contrib `rabbitmq` exporter to publish each signal to the exchange. See [otel-collector-rabbitmq.yaml](https://github.com/NVIDIA-NeMo/Lens/blob/main/observability/otel-collector-rabbitmq.yaml) in the repository for a ready-to-run example:
+
+```yaml
+exporters:
+  rabbitmq/default:
+    connection:
+      endpoint: amqp://rabbitmq:5672
+      auth:
+        plain:
+          username: nemo_lens
+          password: example
+    routing:
+      exchange: nemo_lens.otel.raw
+    encoding_extension: otlp_encoding/rabbitmq   # emit OTLP-JSON
+    durable: true
+
+extensions:
+  otlp_encoding/rabbitmq:
+    protocol: otlp_json
+
+service:
+  # The encoding extension must be enabled here for the exporter to find it.
+  extensions: [health_check, otlp_encoding/rabbitmq]
+  pipelines:
+    traces:   { receivers: [otlp], processors: [batch/traces],  exporters: [rabbitmq/default] }
+    metrics:  { receivers: [otlp], processors: [batch/metrics], exporters: [rabbitmq/default] }
+    logs:     { receivers: [otlp], processors: [batch/logs],    exporters: [rabbitmq/default] }
+```
+
+A ready-to-run stack is at `docker-compose.rabbitmq.yml`, which brings up the Megatron container, an OTel Collector using the config above, and a RabbitMQ broker. The broker topology (exchange, queues, bindings, and the `nemo_lens` user) is seeded at boot from `observability/rabbitmq/definitions.json`. Start it with:
+
+```bash
+docker compose -f docker-compose.rabbitmq.yml up -d
+```
+
+The RabbitMQ management UI is at `http://localhost:15672` (login `nemo_lens` / `example`).
+
+#### Minimal vs. Full Infra Coverage
+
+Two ready-to-run stacks are provided, so you can start minimal and scale up:
+
+- **`docker-compose.rabbitmq.yml`** (above) — the minimal integration. The collector forwards only the training process's own OTLP (traces, metrics, logs).
+- **`docker-compose.rabbitmq+infra.yml`** — full infrastructure coverage. It adds a **DCGM Exporter** (per-GPU utilization, memory, temperature, power, NVLink, ECC) and a **Node Exporter** (InfiniBand, RDMA, NIC bandwidth, TCP retransmits) as sidecars, and points the collector at `otel-collector-rabbitmq-infra.yaml`, which scrapes both plus host CPU/memory/disk metrics and publishes them all to the same queue. This variant requires a GPU host with the NVIDIA container runtime.
+
+Adding the sidecars alone is not enough — the collector config must scrape them, which is why the two variants ship with separate collector configs.
+
+### Understand the Message Contract
+
+- **Exchange**: `nemo_lens.otel.raw` (topic). Each signal is published with its default routing key: `otlp_spans`, `otlp_metrics`, or `otlp_logs`.
+- **Queues**: the bundled topology binds `nemo_lens-processing` with `#`, so it receives all three signals. A second queue, `nemo_lens-poison`, is provided for dead-lettering messages your consumer cannot process.
+- **Payload**: OTLP-JSON. Each message is a JSON `ExportTraceServiceRequest`, `ExportMetricsServiceRequest`, or `ExportLogsServiceRequest`. Set `protocol: otlp_proto` on the encoding extension for the compact protobuf form instead.
+- **Durability**: `durable: true` marks published messages persistent and the queues are declared durable, so telemetry survives a broker restart.
+
+Replace the bundled `definitions.json` with your own exchange, queues, bindings, and policies to fit your deployment; the exporter only needs the target exchange to exist.
+
+---
+
 ## Configure OTel Collector
 
 The OpenTelemetry Collector is a common intermediary between your application and your observability backends. Running a Collector instead of exporting directly from the SDK can provide several benefits:
@@ -547,6 +624,7 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger.internal:4317    # or tempo.int
 | Training runs tied to W&B | [W&B Weave](#integrate-with-wb-weave) |
 | One hosted destination for all three signals | [Honeycomb](#send-telemetry-to-honeycomb) |
 | High-cardinality attribute queries matter | [Honeycomb](#send-telemetry-to-honeycomb) |
+| Custom post-processing or async consumption | [RabbitMQ](#stream-telemetry-to-rabbitmq) |
 | Production with multi-backend routing | [OTel Collector](#configure-otel-collector) and your chosen backends |
 | Data residency and compliance | Self-hosted Collector and self-hosted backends |
 | Already have one APM vendor | Their OTLP endpoint |
