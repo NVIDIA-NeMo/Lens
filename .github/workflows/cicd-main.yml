@@ -25,7 +25,7 @@ on:
 
 jobs:
   pre-flight:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v1.5.1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@d48ee21a4986f7281abf746b7d500880c0e91f41 # v1.5.1
     with:
       default_runner_prefix: ${{ vars.DEFAULT_RUNNER_PREFIX }}
       non_nvidia_runner_prefix: ${{ vars.NON_NVIDIA_RUNNER_PREFIX }}
@@ -48,10 +48,10 @@ jobs:
       && !cancelled()
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
 
@@ -78,7 +78,7 @@ jobs:
         python-version: ["3.12", "3.13"]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Fail on draft PRs
         if: github.event.pull_request.draft == true
@@ -104,7 +104,7 @@ jobs:
           pytest -v --cov=nemo.lens --cov-report=term-missing --cov-report=xml tests/
 
       - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: coverage-unit-test-${{ matrix.python-version }}-${{ github.run_id }}
           path: coverage.xml
@@ -126,7 +126,7 @@ jobs:
     permissions: write-all
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Get workflow result
         id: result
@@ -164,7 +164,7 @@ jobs:
       )
     steps:
       - name: Generate fake coverage report
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           github-token: ${{ github.token }}
           script: |
@@ -189,19 +189,19 @@ jobs:
       - name: Get PR info
         id: get-pr-info
         if: startsWith(github.ref, 'refs/heads/pull-request/')
-        uses: nv-gha-runners/get-pr-info@main
+        uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Download coverage reports of current branch
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: coverage-unit-test-*
           merge-multiple: true
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true

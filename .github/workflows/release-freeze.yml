@@ -36,7 +36,7 @@ on:
         default: true
 jobs:
   code-freeze:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_code_freeze.yml@v1.5.1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_code_freeze.yml@d48ee21a4986f7281abf746b7d500880c0e91f41 # v1.5.1
     with:
       library-name: NeMo Lens
       python-package: nemo.lens
