@@ -67,7 +67,7 @@ concurrency:
 
 jobs:
   pre-flight:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v1.5.1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@d48ee21a4986f7281abf746b7d500880c0e91f41 # v1.5.1
     with:
       default_runner_prefix: ${{ vars.DEFAULT_RUNNER_PREFIX }}
       non_nvidia_runner_prefix: ${{ vars.NON_NVIDIA_RUNNER_PREFIX }}
@@ -77,7 +77,7 @@ jobs:
     secrets: inherit  # pragma: allowlist secret
 
   release:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_release_library.yml@v1.5.1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_release_library.yml@d48ee21a4986f7281abf746b7d500880c0e91f41 # v1.5.1
     needs: [pre-flight]
     if: |
       !cancelled() && !failure()
