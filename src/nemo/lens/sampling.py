@@ -72,10 +72,11 @@ class RankAwareSampler:
         attributes: Attributes | None = None,
         links: Sequence[trace.Link] | None = None,
     ):
-        """Return a SamplingResult based on rank sampling decision.
+        """Return a SamplingResult based on the rank sampling decision.
 
-        Requires the OTel SDK. Falls back to returning a bool if the SDK
-        is not installed (preserving the original API for non-SDK callers).
+        Always returns an OTel SamplingResult so the sampler conforms to the
+        standard Sampler interface; callers can rely on ``result.decision``
+        being ``Decision.RECORD_AND_SAMPLE`` or ``Decision.DROP``.
         """
         from opentelemetry.sdk.trace.sampling import Decision, SamplingResult
 
