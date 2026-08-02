@@ -77,14 +77,17 @@ class RankAwareSampler:
         Requires the OTel SDK. Falls back to returning a bool if the SDK
         is not installed (preserving the original API for non-SDK callers).
         """
-        from opentelemetry.sdk.trace.sampling import Decision, SamplingResult
+        try:
+            from opentelemetry.sdk.trace.sampling import Decision, SamplingResult
 
-        if self._should_sample:
-            return SamplingResult(
-                decision=Decision.RECORD_AND_SAMPLE,
-                attributes=dict(attributes) if attributes else None,
-            )
-        return SamplingResult(decision=Decision.DROP)
+            if self._should_sample:
+                return SamplingResult(
+                    decision=Decision.RECORD_AND_SAMPLE,
+                    attributes=dict(attributes) if attributes else None,
+                )
+            return SamplingResult(decision=Decision.DROP)
+        except ImportError:
+            return self._should_sample
 
     def get_description(self) -> str:
         """Return a description of this sampler for OTel diagnostics."""
