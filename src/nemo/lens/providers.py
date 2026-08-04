@@ -23,10 +23,45 @@ code paths that never reach this module.
 from __future__ import annotations
 
 import os
+import random
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
+
+
+class SeedIndependentIdGenerator:
+    """OTel-compatible IdGenerator whose IDs survive a global ``random.seed()``.
+
+    OTel's default ``RandomIdGenerator`` draws from the process-global ``random``
+    module, which training frameworks (Megatron) seed IDENTICALLY across
+    data-parallel ranks -> every rank would emit the SAME span/trace IDs, so a
+    backend sees many spans sharing one span ID and parent links resolve to the
+    wrong span. A private ``random.Random`` instance is seeded from the OS at
+    construction and is unaffected by ``random.seed()`` on the global module.
+
+    Duck-typed rather than subclassing ``opentelemetry.sdk.trace.id_generator.
+    IdGenerator`` (same as :class:`~nemo.lens.sampling.RankAwareSampler`) so this
+    module stays importable without the SDK installed.
+    """
+
+    def __init__(self) -> None:
+        self._rng = random.Random()  # seeded from os.urandom, not from random.seed()
+        # CPython reseeds only the GLOBAL random module at fork; a private Random()
+        # gets no such hook, so forked children (dataloader workers under the default
+        # "fork" start method, multiprocessing.Pool) would inherit our state and emit
+        # identical IDs -- the same collision this class exists to prevent.
+        os.register_at_fork(after_in_child=self._rng.seed)
+
+    def generate_span_id(self) -> int:
+        return self._rng.getrandbits(64) or 1
+
+    def generate_trace_id(self) -> int:
+        return self._rng.getrandbits(128) or 1
+
+    def is_trace_id_random(self) -> bool:
+        """Declares the W3C ``random-trace-id`` trace flag (Trace Context Level 2)."""
+        return True
 
 
 def build_providers(
@@ -103,7 +138,10 @@ def build_providers(
 
         _span_exporter = span_exporter or _build_span_exporter(config)
 
-        kwargs: dict = {"resource": resource}
+        # Seed-independent IDs cover EVERY setup_telemetry caller -- trainer, ckpt worker, nvrx --
+        # since they all build their TracerProvider here (the worker/nvrx set telemetry up in their
+        # own process via from_env, so a caller-side patch would miss them; fixing it here does not).
+        kwargs: dict = {"resource": resource, "id_generator": SeedIndependentIdGenerator()}
         if config.sampler_enabled:
             from nemo.lens.sampling import RankAwareSampler
 
