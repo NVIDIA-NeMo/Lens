@@ -72,22 +72,20 @@ class RankAwareSampler:
         attributes: Attributes | None = None,
         links: Sequence[trace.Link] | None = None,
     ):
-        """Return a SamplingResult based on rank sampling decision.
+        """Return a SamplingResult based on the rank sampling decision.
 
-        Requires the OTel SDK. Falls back to returning a bool if the SDK
-        is not installed (preserving the original API for non-SDK callers).
+        Always returns an OTel SamplingResult so the sampler conforms to the
+        standard Sampler interface; callers can rely on ``result.decision``
+        being ``Decision.RECORD_AND_SAMPLE`` or ``Decision.DROP``.
         """
-        try:
-            from opentelemetry.sdk.trace.sampling import Decision, SamplingResult
+        from opentelemetry.sdk.trace.sampling import Decision, SamplingResult
 
-            if self._should_sample:
-                return SamplingResult(
-                    decision=Decision.RECORD_AND_SAMPLE,
-                    attributes=dict(attributes) if attributes else None,
-                )
-            return SamplingResult(decision=Decision.DROP)
-        except ImportError:
-            return self._should_sample
+        if self._should_sample:
+            return SamplingResult(
+                decision=Decision.RECORD_AND_SAMPLE,
+                attributes=dict(attributes) if attributes else None,
+            )
+        return SamplingResult(decision=Decision.DROP)
 
     def get_description(self) -> str:
         """Return a description of this sampler for OTel diagnostics."""

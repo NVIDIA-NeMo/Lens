@@ -15,7 +15,7 @@
 
 """Tests for RankAwareSampler as an OTel Sampler and its integration with providers."""
 
-from opentelemetry.sdk.trace.sampling import Decision
+from opentelemetry.sdk.trace.sampling import Decision, SamplingResult
 
 from nemo.lens.sampling import RankAwareSampler
 
@@ -29,6 +29,26 @@ class TestRankAwareSamplerOTelInterface:
             name="test.span",
         )
         assert result.decision == Decision.RECORD_AND_SAMPLE
+
+    def test_should_sample_always_returns_sampling_result(self):
+        """Pin the contract: should_sample never falls back to a bool."""
+        sampler = RankAwareSampler(rank=0, world_size=4, sample_rate=1.0)
+        result = sampler.should_sample(
+            parent_context=None,
+            trace_id=12345,
+            name="test.span",
+        )
+        assert isinstance(result, SamplingResult)
+
+    def test_should_sample_returns_sampling_result_on_drop(self):
+        sampler = RankAwareSampler(rank=0, world_size=4, sample_rate=0.0)
+        result = sampler.should_sample(
+            parent_context=None,
+            trace_id=12345,
+            name="test.span",
+        )
+        assert isinstance(result, SamplingResult)
+        assert result.decision == Decision.DROP
 
     def test_drop_decision_when_rate_excludes_rank(self):
         sampler = RankAwareSampler(rank=0, world_size=4, sample_rate=0.0)
