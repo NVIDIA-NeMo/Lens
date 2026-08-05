@@ -56,11 +56,12 @@ def span_to_event(span, pid, tid):
     }
 
 
-def metric_points_to_events(metric_record, pid):
+def metric_points_to_events(metric_record, default_rank, mode, ctx):
     events = []
     for rm in metric_record.get("resource_metrics", []):
         resource_attrs = rm.get("resource", {}).get("attributes", {}) or {}
-        rank = rank_of(resource_attrs, pid)
+        # counters attach to the MAIN trainer process lane for this rank
+        pid, _t, _p, _l = lane_for(resource_attrs, "megatron.metric", "trainer", default_rank, mode, ctx)
         for sm in rm.get("scope_metrics", []):
             for metric in sm.get("metrics", []):
                 name = metric["name"]
@@ -83,7 +84,7 @@ def metric_points_to_events(metric_record, pid):
                         "cat": "metric",
                         "ph": "C",
                         "ts": ts_us,
-                        "pid": rank,
+                        "pid": pid,
                         "args": {name: value},
                     })
     return events
@@ -198,55 +199,109 @@ def iso_us(t):
     return t * 1_000_000.0
 
 
-def convert_file(path, default_rank, role, events, procs, threads):
+# ---- process/thread lane assignment (two modes) ----------------------------------------------
+# The telemetry has THREE real process kinds per node, each a distinct OS process.pid:
+#   main   -- a GPU-rank trainer (megatron.* / workload.* / pre_startup)
+#   ckpt   -- that rank's async checkpoint WORKER (nvrx.checkpoint.*), a separate process that runs
+#             CONCURRENTLY with the trainer (its spans overlap train.iteration -- that is why they
+#             must NOT share a lane; the old code collapsed them because the worker reuses the
+#             rank's service.instance.id and only process.pid tells them apart)
+#   nvrx   -- the node's ft_launcher agent (nvrx.restart.*), node-level, one per node
+# We key lanes off process identity so concurrent processes never fake-nest.
+#   --lanes process (default): PID = process, TID = thread (1 today; more when spans carry thread.id)
+#   --lanes node             : PID = node,    TID = process (and real threads also become TIDs)
+_ROLE_IDX = {"main": 0, "ckpt": 1, "nvrx": 2}    # role band; slot = band*1000 + GLOBAL dl.rank so
+                                                 # main-rank4 and ckpt-rank0 never collide (dl.rank
+                                                 # is global 0..N, not per-node 0..3).
+
+
+def _role_of_span(resource_attrs, name, file_role):
+    if file_role == "ftlauncher" or resource_attrs.get("nvrx.role") == "ft_launcher_agent":
+        return "nvrx"
+    if str(name).startswith("nvrx.checkpoint"):
+        return "ckpt"          # async checkpoint worker process (distinct process.pid, same rank)
+    return "main"
+
+
+def _node_of(resource_attrs, fallback):
+    n = resource_attrs.get("host.name") or resource_attrs.get("nvrx.node") or fallback
+    return str(n).split(".")[0]   # strip .cm.cluster
+
+
+def lane_for(resource_attrs, name, file_role, default_rank, mode, ctx):
+    """Return (pid, tid, proc_label, thread_label) for one span under the selected lane mode.
+    ctx carries stable node indices so lane numbers are deterministic and cluster by node."""
+    role = _role_of_span(resource_attrs, name, file_role)
+    node = _node_of(resource_attrs, "n%d" % default_rank)
+    rank = resource_attrs.get("dl.rank")
+    rank = int(rank) if (rank is not None and str(rank).isdigit()) else (None if role == "nvrx" else default_rank)
+    os_pid = resource_attrs.get("process.pid")
+    ni = ctx.setdefault("nodes", {}).setdefault(node, len(ctx.get("nodes", {})))
+    slot = _ROLE_IDX[role] * 1000 + (rank or 0)            # collision-free process slot within a node
+    thr = resource_attrs.get("thread.id")                  # real thread (absent today -> single lane)
+    thr_off = (int(thr) % 90 + 1) if (thr is not None and str(thr).isdigit()) else 0
+    who = "nvrx" if role == "nvrx" else ("rank%d %s" % (rank, role))
+    if mode == "node":
+        pid = 10000 + ni
+        tid = slot * 100 + thr_off
+        return pid, tid, "node %s" % node, (who if thr_off == 0 else "%s t%s" % (who, thr))
+    # default: one PID per process (ni*10000 spacing > max slot ~2000 -> no cross-node collision)
+    pid = 100000 + ni * 10000 + slot
+    tid = pid * 100 + thr_off
+    label = ("%s · nvrx" % node if role == "nvrx" else "%s · rank%d · %s" % (node, rank, role))
+    if os_pid is not None:
+        label += " (os %s)" % os_pid
+    return pid, tid, label, (role if thr_off == 0 else "t%s" % thr)
+
+
+def convert_file(path, default_rank, role, events, procs, threads, mode, ctx):
     objects = read_objects(path)
     # Lost-work status per iteration span, from the SAME shared detector the goodput report
     # uses -- so the two views can't disagree on which iterations were redone.
-    lost = iteration_status(objects) if role == "trainer" else {}
-    # Ensure the trainer lane has a top-level 'workload' parent covering everything EXCEPT the
-    # pre-work (pre_startup). The real workload uber span doesn't export on a crash, so if it's
-    # absent synthesize one = [min non-pre_startup start, max end]; it strictly contains every
-    # non-pre span, so it nests cleanly at depth 0 (pre_startup stays a sibling just before it).
-    if role == "trainer":
-        sp = [o for o in objects if o.get("name") and "start_time" in o and "end_time" in o]
+    lost = iteration_status(objects) if role in ("trainer", "other") else {}
+    # Synthesize a top-level 'workload' parent for the MAIN trainer process when the real uber span
+    # didn't export (crash) -- [min non-pre start, max end]. OFF by default: on a spare/multi-attempt
+    # node this [min,max] bridges the standby wait and the restart gap, so it "covers area that is
+    # not the workload" and fake-adopts orphaned children -> strange parentage. Opt in with
+    # --synthesize-workload only when you specifically want the gap-bridging envelope.
+    if role in ("trainer", "other") and ctx.get("synthesize"):
+        sp = [o for o in objects if o.get("name") and "start_time" in o and "end_time" in o
+              and not str(o["name"]).startswith("nvrx.checkpoint")]
         if sp and not any(o["name"] == "workload" for o in sp):
             npre = [o for o in sp if o["name"] != "pre_startup"]
             if npre:
-                r = rank_of(npre[0].get("resource", {}).get("attributes", {}) or {}, default_rank)
+                ra = npre[0].get("resource", {}).get("attributes", {}) or {}
+                pid, tid, plabel, tlabel = lane_for(ra, "workload.synthesized", role, default_rank, mode, ctx)
                 ws = min(ts(o["start_time"]) for o in npre)
                 we = max(ts(o["end_time"]) for o in npre)
-                events.append({"name": "workload.synthesized", "ph": "X", "pid": r, "tid": r,
+                events.append({"name": "workload.synthesized", "ph": "X", "pid": pid, "tid": tid,
                                "ts": iso_us(ws), "dur": iso_us(we) - iso_us(ws),
                                "args": {"confidence": "inferred"}})
-                procs.setdefault(r, ("rank %d" % r, npre[0].get("resource", {}).get("attributes", {}) or {}))
-                threads.setdefault((r, r), "trainer")
+                procs.setdefault(pid, (plabel, ra))
+                threads.setdefault((pid, tid), tlabel)
     for obj in objects:
         if "resource_metrics" in obj:
-            events.extend(metric_points_to_events(obj, default_rank))
+            events.extend(metric_points_to_events(obj, default_rank, mode, ctx))
             continue
         if "context" not in obj or "start_time" not in obj:
             continue
         # Rename lost iterations (e.g. megatron.train.iteration.redone) so perfetto's
-        # name-hash gives them their OWN color -- no fighting its color model. We don't try
-        # to show the peak-vs-slowdown split here; just which iterations were redone.
+        # name-hash gives them their OWN color -- no fighting its color model.
         _st = lost.get(id(obj))
         if _st and _st != "committed":
             obj = {**obj, "name": obj["name"] + "." + _st}
         resource_attrs = obj.get("resource", {}).get("attributes", {}) or {}
-        rank = rank_of(resource_attrs, default_rank)
         if role == "slurm":
             tr = slurm_track(obj["name"], obj.get("attributes", {}) or {})
             if tr is None:
                 continue  # drop legacy-compat span from the timeline
             pid, tid, proc_label, thread_label = tr
         else:
-            # A rank is ONE process (pid=rank); the trainer and its checkpoint worker are two
-            # TRACKS (tid) within it, so they group together under "rank N" instead of
-            # scattering to sibling pids.
-            pid = rank
-            tid, thread_label = ((rank + 1000, "ckptworker") if role == "ckptworker"
-                                 else (rank, "trainer"))
-            proc_label = "rank %d" % rank
+            # trainer / ckptworker / ftlauncher / other -> keyed off REAL process identity (node +
+            # process.pid + role), so the concurrent async-checkpoint worker and the nvrx agent get
+            # their own lanes instead of collapsing onto -- and overlapping -- the trainer's.
+            pid, tid, proc_label, thread_label = lane_for(
+                resource_attrs, obj["name"], role, default_rank, mode, ctx)
         ev = span_to_event(obj, pid, tid)
         if ev is None:
             continue
@@ -255,10 +310,65 @@ def convert_file(path, default_rank, role, events, procs, threads):
         threads.setdefault((pid, tid), thread_label)
 
 
+_EPS_US = 2.0    # microseconds. NOT 1 ns: these are unix-EPOCH microseconds (~1.78e15), where
+                 # float64's ULP is ~0.25 us, so a 1 ns nudge rounds straight back to the same value
+                 # (a no-op). ~2 us is the smallest increment that survives at epoch magnitude and is
+                 # still invisible on a multi-minute trace. (Rebasing ts to a trace-relative origin
+                 # would let 1 ns work, but that loses wall-clock correlation with the logs/reckoner.)
+
+
+def separate_equal_boundaries(events):
+    """Perfetto stacks ph=X slices per (pid,tid); two slices that share an EXACT edge timestamp are
+    ambiguous to the Chrome stack-importer and get flagged as overlaps. Three cases: a parent and
+    its first child open on the SAME event (equal start), a child ends exactly at its parent's end,
+    or adjacent siblings touch (one's start == the other's end). Nudge ONLY those equal edges apart
+    by 1ns so nesting is unambiguous. GENUINE (non-equal) time overlaps -- real concurrency like the
+    async checkpoint worker running alongside training -- are left untouched; a nudge can't fix a
+    35-second overlap and shouldn't try. Those belong on separate lanes (see pack_lanes, TODO)."""
+    from collections import defaultdict
+    by_track = defaultdict(list)
+    for e in events:
+        if e.get("ph") == "X":
+            by_track[(e["pid"], e.get("tid", 0))].append(e)
+    for evs in by_track.values():
+        # containment DFS pre-order: by original start asc, then longer-first, so a parent is always
+        # processed (and pushed) before the children it contains.
+        evs.sort(key=lambda e: (e["ts"], -(e["ts"] + e["dur"])))
+        stack = []   # (orig_end, nudged_start, nudged_end) of the open ancestor chain
+        for e in evs:
+            os_ = e["ts"]; oe_ = os_ + e["dur"]        # ORIGINAL bounds -- used to decide structure
+            while stack and stack[-1][0] <= os_:        # pop ancestors that closed before this starts
+                stack.pop()
+            ns_, ne_ = os_, oe_
+            # Only de-collide against the innermost ancestor that TRULY contains this span (oe_ inside
+            # it). A span that starts inside an ancestor but ends after it is a GENUINE crosser --
+            # leave it alone (clamping would fake-nest real concurrency). Sibling edge-sharing
+            # (A.end == B.start, disjoint) is fine in perfetto and is NOT touched.
+            if stack and oe_ <= stack[-1][0]:
+                _, pns, pne = stack[-1]                 # parent's NUDGED bounds
+                if ns_ <= pns:
+                    ns_ = pns + _EPS_US                 # strictly after the parent's (nudged) start
+                if ne_ >= pne:
+                    ne_ = pne - _EPS_US                 # strictly before the parent's (nudged) end
+                if ne_ <= ns_:
+                    ne_ = ns_ + _EPS_US
+            e["ts"] = ns_
+            e["dur"] = ne_ - ns_
+            stack.append((oe_, ns_, ne_))
+    return events
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("inputs", nargs="+", help="files or directories of lens_json *.jsonl dumps")
     ap.add_argument("-o", "--output", default="perfetto_trace.json")
+    ap.add_argument("--lanes", choices=["process", "node"], default="process",
+                    help="lane model. process (default): PID=process (main/ckpt/nvrx are separate "
+                         "PIDs), TID=thread. node: PID=node, TID=process (and real threads) -- fewer "
+                         "top-level lanes, easier for big multi-node runs.")
+    ap.add_argument("--synthesize-workload", action="store_true",
+                    help="fabricate a 'workload' parent when the real one didn't export. OFF by "
+                         "default: it bridges standby/restart gaps and fakes parentage.")
     args = ap.parse_args()
 
     # Shared discovery: (path, role, rank) for every lens file. role_of maps lens_slurm ->
@@ -272,40 +382,44 @@ def main():
     events = []
     procs = {}     # pid -> (proc_label, resource_attrs)
     threads = {}   # (pid, tid) -> thread_label
+    ctx = {"synthesize": args.synthesize_workload}   # node indices + options, shared across files
 
     for i, (path, role, rank) in enumerate(found):
         if role == "other":
             role = "trainer"
         default_rank = rank if rank is not None else i   # filename rank, else file index
-        convert_file(path, default_rank, role, events, procs, threads)
+        convert_file(path, default_rank, role, events, procs, threads, args.lanes, ctx)
         print(f"  parsed {os.path.basename(path)}: running total {len(events)} events", file=sys.stderr)
 
     # Imputed 'what happened' track: intersect SLURM occupancy with the workload span.
     impute_slurm_from_workload(found, events, procs, threads)
+
+    # De-collide slices that share an EXACT edge (equal-start parent/child, child-ends-at-parent,
+    # touching siblings) so perfetto's stack importer doesn't flag them. Genuine overlaps untouched.
+    separate_equal_boundaries(events)
 
     # process metadata (one per pid) + thread metadata (one per pid,tid) so Perfetto groups
     # tracks: rank N -> {trainer, ckptworker}; SLURM attempt N -> {allocation, extern, step, ...}.
     meta_events = []
     for pid, (plabel, attrs) in sorted(procs.items()):
         svc = attrs.get("service.name", "service")
-        proc_name = (f"{svc} {plabel}" if plabel.startswith("SLURM")
-                     else f"{svc} {plabel} ({attrs.get('host.name', '?')})")
+        # labels already carry node/rank/role (or "SLURM attempt N"), so don't re-append host.
+        proc_name = f"{svc} {plabel}"
         meta_events.append({"name": "process_name", "ph": "M", "pid": pid, "tid": pid,
                             "args": {"name": proc_name}})
-        # Ordering top->bottom (process_sort_index: low = top): SLURM attempt processes (which
-        # now hold both the factual records AND the imputed lane) above the rank/workload lanes.
+        # Ordering top->bottom (low = top): pid is already node-major / slot-minor, and SLURM
+        # attempt pids (9000s) sort above the node/process lanes (10000s / 100000s).
         meta_events.append({"name": "process_sort_index", "ph": "M", "pid": pid, "tid": pid,
-                            "args": {"sort_index": pid - 100000 if pid >= 9000 else pid}})
-    # lane order WITHIN a process (thread_sort_index: low = top): envelope/summary on top,
-    # then phases, then the raw records; trainer above its checkpoint worker.
+                            "args": {"sort_index": pid}})
+    # lane order WITHIN a process (low = top). SLURM record lanes keep their curated order; node/
+    # process lanes fall back to tid, which is slot-major (main ranks < ckpt < nvrx).
     _th_order = {"imputed": 0, "job_attempt.synthesized": 1, "phases": 2, "record.allocation": 3,
-                 "record.batch": 4, "record.step": 5, "record.extern": 6, "record.step.infra": 7,
-                 "trainer": 0, "ckptworker": 1}
+                 "record.batch": 4, "record.step": 5, "record.extern": 6, "record.step.infra": 7}
     for (pid, tid), tlabel in sorted(threads.items()):
         meta_events.append({"name": "thread_name", "ph": "M", "pid": pid, "tid": tid,
                             "args": {"name": tlabel}})
         meta_events.append({"name": "thread_sort_index", "ph": "M", "pid": pid, "tid": tid,
-                            "args": {"sort_index": _th_order.get(tlabel, 9)}})
+                            "args": {"sort_index": _th_order.get(tlabel, tid)}})
 
     trace = {"traceEvents": meta_events + events, "displayTimeUnit": "ms"}
     with open(args.output, "w") as f:

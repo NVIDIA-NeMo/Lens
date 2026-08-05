@@ -50,14 +50,18 @@ def convert(archive_dir, out_dir):
     # (role, rank) -> open gzip writer
     writers, counts, instance_ids = {}, {}, set()
 
-    def writer_for(role, rank):
-        key = (role, rank)
-        if key not in writers:
-            fn = (f"lens_rank{rank}_ckptworker.jsonl.gz" if role == "ckptworker"
-                  else f"lens_rank{rank}.jsonl.gz")
-            writers[key] = gzip.open(os.path.join(out_dir, fn), "wt")
-            counts[key] = 0
-        return writers[key]
+    def writer_for(role, key):
+        wkey = (role, key)
+        if wkey not in writers:
+            if role == "ckptworker":
+                fn = f"lens_rank{key}_ckptworker.jsonl.gz"
+            elif role == "ftlauncher":
+                fn = f"lens_ftlauncher_{key}.jsonl.gz"   # per-NODE ft_launcher agent lane
+            else:
+                fn = f"lens_rank{key}.jsonl.gz"
+            writers[wkey] = gzip.open(os.path.join(out_dir, fn), "wt")
+            counts[wkey] = 0
+        return writers[wkey]
 
     for f in files:
         raw = subprocess.run(["zstd", "-dc", f], capture_output=True).stdout.decode("utf-8", "replace")
@@ -73,12 +77,19 @@ def convert(archive_dir, out_dir):
                 res = _attrs(rspan.get("resource", {}).get("attributes"))
                 iid = str(res.get("service.instance.id", ""))
                 instance_ids.add(iid)
-                rank = res.get("dl.rank")
-                if rank is None and "-rank" in iid:
-                    rank = iid.rsplit("-rank", 1)[1]
-                rank = int(rank) if rank is not None and str(rank).isdigit() else 0
-                role = "ckptworker" if "ckptworker" in iid.lower() else "trainer"
-                w = writer_for(role, rank)
+                # ft_launcher AGENT spans (nvrx.role) are a separate per-NODE producer, not a
+                # trainer rank -- route to their own lane so they don't collapse onto rank 0.
+                if res.get("nvrx.role") == "ft_launcher_agent":
+                    role = "ftlauncher"
+                    key = str(res.get("nvrx.node") or res.get("host.name") or "node")
+                else:
+                    rank = res.get("dl.rank")
+                    if rank is None and "-rank" in iid:
+                        rank = iid.rsplit("-rank", 1)[1]
+                    rank = int(rank) if rank is not None and str(rank).isdigit() else 0
+                    role = "ckptworker" if "ckptworker" in iid.lower() else "trainer"
+                    key = rank
+                w = writer_for(role, key)
                 for sspan in rspan.get("scopeSpans", []):
                     for sp in sspan.get("spans", []):
                         rec = {
@@ -91,14 +102,20 @@ def convert(archive_dir, out_dir):
                             "resource": {"attributes": res},
                         }
                         w.write(json.dumps(rec) + "\n")
-                        counts[(role, rank)] += 1
+                        counts[(role, key)] += 1
 
     for w in writers.values():
         w.close()
     print(f"[otel->lens] {len(files)} archive files -> {out_dir}")
     print(f"[otel->lens] instance ids: {sorted(x for x in instance_ids if x)}")
-    for (role, rank), n in sorted(counts.items()):
-        print(f"  lens_rank{rank}{'_ckptworker' if role=='ckptworker' else ''}: {n} spans")
+    for (role, key), n in sorted(counts.items(), key=lambda kv: str(kv[0])):
+        if role == "ckptworker":
+            label = f"lens_rank{key}_ckptworker"
+        elif role == "ftlauncher":
+            label = f"lens_ftlauncher_{key}"
+        else:
+            label = f"lens_rank{key}"
+        print(f"  {label}: {n} spans")
     return 0
 
 

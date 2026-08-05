@@ -65,9 +65,12 @@ def us(iso):
 
 def role_of(basename):
     """Classify a lens span file by name: 'slurm' (reckoner job-envelope spans), 'ckptworker'
-    (async checkpoint worker), 'trainer' (a rank), or 'other'."""
+    (async checkpoint worker), 'ftlauncher' (NVRx ft_launcher agent, per node), 'trainer' (a
+    rank), or 'other'."""
     if basename.startswith("lens_slurm"):
         return "slurm"
+    if basename.startswith("lens_ftlauncher"):
+        return "ftlauncher"
     if "_ckptworker" in basename:
         return "ckptworker"
     if basename.startswith("lens_rank"):
