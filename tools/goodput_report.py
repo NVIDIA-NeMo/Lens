@@ -85,6 +85,18 @@ CLASSIFY = {
     # application inefficiency
     "megatron.train.iteration_report":      "BAD;app;reporting",
     "megatron.evaluate":                    "BAD;app;eval",
+    # --- NVRx ft_launcher spans (PER NODE; fanned onto every rank on the node in main()). cycle/run
+    #     are STRUCTURAL (the run window is already accounted by the iterations) and stay UNCLASSIFIED;
+    #     fault/excluded are instant markers. Goodput taxonomy per the ops model:
+    #   cold_start  = time BEFORE the first cycle (outside-srun -> first nvrx) -> SCHEDULING (slurm-level).
+    #   rendezvous/health_check/worker_launch/teardown = BETWEEN cycles, pure NVRx machinery -> runtime;ORCHESTRATION.
+    #   await_round = a spare holding a GPU idle for resilience               -> runtime;RESILIENCE.
+    "nvrx.cold_start":                      "BAD;scheduling;cold_start",
+    "nvrx.restart.rendezvous":              "BAD;runtime;orchestration;rendezvous",
+    "nvrx.restart.health_check":            "BAD;runtime;orchestration;health_check",
+    "nvrx.restart.worker_launch":           "BAD;runtime;orchestration;worker_launch",
+    "nvrx.restart.teardown":                "BAD;runtime;orchestration;teardown",
+    "nvrx.restart.await_round":             "BAD;runtime;resilience;standby",
 }
 CKPT_SAVE_PATH = "BAD;runtime;defense;checkpoint_save"
 CKPT_SAVE_PARENT = "megatron.checkpoint.exposed_save"
@@ -105,10 +117,12 @@ ORDER = {"GOOD": 0, "BAD": 1,
          "scheduling": 0, "runtime": 1, "app": 2, "unobserved": 3,
          # scheduling children -- chronological, slurm-side only (reckoner prolog/epilog
          # bracket the step; launch_script is the bash orchestration inside the prolog gap)
-         "pre_startup": 0, "job_setup": 1, "launch_script": 2, "inter_step_gap": 3,
+         "cold_start": -1, "pre_startup": 0, "job_setup": 1, "launch_script": 2, "inter_step_gap": 3,
          "job_teardown": 4, "requeue_gap": 5,
          # runtime children
-         "restart": 0, "lost_work": 1, "defense": 2,
+         "restart": 0, "orchestration": 1, "resilience": 2, "lost_work": 3, "defense": 4,
+         # orchestration children (chronological restart machinery) + resilience child
+         "rendezvous": 0, "health_check": 1, "worker_launch": 2, "teardown": 3, "standby": 0,
          # unobserved children (shutdown = dark in-step teardown; untracked = dark, no step)
          "shutdown": 0, "untracked": 1,
          # restart children -- chronological startup order (container_load = the rank's
@@ -116,6 +130,9 @@ ORDER = {"GOOD": 0, "BAD": 1,
          # = the graph-capture / weight-hash / first-sniff tail, last before training)
          "container_load": 0, "python_init": 1, "megatron_init": 2,
          "model_init": 3, "dataloader": 4, "rest_of_startup": 5,
+         # nvrx agent-side restart phases (chronological: rejoin -> health -> launch -> stop)
+         "nvrx_rendezvous": 6, "nvrx_health_check": 7, "nvrx_worker_launch": 8, "nvrx_teardown": 9,
+         "standby": 3,  # under defense: a hot spare held idle
          # rest_of_startup children
          "weight_hash": 0, "sniff": 1, "warmup": 2,
          # lost_work children (redone = recomputed after a requeue; uncommitted = past the
@@ -401,7 +418,7 @@ def main():
 
     # Shared discovery (lens_analysis.discover): trainer ranks, their checkpoint workers,
     # and the reckoner's job-envelope file -- one place knows the run-dir layout.
-    trainer, worker, slurm_files = [], [], []
+    trainer, worker, slurm_files, ftlauncher_files = [], [], [], []
     for f, role, _rank in discover(args.dirs):
         if role == "trainer":
             trainer.append(f)
@@ -409,6 +426,8 @@ def main():
             worker.append(f)
         elif role == "slurm":
             slurm_files.append(f)
+        elif role == "ftlauncher":
+            ftlauncher_files.append(f)
     if not trainer:
         sys.exit("no trainer span files found")
 
@@ -446,6 +465,32 @@ def main():
         for spans in ranks:
             spans[:] = [o for o in spans if o["name"] not in _drop]
             spans.extend(inject)
+
+    # NVRx ft_launcher restart overhead is emitted PER NODE (by the node's agent). Fan each node's
+    # classified restart spans onto EVERY rank on that node: all local GPUs idle together while the
+    # node rejoins rendezvous / relaunches workers, so each rank bears the same cost (not a per-rank
+    # split). The sweep's innermost-wins keeps it from double-counting the rank's own container_load,
+    # and it fills the pre-python gap that was otherwise 'unobserved'. Match on node (host.name/nvrx.node).
+    def _node_of(spans):
+        for o in spans:
+            ra = o.get("resource", {}).get("attributes", {}) or {}
+            n = ra.get("host.name") or ra.get("nvrx.node")
+            if n:
+                return str(n).split(".")[0]
+        return None
+
+    nvrx_by_node = defaultdict(list)
+    for o in (o for f in ftlauncher_files for o in _read(f)):
+        if o.get("name") in CLASSIFY:   # only the classified restart phases; cycle/run/marks skipped
+            ra = o.get("resource", {}).get("attributes", {}) or {}
+            node = str(ra.get("nvrx.node") or ra.get("host.name") or "").split(".")[0]
+            if node:
+                nvrx_by_node[node].append(o)
+    if nvrx_by_node:
+        for spans in ranks:
+            node = _node_of(spans)
+            if node in nvrx_by_node:
+                spans.extend(nvrx_by_node[node])
 
     last_ckpt = first_ckpt = -1
     ckpt_iters = set()
