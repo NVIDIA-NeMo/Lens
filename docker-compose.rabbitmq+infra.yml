@@ -1,0 +1,181 @@
+# NeMo Lens — RabbitMQ setup WITH full infra coverage.
+#
+# Same app → collector → RabbitMQ path as docker-compose.rabbitmq.yml, plus
+# two metrics sidecars so the RabbitMQ stream carries hardware telemetry the
+# training process does not emit itself:
+#
+#   Megatron ──OTLP──►┐
+#   DCGM Exporter ────┼─► OTel Collector ──AMQP──► exchange nemo_lens.otel.raw
+#   Node Exporter ────┘   (collector-rabbitmq-infra.yaml)      │
+#                                                              ▼
+#                                                    queue: nemo_lens-processing
+#
+#   • DCGM Exporter — per-GPU utilization, memory, temperature, power, NVLink,
+#     PCIe, ECC, clock throttle reasons, SM activity.
+#   • Node Exporter — InfiniBand port counters, RDMA, NIC bandwidth, TCP retransmits.
+#   • hostmetrics (in the collector) — CPU, memory, disk, network, load.
+#
+# For the MINIMAL app-telemetry-only variant (no GPU/host sidecars), use
+# docker-compose.rabbitmq.yml instead.
+#
+# Setup (GPU host required — DCGM needs NVIDIA GPUs + nvidia container runtime):
+#   1. docker compose -f docker-compose.rabbitmq+infra.yml up -d
+#   2. docker compose -f docker-compose.rabbitmq+infra.yml exec megatron bash
+#
+# UIs:
+#   RabbitMQ management  http://localhost:15672   (login: nemo_lens / example)
+#
+# Requires lens ≥ 0.1.0.
+
+services:
+
+  # ── Megatron-LM training container ─────────────────────────────────────────
+  # Runs training with OTel enabled, exporting OTLP to the local collector.
+  megatron:
+    image: local-megatron-lm:otel-compose
+    build:
+      context: ..
+      dockerfile_inline: |
+        FROM local-megatron-lm:otel
+        COPY lens /tmp/nemo-otel
+        RUN python3 -m pip install --no-cache-dir 'opentelemetry-api>=1.40.0' '/tmp/nemo-otel[sdk]' \
+         && /usr/bin/python -m pip install --no-cache-dir 'opentelemetry-api>=1.40.0' '/tmp/nemo-otel[sdk]' \
+         && rm -rf /tmp/nemo-otel
+    volumes:
+      - ..:/workspace
+    working_dir: /workspace/Megatron-LM
+    # .env is optional here — override RUN_ID / USER_ID / span groups if you like.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # ── Lens / Megatron telemetry config ────────────────────────────────
+      - MEGATRON_OTEL_ENABLED=1
+      - MEGATRON_OTEL_SPAN_GROUPS=default        # start conservative; raise to per_step / all as needed
+      - NEMO_LENS_LOGS_ENABLED=1
+      - NEMO_LENS_RUN_ID=my-experiment-1
+      - NEMO_LENS_USER_ID=team-alpha
+
+      # ── OTLP → local OTel Collector (which republishes to RabbitMQ) ──────
+      - OTEL_METRIC_EXPORT_INTERVAL=1000
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    stdin_open: true
+    tty: true
+    networks:
+      - otel-net
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  # ── OpenTelemetry Collector → RabbitMQ (infra-enriched) ─────────────────────
+  # Receives OTLP from Megatron, scrapes the DCGM + node-exporter sidecars and
+  # host /proc + /sys, and publishes every signal to nemo_lens.otel.raw.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.146.0
+    user: "0:0"  # root so hostmetrics can read /hostfs/proc + /hostfs/sys
+    command: ["--config=/etc/otel/collector-rabbitmq-infra.yaml"]
+    volumes:
+      - ./observability/otel-collector-rabbitmq-infra.yaml:/etc/otel/collector-rabbitmq-infra.yaml:ro,z
+      - /proc:/hostfs/proc:ro
+      - /sys:/hostfs/sys:ro
+    networks:
+      - otel-net
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      dcgm-exporter:
+        condition: service_started
+      node-exporter:
+        condition: service_started
+
+  # ── DCGM Exporter ─────────────────────────────────────────────────────────
+  # GPU metrics: utilization, memory, temperature, power, NVLink, PCIe, ECC,
+  # clock throttle reasons, SM activity — per GPU.
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    cap_add:
+      - SYS_ADMIN     # required for DCGM to access GPU telemetry
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # ── Node Exporter ──────────────────────────────────────────────────────────
+  # InfiniBand port counters, RDMA stats, NIC bandwidth, TCP retransmits.
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/host/root"
+      - "--collector.infiniband"
+      - "--collector.netclass"
+      - "--collector.tcpstat"
+      - "--no-collector.arp"
+      - "--no-collector.bcache"
+      - "--no-collector.bonding"
+      - "--no-collector.btrfs"
+      - "--no-collector.entropy"
+      - "--no-collector.hwmon"
+      - "--no-collector.ipvs"
+      - "--no-collector.mdadm"
+      - "--no-collector.ntp"
+      - "--no-collector.textfile"
+      - "--no-collector.timex"
+      - "--no-collector.xfs"
+      - "--no-collector.zfs"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+    pid: host
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # ── RabbitMQ broker ─────────────────────────────────────────────────────────
+  # Exchange, queues, bindings, and the nemo_lens user are loaded at boot from
+  # definitions.json (see rabbitmq.conf). Management UI on :15672.
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"          # AMQP
+      - "15672:15672"        # management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./observability/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro,z
+      - ./observability/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro,z
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:
+
+networks:
+  otel-net:
+    driver: bridge
