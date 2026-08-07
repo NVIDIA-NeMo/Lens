@@ -17,10 +17,9 @@
 # flag --feature-gates=exporter.file.nativeCompression for a standard `zstd -dc`-readable file:
 #   otelcol-contrib --config otelcol.yaml --feature-gates=exporter.file.nativeCompression
 
-extensions:
-  health_check:
-    endpoint: 0.0.0.0:13133
-
+# health_check extension removed (H1): its :13133 bind collided with a stale otelcol from a
+# prior array task on the same node and killed the whole run's telemetry (job 382326). It was
+# only used by the reckoner's readiness gate (lens_reckon.sh), which degrades to 'proceed anyway'.
 receivers:
   otlp:
     protocols:
@@ -46,7 +45,6 @@ exporters:
     rotation: {max_megabytes: 500, max_backups: 24, max_days: 7, localtime: true}
 
 service:
-  extensions: [health_check]
   telemetry:
     logs:
       level: warn
