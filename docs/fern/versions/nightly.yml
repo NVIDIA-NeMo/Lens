@@ -57,6 +57,10 @@ navigation:
     contents:
       - page: "Send Telemetry to a Backend"
         path: ../../observability/backends.mdx
+      - page: "Local OTel Collector"
+        path: ../../observability/otel-collector.mdx
+      - page: "SLURM Telemetry Reckoner"
+        path: ../../observability/slurm-telemetry-reckoner.mdx
       - page: "Demo Stack"
         path: ../../observability/stack.mdx
   - section: "Developer Guide"

@@ -1,0 +1,121 @@
+---
+title: "Local OTel Collector"
+description: ""
+position: 3
+---
+
+NeMo Lens emits OTLP. One common destination — especially for **batch / HPC** workloads (e.g. Slurm) where a central collector may be unreachable from compute nodes, or when you want the training job fully decoupled from backend availability — is a **local [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/)** running next to the workload. Lens exports OTLP to `localhost`; the collector receives it, archives it to disk, and (optionally) forwards a subset to a backend.
+
+This page shows that pattern using the upstream `otelcol-contrib` binary. It is one way to consume Lens's OTLP stream, not a prescription — see [Send Telemetry to a Backend](../observability/backends.mdx) for sending directly to a backend instead.
+
+## Why a Local Collector
+
+- **Decoupling.** The workload writes to `localhost` and never blocks on (or fails because of) a remote backend being slow or down.
+- **No egress required.** Compute nodes often cannot reach the internet. Archive locally on each node, then forward later from an egress host.
+- **A durable local artifact.** Each node gets a rotated file you can re-read or replay offline.
+- **One place to route / fan out.** Keep everything on disk and forward only a small, high-value subset live.
+
+```
+Training ranks (per node)
+  │ OTLP  (localhost:4317 gRPC / :4318 HTTP)
+  ▼
+┌─────────────────────────┐
+│  otelcol-contrib (local)│   one per node, co-located with the workload
+└─────────────────────────┘
+  ├─ file  ─► per-node rotated .zst archive (everything)
+  └─ (optional) route a subset ─► your backend
+```
+
+## Get the Binary
+
+Use the **contrib** distribution (`otelcol-contrib`) — it bundles the `file` exporter, the `routing` connector, and the common vendor exporters. Download the release for your architecture from [opentelemetry-collector-releases](https://github.com/open-telemetry/opentelemetry-collector-releases/releases) (e.g. `otelcol-contrib_<ver>_linux_arm64.tar.gz` for Grace/ARM nodes, `linux_amd64` for x86). It is a dependency-free static binary, so it can run bare on a node or be mounted into a container — no image rebuild required.
+
+<Note>
+The `file` exporter's `compression: zstd` writes a standard, `zstd -dc`-readable file **only** when you start the collector with `--feature-gates=exporter.file.nativeCompression`. Without the gate it uses a length-prefixed per-record framing.
+</Note>
+
+## Point Lens at It
+
+Lens builds `OTLPSpanExporter()` with no arguments, so it reads the standard OTel SDK environment variables:
+
+```bash
+export NEMO_LENS_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+export OTEL_EXPORTER_OTLP_INSECURE=true   # local collector is plaintext
+```
+
+## Minimal Collector Config (Archive to Disk)
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc: { endpoint: 0.0.0.0:4317 }
+      http: { endpoint: 0.0.0.0:4318 }
+
+processors:
+  memory_limiter: { check_interval: 1s, limit_mib: 512, spike_limit_mib: 128 }
+  batch: { timeout: 5s, send_batch_size: 8192 }
+
+exporters:
+  file/archive:
+    # Compose a per-node path from env so each node writes its own file:
+    #   path: ${env:ARCHIVE_DIR}/node-${env:HOSTNAME}.jsonl.zst
+    path: /var/telemetry/archive.jsonl.zst
+    format: json
+    compression: zstd
+    rotation: { max_megabytes: 500, max_backups: 24, max_days: 7 }
+
+service:
+  telemetry:
+    logs: { level: warn }
+  pipelines:
+    traces:  { receivers: [otlp], processors: [memory_limiter, batch], exporters: [file/archive] }
+    metrics: { receivers: [otlp], processors: [memory_limiter, batch], exporters: [file/archive] }
+    logs:    { receivers: [otlp], processors: [memory_limiter, batch], exporters: [file/archive] }
+```
+
+Run it, then read the archive:
+
+```bash
+otelcol-contrib --config config.yaml --feature-gates=exporter.file.nativeCompression
+zstd -dc /var/telemetry/archive.jsonl.zst | head
+```
+
+## Running It Next to the Workload
+
+- **One collector per node.** With several ranks per node, gate the collector launch to node-local rank 0 (e.g. `SLURM_LOCALID == 0`) so a single instance binds the port; every rank on the node reaches it at `localhost:4317`.
+- **Same network namespace.** The collector must share the workload's network namespace so `localhost` resolves to it — run it in the same container/pod, or (with runtimes that share the host netns, like enroot's default) bare on the host.
+- **Lifecycle.** Start the collector, give its file exporter a few seconds to come up **before** the first spans arrive (very short jobs can otherwise race the writer's startup), then tear it down gracefully after the workload exits so the final batch flushes.
+- **Binary delivery.** Mount the static binary from a shared filesystem (no image change) for iteration, or bake it into the image for provenance and locality.
+
+## Route a Subset (Optional)
+
+Every Lens span carries `lens.group` and `lens.span_category` (`goodput` / `profiling`) resource/span attributes (see [Span Groups](../user-guide/span-groups.mdx)). With the `routing` connector you can keep the **full** stream on disk while forwarding only the small, high-value `goodput` subset live — useful for bounding cost/volume to an external backend:
+
+```yaml
+connectors:
+  routing:
+    table:
+      - context: span            # copy EVERYTHING to the full archive
+        condition: "true"
+        action: copy
+        pipelines: [traces/all]
+      - context: span            # ALSO copy just the goodput subset elsewhere
+        condition: 'attributes["lens.span_category"] == "goodput"'
+        action: copy
+        pipelines: [traces/goodput]
+```
+
+Wire `traces/goodput` to a second `file` exporter and/or an OTLP exporter pointed at your backend (see [Send Telemetry to a Backend](../observability/backends.mdx)).
+
+<Tip>
+Runnable versions ship in the repo: `tools/otelcol.yaml` is the **sensible default** — one on-disk archive of everything (no routing), env-composed per-node path, rotation. `tools/otelcol_honeycomb.yaml` is a deep-merge overlay that adds the routing connector shown above so a live `goodput` subset also goes to Honeycomb while the full archive is unchanged. Keeping the split in the overlay means the default (disk-only) config stays minimal.
+</Tip>
+
+## Caveats
+
+- The collector is a **buffer and router, not a durable queue.** If loss during a downstream outage is unacceptable, enable the exporter sending queue + persistent-storage extension, or put a real broker (e.g. Kafka) in the middle.
+- **Crash-flush.** A hard workload crash can lose the last unexported batch, but because the SDK streams spans out continuously the collector already holds everything up to the last export — generally more robust than writing your own file from inside the workload.
+- **Volume.** Forwarding *everything* from many nodes to an external backend is a firehose; route a subset (as above) or sample.

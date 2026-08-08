@@ -93,6 +93,14 @@ class NemoLensConfig:
         cls = self._span_group_cls or SpanGroup
         return cls.resolve(self.span_groups)
 
+    @property
+    def span_category_map(self) -> dict:
+        """Resolve the ``{group: category}`` map for the active span-group class."""
+        from nemo.lens.groups import SpanGroup
+
+        cls = self._span_group_cls or SpanGroup
+        return cls.categories()
+
     @classmethod
     def from_env(
         cls,

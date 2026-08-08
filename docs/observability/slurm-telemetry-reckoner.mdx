@@ -1,0 +1,79 @@
+---
+title: "SLURM Telemetry Reckoner"
+description: ""
+position: 4
+---
+
+A training process can only emit spans for what happens *inside* it. Under a batch scheduler like SLURM, a large part of a job's real wall-clock is **outside** the process: time spent queued, the prolog/allocation setup before the first rank starts, the epilog/teardown after the last rank exits, and — across requeues — the gaps *between* attempts. Worse, the in-process job span that *would* cover the allocation never closes on a hard crash (`scancel` SIGKILL, node failure, OOM), so it never exports at all — exactly the runs you most want to see.
+
+The **reckoner** is a small, out-of-band companion job that fills this gap. After the training job has fully torn down, it scrapes the scheduler's final accounting record (`sacct`) and **backdates real Lens spans** onto those out-of-process windows, shipping them to the same backend so they join the run's trace and correlate by scheduler job id / SLUID.
+
+This page describes the pattern generically. A concrete, cluster-specific implementation (scripts, exact wiring) lives alongside the workload that uses it.
+
+## Why Out-of-Band
+
+- **Survives crashes.** The reckoner is a *separate* job, so it runs even when training dies mid-step. The in-process `slurm.job` span can't close on a hard crash; this one always does.
+- **Sees the whole envelope.** Queue wait, setup, teardown, and inter-attempt gaps are invisible to the training process — only the scheduler's accounting knows them.
+- **Authoritative timings.** `sacct` is the system of record for submit / eligible / start / end per attempt. The reckoner reports facts, not the workload's guess.
+- **Same stream, no new backend.** The spans go through the ordinary Lens export path, so they land next to the training spans and correlate by `slurm.job.id` / `slurm.sluid`.
+
+```
+Training job (ranks) ──emits──► in-process Lens spans ──► backend
+        │                                                    ▲
+        │ afterany:<jobid>  (fires on COMPLETE/FAIL/CANCEL)  │ same exporter,
+        ▼                                                    │ correlate by
+Reckoner job (1 task, cpu) ──sacct──► backdated SLURM ───────┘ slurm.sluid
+                                       envelope spans
+```
+
+## How It Works
+
+**1. Run it as an `afterany` dependency.** Submit the reckoner when you submit training, held by `--dependency=afterany:<training_jobid>`. `afterany` fires whether the job completed, failed, or was cancelled — and only *after* the epilog, so `sacct`'s `End` is final.
+
+```bash
+sbatch --dependency=afterany:${TRAIN_JOBID} --partition=<cpu> \
+       --nodes=1 --ntasks=1 reckoner.sbatch ${TRAIN_JOBID}
+```
+
+**2. Inherit the run's exporter config.** Submit with SLURM's default `--export=ALL` so the reckoner inherits the training job's `NEMO_LENS_*` / `OTEL_EXPORTER_OTLP_*` environment. `NemoLensConfig.from_env()` then reproduces the *same* exporter, endpoint, and `service.name` the run used — the reckoner's spans land in the same place with matching resource metadata, no hardcoding. (If the run exports to a [local collector](./otel-collector.mdx), the reckoner launches its own collector with the same config on its cpu node — `localhost:4317` — so the SLURM envelope flows through the identical archive + routing.)
+
+**3. Scrape `sacct` into a factual interval graph.** Pull the accounting rows and group them by **SLUID** — the canonical unique id for one requeue attempt (all rows within an attempt share it, so grouping is exact; no time-window heuristics):
+
+```bash
+sacct -j <jobid> -D -P -n -o SLUID,JobIDRaw,Submit,Eligible,Start,End,State,ExitCode,Reason,Restarts,NNodes,NodeList,JobName
+```
+
+**4. Backdate closed Lens spans onto the windows.** Each span is started at its historical time and ended at a later historical time — the ordinary Lens span cycle with explicit timestamps:
+
+```python
+sp = tracer.start_span(name, start_time=int(start_epoch * 1e9))
+sp.set_attribute("lens.group", "job")
+sp.set_attribute("lens.span_category", "goodput")   # so it hits the goodput route
+sp.end(end_time=int(end_epoch * 1e9))
+```
+
+## The Span Model
+
+Per attempt (SLUID), emit two layers:
+
+**Factual** — one span per real thing `sacct` reports, no clamping or containment assumptions (rows genuinely overlap: an `.extern` can outlive its allocation on a `scancel`):
+
+| Span | Window | Meaning |
+| --- | --- | --- |
+| `slurm.phase.deferred` | Submit → Eligible | hold / backoff (e.g. `BeginTime`) |
+| `slurm.phase.queued` | Eligible → Start | real scheduler / resource wait |
+| `slurm.record.{allocation,batch,extern,step}` | row Start → End | factual rows, may overlap |
+| `slurm.phase.cleanup_tail` | alloc End → max(row End) | trailing teardown (e.g. a node stuck in `CG`) |
+
+**Thin legacy compat** — a simple nested decomposition (`slurm.job` / `slurm.job_setup` / `slurm.step` / `slurm.job_teardown` / `slurm.inter_attempt_gap`) derived honestly from the same rows, so existing consumers keep working while you migrate to the factual model.
+
+<Note>
+Emit the factual spans **flat** (no context nesting). Because `sacct` rows overlap and don't strictly nest, forcing a parent/child tree misrepresents the timing. Let the analysis layer reconstruct nesting; keep the reckoner factual.
+</Note>
+
+## Caveats
+
+- **Wait for a final record.** `afterany` guarantees the reckoner starts only after teardown, so `End` is not `Unknown`. Don't poll `sacct` from inside the training job.
+- **Exclude co-scheduled infra steps.** If you co-schedule an infra step alongside training (e.g. a `--overlap` collector step), tag its `slurm.record.step` as infra and **exclude it from the workload setup/step/teardown boundary math** — an overlap step that outlives the training step would otherwise masquerade as workload time.
+- **Settle the exporter before the first (tiny) batch.** The reckoner emits a handful of spans almost immediately. If it exports to a freshly-launched local collector, give the collector's file exporter a few seconds to come up first — a very short job can otherwise race the writer's startup. (A live training job dodges this only because its first span is tens of seconds out.)
+- **Correlate, don't duplicate.** Stamp `slurm.job.id` / `slurm.sluid` at resource level so these spans join the run's trace. They complement the in-process spans; they don't replace them.

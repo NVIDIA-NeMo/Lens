@@ -24,10 +24,88 @@ from __future__ import annotations
 
 import os
 import random
+import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
+
+
+class _OpenSpanCloser:
+    """Span processor that ends still-open spans on provider shutdown.
+
+    An un-ended span is an UN-exported span: ``BatchSpanProcessor`` only emits a
+    span on ``on_end``, so any span still open when a process dies simply vanishes.
+    That silently drops the long-lived envelope spans -- ``workload``,
+    ``megatron.pretrain``, the per-interval ``megatron.train``, the nvrx restart
+    cycle -- whenever the process exits before ending them (an uncaught exception,
+    a fault-kill). This tracks in-flight spans and, on ``shutdown()``, ends the
+    leftovers so they get exported. Combined with the ``atexit`` hook in
+    ``setup_telemetry``, that recovers them on every graceful exit AND every
+    uncaught exception; only SIGKILL / ``os._exit`` escape.
+
+    Registered BEFORE the ``BatchSpanProcessor`` so that on provider shutdown this
+    runs first: ending a straggler fires ``on_end`` on the batch processor (still
+    live at that point), which queues it, and the batch processor's own shutdown
+    then flushes it out.
+
+    Cheap by construction: telemetry is per-process, so this only ever tracks ONE
+    rank's spans; the set holds only currently-OPEN spans (bounded by nesting
+    depth, not total span count). ``force_flush`` is a deliberate NO-OP -- it must
+    never end live spans, because force_flush runs mid-run (periodic export and the
+    nvrx kill-adjacent flush) to push already-ended spans, not to terminate open
+    ones.
+    """
+
+    def __init__(self) -> None:
+        # Keyed by span_id, NOT the span object: the SDK hands on_start the live
+        # _Span but on_end a ReadableSpan SNAPSHOT (a different object), so a set of
+        # objects would never discard on end and would leak every span. The
+        # SpanContext (hence span_id) is identical across both. The value is the
+        # LIVE span, kept so shutdown() can .end() it.
+        self._open: dict = {}
+        self._lock = threading.Lock()
+        self._closed = False
+
+    @staticmethod
+    def _span_id(span):
+        ctx = getattr(span, "context", None)
+        return getattr(ctx, "span_id", None)
+
+    def on_start(self, span, parent_context=None) -> None:
+        sid = self._span_id(span)
+        if sid is None:
+            return
+        with self._lock:
+            self._open[sid] = span
+
+    def on_end(self, span) -> None:
+        sid = self._span_id(span)
+        if sid is None:
+            return
+        with self._lock:
+            self._open.pop(sid, None)
+
+    def _on_ending(self, span) -> None:  # noqa: ARG002
+        # Called by newer SDKs during span.end() before on_end; nothing to do here.
+        # Present so the multi-processor's _on_ending fan-out doesn't AttributeError.
+        return
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:  # noqa: ARG002
+        return True  # never ends open spans -- force_flush is a mid-run push of ENDED spans
+
+    def shutdown(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            leftovers = list(self._open.values())
+            self._open.clear()
+        for sp in leftovers:
+            try:
+                sp.end()  # -> on_end on the batch processor -> queued -> flushed by its shutdown
+            except Exception:  # noqa: BLE001 -- telemetry must never break the exit path
+                pass
 
 
 class SeedIndependentIdGenerator:
@@ -150,6 +228,10 @@ def build_providers(
             )
 
         tracer_provider = TracerProvider(**kwargs)
+        # Order matters: the closer is registered BEFORE the batch processor so its
+        # shutdown() runs first and ends any still-open spans -> they flow into the
+        # batch queue via on_end -> the batch shutdown then flushes them out.
+        tracer_provider.add_span_processor(_OpenSpanCloser())
         tracer_provider.add_span_processor(BatchSpanProcessor(_span_exporter))
         trace.set_tracer_provider(tracer_provider)
 
@@ -225,7 +307,11 @@ def _build_span_exporter(config: NemoLensConfig):
     if config.exporter == "console":
         from opentelemetry.sdk.trace.export import ConsoleSpanExporter
 
-        return ConsoleSpanExporter()
+        # Default formatter pretty-prints with indent=4, which produces
+        # multi-line records instead of one-JSON-object-per-line (real
+        # JSONL). Emit compact single-line JSON so downstream tooling
+        # (e.g. perfetto conversion) can read these files as plain JSONL.
+        return ConsoleSpanExporter(formatter=lambda span: span.to_json(indent=None) + "\n")
 
     protocol = _resolve_otlp_protocol("traces")
     prefer_http = protocol in ("http/protobuf", "http/json")
@@ -262,7 +348,11 @@ def _build_metric_exporter(config: NemoLensConfig):
     if config.exporter == "console":
         from opentelemetry.sdk.metrics.export import ConsoleMetricExporter
 
-        return ConsoleMetricExporter()
+        # Same rationale as the span exporter above: avoid indent=4 so each
+        # exported metrics batch is a single JSON line.
+        return ConsoleMetricExporter(
+            formatter=lambda metrics_data: metrics_data.to_json(indent=None) + "\n"
+        )
 
     protocol = _resolve_otlp_protocol("metrics")
     prefer_http = protocol in ("http/protobuf", "http/json")

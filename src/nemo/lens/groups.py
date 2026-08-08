@@ -64,8 +64,17 @@ class SpanGroup:
         ]
     )
 
+    #: Groups whose spans are semantic goodput/resiliency boundaries (as opposed
+    #: to fine-grained profiling detail). Single source of truth for BOTH the
+    #: ``"goodput"`` runtime preset and each span's ``lens.span_category``
+    #: attribute. Subclasses override to add library-specific goodput groups.
+    GOODPUT_GROUPS: Final[frozenset] = frozenset(
+        [JOB, CHECKPOINT, EVALUATE, MODEL_INIT, LOAD_CHECKPOINT, STEP]
+    )
+
     _PRESETS: ClassVar[dict] = {
         "default": frozenset([JOB, CHECKPOINT, EVALUATE]),
+        "goodput": GOODPUT_GROUPS,
         "per_step": frozenset(
             [
                 JOB,
@@ -78,8 +87,19 @@ class SpanGroup:
                 OPTIMIZER,
             ]
         ),
+        "profiling": ALL_GROUPS,
         "all": ALL_GROUPS,
     }
+
+    @classmethod
+    def categories(cls) -> dict:
+        """Return the ``{group: category}`` map for every group in ``ALL_GROUPS``.
+
+        A group is ``"goodput"`` if it is in :attr:`GOODPUT_GROUPS`, else
+        ``"profiling"``. Consumed by :func:`~nemo.lens.state.set_group_categories`
+        so every emitted span carries a ``lens.span_category`` attribute.
+        """
+        return {g: ("goodput" if g in cls.GOODPUT_GROUPS else "profiling") for g in cls.ALL_GROUPS}
 
     @classmethod
     def resolve(cls, spec: str) -> frozenset:

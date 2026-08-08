@@ -65,16 +65,23 @@ def span_cm(
     name: str,
     tracer: trace.Tracer | None = None,
     record_exception: bool = True,
+    group: str | None = None,
     **attributes: Any,
 ):
     """Context manager that creates an OTel span for a code block.
 
     Safe to use with no-op tracers.
 
+    Unlike :func:`managed_span`, this does NOT gate on a span group (the caller
+    decides whether to enter). Pass *group* purely so the span still carries the
+    ``lens.group`` / ``lens.span_category`` attributes for offline slicing.
+
     Args:
         name: Span name.
         tracer: OTel tracer. Defaults to the global tracer.
         record_exception: If True, record exceptions as span events.
+        group: Optional span group for ``lens.group``/``lens.span_category``
+            tagging only (no gating).
         **attributes: Key/value pairs set as span attributes.
 
     Yields:
@@ -84,6 +91,13 @@ def span_cm(
         tracer = trace.get_tracer(__name__)
 
     with tracer.start_as_current_span(name, record_exception=record_exception) as span:
+        if group is not None:
+            from nemo.lens.state import category_of
+
+            span.set_attribute("lens.group", group)
+            _category = category_of(group)
+            if _category is not None:
+                span.set_attribute("lens.span_category", _category)
         if attributes:
             safe_set_span_attributes(span, attributes)
         yield span
@@ -102,6 +116,14 @@ def managed_span(
     yielded — no span object is created. When enabled, the span is started,
     its context attached, and always ended in a ``finally`` block.
 
+    Every emitted span is tagged with ``lens.group`` (this group) and
+    ``lens.span_category`` (``goodput``/``profiling``, derived from the group).
+    A span has exactly ONE category. If a code region is *both* a goodput
+    boundary and something you want profiled with depth, do NOT try to make one
+    span serve both — wrap it in two nested spans: an outer goodput-group span
+    (the stable semantic boundary) and an inner profiling-group span (the
+    detail). Two spans, two categories, each cleanly filterable.
+
     Args:
         group: Span group name. If not enabled, this is a zero-overhead no-op.
         name: Span name.
@@ -111,7 +133,7 @@ def managed_span(
     Yields:
         The active Span, or ``None`` when the group is disabled.
     """
-    from nemo.lens.state import is_span_group_enabled
+    from nemo.lens.state import category_of, is_span_group_enabled
 
     if not is_span_group_enabled(group):
         yield None
@@ -124,6 +146,10 @@ def managed_span(
         tracer = trace.get_tracer(__name__)
 
     span = tracer.start_span(name)
+    span.set_attribute("lens.group", group)
+    _category = category_of(group)
+    if _category is not None:
+        span.set_attribute("lens.span_category", _category)
     if attributes:
         safe_set_span_attributes(span, attributes)
     token = otel_ctx.attach(set_span_in_context(span))
@@ -155,12 +181,16 @@ def trace_fn(group: str, name: str, tracer: trace.Tracer | None = None):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            from nemo.lens.state import is_span_group_enabled
+            from nemo.lens.state import category_of, is_span_group_enabled
 
             if not is_span_group_enabled(group):
                 return func(*args, **kwargs)
             t = tracer if tracer is not None else trace.get_tracer("nemo.lens")
-            with t.start_as_current_span(name):
+            with t.start_as_current_span(name) as span:
+                span.set_attribute("lens.group", group)
+                _category = category_of(group)
+                if _category is not None:
+                    span.set_attribute("lens.span_category", _category)
                 return func(*args, **kwargs)
 
         return wrapper

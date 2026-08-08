@@ -1,0 +1,63 @@
+# Example nemo-lens job-local OTel collector -- ONE on-disk archive (the sensible default).
+#
+# Pattern: run ONE instance per node, co-located with the workload (e.g. launched by node-local
+# rank 0, in-container, sharing the host network namespace so ranks reach it at localhost:4317).
+# It receives OTLP from that node's ranks and writes ONE per-node rotated zstd archive of EVERYTHING
+# (spans + metrics + logs). No routing, no subdirectories -- one file per node, simplest thing that
+# works. Any analysis can filter that archive by the span attribute lens.span_category ("goodput" /
+# "profiling") after the fact; the split does NOT need to happen on disk.
+#
+# To ALSO forward a live subset to a backend, layer the Honeycomb overlay (otelcol_honeycomb.yaml)
+# with a second --config: it adds a routing connector that sends only the goodput subset live, WITHOUT
+# changing this disk archive (everything still lands here). Keeping the split in the overlay means the
+# default -- what someone without a backend key runs -- stays dead simple.
+#
+# Per-node path composes from env: export LENS_OTEL_ARCHIVE_DIR (constant) and mkdir it first;
+# SLURMD_NODENAME is set by SLURM per node (use ${env:HOSTNAME} off SLURM). zstd needs the startup
+# flag --feature-gates=exporter.file.nativeCompression for a standard `zstd -dc`-readable file:
+#   otelcol-contrib --config otelcol.yaml --feature-gates=exporter.file.nativeCompression
+
+# health_check extension removed (H1): its :13133 bind collided with a stale otelcol from a
+# prior array task on the same node and killed the whole run's telemetry (job 382326). It was
+# only used by the reckoner's readiness gate (lens_reckon.sh), which degrades to 'proceed anyway'.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317   # ranks -> localhost:4317 (host netns shared under enroot)
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+  batch:
+    timeout: 5s
+    send_batch_size: 8192
+
+exporters:
+  file/archive:
+    path: ${env:LENS_OTEL_ARCHIVE_DIR}/node-${env:SLURMD_NODENAME}.jsonl.zst
+    format: json
+    compression: zstd
+    rotation: {max_megabytes: 500, max_backups: 24, max_days: 7, localtime: true}
+
+service:
+  telemetry:
+    logs:
+      level: warn
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [file/archive]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [file/archive]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [file/archive]

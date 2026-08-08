@@ -51,6 +51,31 @@ def is_span_group_enabled(group: str) -> bool:
     return group in _ENABLED_GROUPS
 
 
+_GROUP_CATEGORIES: dict = {}
+
+
+def set_group_categories(mapping: dict) -> None:
+    """Register the span-group -> category map (e.g. ``{"checkpoint": "goodput"}``).
+
+    Called once from :func:`~nemo.lens.handle.setup_telemetry`, populated from
+    the config's span-group class. Categories let a full-depth ``all`` run be
+    sliced offline into ``goodput`` (semantic boundaries) vs ``profiling``
+    (fine-grained detail) via the ``lens.span_category`` span attribute.
+    """
+    global _GROUP_CATEGORIES
+    with _LOCK:
+        _GROUP_CATEGORIES = dict(mapping)
+
+
+def category_of(group: str) -> str | None:
+    """Return the category (``"goodput"``/``"profiling"``) for *group*, or None.
+
+    Returns None before :func:`set_group_categories` is called or for groups
+    with no registered category.
+    """
+    return _GROUP_CATEGORIES.get(group)
+
+
 _PP_TRACE_CARRIER: dict | None = None
 
 
