@@ -28,6 +28,7 @@ from opentelemetry.trace import NoOpTracerProvider
 from nemo.lens.config import NemoLensConfig
 from nemo.lens.providers import (
     SeedIndependentIdGenerator,
+    _OpenSpanCloser,
     build_noop_providers,
     build_providers,
 )
@@ -344,3 +345,88 @@ class TestConsoleExporterJsonl:
         assert formatted.endswith("\n")
         assert "\n" not in formatted[:-1]
         assert json.loads(formatted)["name"] == "formatted"
+
+class TestOpenSpanCloser:
+    """A span left open when the process exits must still be exported.
+
+    ``BatchSpanProcessor`` emits only on ``on_end``, so without this processor a
+    span that is never ended is never exported at all.
+    """
+
+    @staticmethod
+    def _provider(exporter, closer=None):
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+
+        provider = TracerProvider(shutdown_on_exit=False)
+        provider.add_span_processor(closer if closer is not None else _OpenSpanCloser())
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        return provider
+
+    def test_open_span_is_exported_on_shutdown(self):
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+        exporter = InMemorySpanExporter()
+        provider = self._provider(exporter)
+        span = provider.get_tracer("test").start_span("never_ended")  # still in scope
+        assert span.end_time is None
+
+        assert exporter.get_finished_spans() == ()
+        provider.shutdown()
+
+        assert [s.name for s in exporter.get_finished_spans()] == ["never_ended"]
+
+    def test_force_flush_does_not_end_open_spans(self):
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+        exporter = InMemorySpanExporter()
+        provider = self._provider(exporter)
+        span = provider.get_tracer("test").start_span("still_running")
+
+        provider.force_flush()
+
+        assert exporter.get_finished_spans() == ()
+        assert span.end_time is None
+
+    def test_already_ended_spans_are_not_re_exported(self):
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+        exporter = InMemorySpanExporter()
+        provider = self._provider(exporter)
+        provider.get_tracer("test").start_span("done").end()
+        provider.shutdown()
+
+        assert [s.name for s in exporter.get_finished_spans()] == ["done"]
+
+    def test_children_are_ended_before_their_parents(self):
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+        provider = self._provider(InMemorySpanExporter())
+        tracer = provider.get_tracer("test")
+        parent = tracer.start_span("parent")
+        child = tracer.start_span("child", context=trace.set_span_in_context(parent))
+        provider.shutdown()
+
+        assert child.end_time <= parent.end_time
+
+    def test_abandoned_spans_are_still_closed(self):
+        """A span the caller dropped without ending is the main thing this catches.
+
+        Nothing else holds it, so the application can no longer end it; closing it
+        at shutdown is what keeps the work it recorded (and the leak itself)
+        visible instead of silently dropping both.
+        """
+        import gc
+
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+        exporter = InMemorySpanExporter()
+        provider = self._provider(exporter)
+        tracer = provider.get_tracer("test")
+
+        for i in range(10):
+            tracer.start_span(f"abandoned_{i}")  # dropped immediately, never ended
+        gc.collect()
+        provider.shutdown()
+
+        assert len(exporter.get_finished_spans()) == 10
