@@ -44,6 +44,7 @@ class TelemetryHandle:
         self._tracer = tracer
         self._meter = meter
         self.is_exporting = is_exporting
+        self._shutdown_done = False
 
     @property
     def tracer(self) -> trace.Tracer:
@@ -54,7 +55,15 @@ class TelemetryHandle:
         return self._meter
 
     def shutdown(self, timeout_ms: int = 5000) -> None:
-        """Flush pending spans/metrics and shut down providers."""
+        """Flush pending spans/metrics and shut down providers.
+
+        Idempotent: called explicitly by the app on its terminal paths AND from an
+        atexit hook (so an uncaught exception in any process still flushes), so it
+        must be safe to run twice. The tracer_provider.shutdown() runs the
+        _OpenSpanCloser first, ending any still-open spans so they export."""
+        if self._shutdown_done:
+            return
+        self._shutdown_done = True
         tracer_provider = trace.get_tracer_provider()
         if hasattr(tracer_provider, "force_flush"):
             tracer_provider.force_flush(timeout_millis=timeout_ms)
@@ -162,4 +171,16 @@ def setup_telemetry(
 
     tracer = trace.get_tracer(_INSTRUMENTATION_SCOPE)
     meter = metrics.get_meter(_INSTRUMENTATION_SCOPE)
-    return TelemetryHandle(tracer=tracer, meter=meter, is_exporting=_is_exporting)
+    handle = TelemetryHandle(tracer=tracer, meter=meter, is_exporting=_is_exporting)
+
+    # Last-resort flush: an uncaught exception (or a plain return that forgot to
+    # shut down) still ends+exports open spans via the _OpenSpanCloser. atexit runs
+    # on normal interpreter exit and after an uncaught exception unwinds -- NOT on
+    # SIGKILL, os._exit, or a default-disposition SIGTERM (those are covered by the
+    # app's explicit signal handlers, which also call handle.shutdown()). shutdown()
+    # is idempotent, so this never double-flushes.
+    if _is_exporting:
+        import atexit
+
+        atexit.register(handle.shutdown)
+    return handle
