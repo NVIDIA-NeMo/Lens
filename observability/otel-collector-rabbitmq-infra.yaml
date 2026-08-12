@@ -1,0 +1,137 @@
+# OpenTelemetry Collector configuration — RabbitMQ sink, full infra coverage.
+#
+# Same RabbitMQ publishing path as otel-collector-rabbitmq.yaml, but the
+# metrics pipeline is enriched with host + GPU + network telemetry that the
+# training process does not emit itself:
+#
+#   OTLP (app) ─┐
+#   hostmetrics ─┤
+#   DCGM (GPU)  ─┼─► batch ─► rabbitmq exporter ─► exchange nemo_lens.otel.raw
+#   node (IB)   ─┘
+#
+# The extra receivers require the sidecars in docker-compose.rabbitmq+infra.yml
+# (dcgm-exporter, node-exporter) and the host /proc + /sys mounts on this
+# collector. For app-telemetry-only, use otel-collector-rabbitmq.yaml instead.
+#
+# Wire format: OTLP-JSON (see the otlp_encoding extension below).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # ── Host metrics: CPU, memory, disk, network, load ──────────────────
+  hostmetrics:
+    root_path: /hostfs
+    collection_interval: 10s
+    scrapers:
+      cpu:
+      memory:
+      disk:
+      network:
+      load:
+      filesystem:
+      processes:
+      paging:
+
+  # ── GPU metrics via DCGM Exporter (sidecar) ────────────────────────
+  prometheus/dcgm:
+    config:
+      scrape_configs:
+        - job_name: dcgm
+          scrape_interval: 10s
+          static_configs:
+            - targets: ["dcgm-exporter:9400"]
+
+  # ── InfiniBand / network metrics via Node Exporter (sidecar) ───────
+  prometheus/node:
+    config:
+      scrape_configs:
+        - job_name: node
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["node-exporter:9100"]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: "^(node_infiniband_|node_network_|node_nfs_|node_sockstat_|node_tcp_).*"
+              action: keep
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 5s
+    override: false
+
+  batch/traces:
+    timeout: 10s
+    send_batch_size: 512
+
+  batch/metrics:
+    timeout: 30s
+    send_batch_size: 1024
+
+  batch/logs:
+    timeout: 10s
+    send_batch_size: 512
+
+exporters:
+  # ── Traces + Metrics + Logs → RabbitMQ ─────────────────────────────
+  # Identical to otel-collector-rabbitmq.yaml. Credentials must match the
+  # nemo_lens user seeded by definitions.json.
+  rabbitmq/default:
+    connection:
+      endpoint: amqp://rabbitmq:5672
+      auth:
+        plain:
+          username: nemo_lens
+          password: example
+    routing:
+      exchange: nemo_lens.otel.raw
+    encoding_extension: otlp_encoding/rabbitmq
+    durable: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 5m
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  # Marshals exported telemetry as OTLP-JSON before publishing to RabbitMQ.
+  otlp_encoding/rabbitmq:
+    protocol: otlp_json
+
+service:
+  # The encoding extension must be enabled here for the exporter to find it.
+  extensions: [health_check, otlp_encoding/rabbitmq]
+
+  telemetry:
+    logs:
+      level: info
+
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch/traces]
+      exporters: [rabbitmq/default]
+
+    # App OTLP metrics + host + GPU (DCGM) + network (node-exporter).
+    metrics:
+      receivers: [otlp, hostmetrics, prometheus/dcgm, prometheus/node]
+      processors: [memory_limiter, resourcedetection, batch/metrics]
+      exporters: [rabbitmq/default]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch/logs]
+      exporters: [rabbitmq/default]
