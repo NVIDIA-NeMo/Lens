@@ -44,6 +44,7 @@ class TelemetryHandle:
         self._tracer = tracer
         self._meter = meter
         self.is_exporting = is_exporting
+        self._shutdown_done = False
 
     @property
     def tracer(self) -> trace.Tracer:
@@ -54,7 +55,13 @@ class TelemetryHandle:
         return self._meter
 
     def shutdown(self, timeout_ms: int = 5000) -> None:
-        """Flush pending spans/metrics and shut down providers."""
+        """Flush pending spans/metrics and shut down providers.
+
+        Idempotent: callers may invoke this from more than one terminal path.
+        """
+        if self._shutdown_done:
+            return
+        self._shutdown_done = True
         tracer_provider = trace.get_tracer_provider()
         if hasattr(tracer_provider, "force_flush"):
             tracer_provider.force_flush(timeout_millis=timeout_ms)

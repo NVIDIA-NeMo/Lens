@@ -22,12 +22,87 @@ code paths that never reach this module.
 
 from __future__ import annotations
 
+import logging
 import os
 import random
+import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
+
+
+class _OpenSpanCloser:
+    """Span processor that ends still-open spans on provider shutdown.
+
+    ``BatchSpanProcessor`` only emits a span on ``on_end``, so a span still open
+    when the process exits is never exported -- which silently drops exactly the
+    long-lived spans that wrap a whole run. This tracks in-flight spans and ends
+    the leftovers on shutdown.
+
+    Must be registered BEFORE the ``BatchSpanProcessor``: processors shut down in
+    registration order, so ending a straggler here still reaches a live batch
+    processor via ``on_end``, and its own shutdown then flushes the queue.
+
+    ``force_flush`` is deliberately a no-op -- it runs mid-run to push already
+    ended spans and must not terminate live ones.
+    """
+
+    def __init__(self) -> None:
+        # Keyed by span_id, not the span object: on_start receives the live _Span
+        # but on_end a ReadableSpan snapshot, so an object-keyed set would never
+        # discard.
+        #
+        # The reference is deliberately strong. A span nothing else refers to is
+        # precisely the one the application can no longer end itself, so it is
+        # what this exists to close. Holding it keeps it out of the collector
+        # until shutdown (~3 KB each), which only accumulates if a caller leaks
+        # spans -- and then the leak becomes visible in the trace rather than
+        # silently disappearing.
+        self._open: dict = {}
+        self._lock = threading.Lock()
+        self._closed = False
+
+    @staticmethod
+    def _span_id(span) -> int | None:
+        ctx = span.context
+        return ctx.span_id if ctx is not None else None
+
+    def on_start(self, span, parent_context=None) -> None:
+        sid = self._span_id(span)
+        if sid is None:
+            return
+        with self._lock:
+            self._open[sid] = span
+
+    def on_end(self, span) -> None:
+        sid = self._span_id(span)
+        if sid is None:
+            return
+        with self._lock:
+            self._open.pop(sid, None)
+
+    def _on_ending(self, span) -> None:
+        # Required under duck-typing: SynchronousMultiSpanProcessor._on_ending
+        # fans out to every processor without a hasattr guard.
+        return
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return True
+
+    def shutdown(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            leftovers = list(self._open.values())
+            self._open.clear()
+        # Innermost first, so a child never outlives the parent it is nested in.
+        for sp in reversed(leftovers):
+            try:
+                sp.end()
+            except Exception:  # telemetry must never break the exit path
+                logging.getLogger(__name__).debug("Failed to end span on shutdown", exc_info=True)
 
 
 class SeedIndependentIdGenerator:
@@ -150,6 +225,10 @@ def build_providers(
             )
 
         tracer_provider = TracerProvider(**kwargs)
+        # Order matters: the closer is registered BEFORE the batch processor so its
+        # shutdown() runs first and ends any still-open spans -> they flow into the
+        # batch queue via on_end -> the batch shutdown then flushes them out.
+        tracer_provider.add_span_processor(_OpenSpanCloser())
         tracer_provider.add_span_processor(BatchSpanProcessor(_span_exporter))
         trace.set_tracer_provider(tracer_provider)
 
