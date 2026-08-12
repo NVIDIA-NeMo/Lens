@@ -36,3 +36,6 @@ Thumbs.db
 
 # Local env (secrets like WANDB_API_KEY for docker-compose)
 .env
+
+# Claude Code — shared config is committed; per-developer overrides are not
+.claude/settings.local.json
