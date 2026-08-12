@@ -98,10 +98,21 @@ See [Logging Bridge](../user-guide/logging-bridge.mdx).
 
 The collector fans out with minimal overhead. A common pattern is to route one OTLP stream from the application to the collector, and then configure the collector to export to two backends (such as W&B Weave for trace visualization and Prometheus for alerting). The application exports once, while the plumbing remains in the collector configuration.
 
+## Account for Spans Truncated at Shutdown
+
+A span that is still open when `handle.shutdown()` runs is force-closed so that it is exported instead of dropped. This is what makes a run-scoped span that wraps the entire job appear in your backend at all.
+
+The end timestamp of such a span is the shutdown time, not the time the work finished. For a span that the application abandoned early in a long run, the recorded duration is wrong by however long the run continued afterward. Every force-closed span carries the `nemo.span.truncated` attribute set to `true` and an event named `nemo.span.truncated`.
+
+Exclude `nemo.span.truncated` spans from duration percentiles and latency alerts, or chart them separately. Treat a steady stream of them as a bug in the instrumented code: a span that the application never ends is a leak, and truncation only makes the leak visible.
+
+Spans are recovered on a graceful exit and on an uncaught exception. A process terminated by `SIGKILL`, or by a `SIGTERM` with no handler, still loses them. Install a `SIGTERM` handler that calls `handle.shutdown()` to close that gap.
+
 ## Complete Pre-Live Checks
 
 - [ ] Call `setup_telemetry` exactly once at process startup.
 - [ ] Ensure `handle.shutdown()` runs in a `finally` block so that traces flush during process exit.
+- [ ] Exclude spans carrying `nemo.span.truncated` from duration percentiles and latency alerts.
 - [ ] Verify that `nemo.run.id` is configured or automatically derived and visible in your dashboards.
 - [ ] Confirm that Jaeger, Grafana, or your specific backend can filter query results by `nemo.run.id`.
 - [ ] Test connection reachability to the OTLP endpoint using `curl` from a training host.

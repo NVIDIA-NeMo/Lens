@@ -208,3 +208,42 @@ class TestTelemetryHandleShutdown:
         handle = setup_telemetry(cfg, rank=0, world_size=1)
         handle.shutdown(timeout_ms=100)
         handle.shutdown(timeout_ms=100)
+
+    def test_second_shutdown_does_not_touch_the_providers_again(self, monkeypatch):
+        """Idempotence has to be observable, not just "does not raise".
+
+        A second pass would force-flush and shut down providers that are already
+        down -- and, with the open-span closer registered, would give a second
+        sweep a chance to end spans started after the first shutdown.
+        """
+        from opentelemetry import metrics, trace
+
+        calls = []
+
+        class _RecordingProvider:
+            def __init__(self, label):
+                self._label = label
+
+            def force_flush(self, timeout_millis=None):
+                calls.append(f"{self._label}.force_flush")
+                return True
+
+            def shutdown(self):
+                calls.append(f"{self._label}.shutdown")
+
+        cfg = NemoLensConfig(enabled=False)
+        handle = setup_telemetry(cfg, rank=0, world_size=1)
+        monkeypatch.setattr(trace, "get_tracer_provider", lambda: _RecordingProvider("tracer"))
+        monkeypatch.setattr(metrics, "get_meter_provider", lambda: _RecordingProvider("meter"))
+
+        handle.shutdown(timeout_ms=100)
+        assert calls == [
+            "tracer.force_flush",
+            "tracer.shutdown",
+            "meter.force_flush",
+            "meter.shutdown",
+        ]
+
+        calls.clear()
+        handle.shutdown(timeout_ms=100)
+        assert calls == []

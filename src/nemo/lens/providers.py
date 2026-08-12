@@ -28,6 +28,8 @@ import random
 import threading
 from typing import TYPE_CHECKING
 
+from nemo.lens.semconv import NEMO_SPAN_TRUNCATED
+
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
 
@@ -40,12 +42,24 @@ class _OpenSpanCloser:
     long-lived spans that wrap a whole run. This tracks in-flight spans and ends
     the leftovers on shutdown.
 
-    Must be registered BEFORE the ``BatchSpanProcessor``: processors shut down in
+    Must be registered BEFORE the ``BatchSpanProcessor``: ``TracerProvider``'s
+    default ``SynchronousMultiSpanProcessor`` shuts its children down in
     registration order, so ending a straggler here still reaches a live batch
-    processor via ``on_end``, and its own shutdown then flushes the queue.
+    processor via ``on_end``, and its own shutdown then flushes the queue. This
+    ordering is the whole design, and it does NOT hold for
+    ``ConcurrentMultiSpanProcessor``, whose ``shutdown`` runs in parallel -- do
+    not swap the provider's ``active_span_processor`` for that one.
+
+    A force-closed span carries ``nemo.span.truncated`` and a matching event: its
+    end time is the shutdown time, not the true end, and a consumer must be able
+    to tell the difference.
 
     ``force_flush`` is deliberately a no-op -- it runs mid-run to push already
     ended spans and must not terminate live ones.
+
+    Duck-typed rather than subclassing ``opentelemetry.sdk.trace.SpanProcessor``
+    (same as :class:`SeedIndependentIdGenerator`) so this module stays importable
+    without the SDK installed -- every SDK import here is function-local.
     """
 
     def __init__(self) -> None:
@@ -62,6 +76,25 @@ class _OpenSpanCloser:
         self._open: dict = {}
         self._lock = threading.Lock()
         self._closed = False
+        # A forked child inherits BOTH halves of this state and both are wrong there:
+        #   * `_open` holds the PARENT's in-flight spans, with span IDs assigned before
+        #     the fork. The SDK's BatchProcessor reinstalls itself at fork, so the
+        #     child's exporter is live and would re-export every one of them under the
+        #     parent's IDs with a fabricated end time -- once per child.
+        #   * `_lock` is inherited in whatever state it had at fork time. A lock held by
+        #     another thread when fork() ran is inherited HELD and never released,
+        #     because that thread does not exist in the child; the next on_start would
+        #     block forever.
+        # The SDK models the fix in BatchProcessor._at_fork_reinit: drop inherited
+        # state, recreate the lock.
+        os.register_at_fork(after_in_child=self._reset_after_fork)
+
+    def _reset_after_fork(self) -> None:
+        # Runs single-threaded in the child, immediately after fork. Never acquire
+        # the inherited lock -- it may be held by a thread that no longer exists.
+        self._lock = threading.Lock()
+        self._open = {}
+        self._closed = False
 
     @staticmethod
     def _span_id(span) -> int | None:
@@ -73,6 +106,11 @@ class _OpenSpanCloser:
         if sid is None:
             return
         with self._lock:
+            # After shutdown nothing will ever sweep `_open` again, so tracking a span
+            # started past that point only leaks it. Matters for the documented
+            # `finally: handle.shutdown()` pattern, where work can outlive the handle.
+            if self._closed:
+                return
             self._open[sid] = span
 
     def on_end(self, span) -> None:
@@ -92,13 +130,28 @@ class _OpenSpanCloser:
 
     def shutdown(self) -> None:
         with self._lock:
-            if self._closed:
-                return
+            # `_closed` makes shutdown idempotent by keeping on_start from repopulating
+            # `_open`; a second call then finds it empty and sweeps nothing. An early
+            # return here on top of that would be an unreachable branch.
             self._closed = True
             leftovers = list(self._open.values())
             self._open.clear()
         # Innermost first, so a child never outlives the parent it is nested in.
         for sp in reversed(leftovers):
+            try:
+                # Mark before ending: the end time is the shutdown time, not when the
+                # work finished. For a span abandoned early in a long run the duration
+                # is wrong by hours, and a consumer has no other way to know that.
+                # Deliberately NOT StatusCode.ERROR: the motivating case is a healthy
+                # run-scoped span the application never ends, and flagging every such
+                # run as failed would be its own kind of wrong number.
+                sp.set_attribute(NEMO_SPAN_TRUNCATED, True)
+                sp.add_event(
+                    "nemo.span.truncated",
+                    {"nemo.span.truncated.reason": "still open at telemetry shutdown"},
+                )
+            except Exception:  # telemetry must never break the exit path
+                logging.getLogger(__name__).debug("Failed to mark span truncated", exc_info=True)
             try:
                 sp.end()
             except Exception:  # telemetry must never break the exit path
