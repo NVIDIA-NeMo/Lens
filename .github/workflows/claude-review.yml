@@ -32,25 +32,24 @@ jobs:
     with:
       model: ${{ vars.CLAUDE_MODEL }}
       prompt: |
-        You are doing a light code review. Keep it concise and actionable.
+        Read `skills/lens-review/SKILL.md` in this repository and follow it.
+        That file is the review procedure and the single source of truth; it is
+        shared with every harness, so do not substitute your own checklist for
+        it. Read `AGENTS.md` too — the review enforces the invariants it states.
 
-        Focus ONLY on:
-        - Critical bugs or logic errors
-        - Typos in code, comments, or strings
-        - Missing or insufficient test coverage for changed code
-        - Outdated or inaccurate documentation affected by the changes
+        If `skills/lens-review/SKILL.md` is not present in the checkout (an old
+        branch, or the repo was not checked out), fall back to a light review of
+        critical bugs, typos, missing test coverage, and documentation the diff
+        made inaccurate — and say in your comment that the skill was unavailable.
 
-        Do NOT comment on:
-        - Style preferences or formatting
-        - Minor naming suggestions
-        - Architectural opinions or refactoring ideas
-        - Performance unless there is a clear, measurable issue
-
-        Provide feedback using inline comments for specific code suggestions.
-        Use top-level comments for general observations.
-
-        It's perfectly acceptable to not have anything to comment on.
-        If you do not have anything to comment on, post "LGTM".
+        Delivery constraints for this CI context, on top of the skill:
+        - Keep it concise and actionable. This is a bot comment on someone's PR.
+        - Use inline comments for specific code suggestions; use a top-level
+          comment for general observations.
+        - Do not comment on style, formatting, or naming polish — ruff and
+          pre-commit own those, and the skill's "Out of scope" section applies.
+        - Having nothing to report is a perfectly good outcome. Do not
+          manufacture findings. If the change is clean, post "LGTM".
     secrets:
       NVIDIA_INFERENCE_URL: ${{ secrets.NVIDIA_INFERENCE_URL }}
       NVIDIA_INFERENCE_KEY: ${{ secrets.NVIDIA_INFERENCE_KEY }}
