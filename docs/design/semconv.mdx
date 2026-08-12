@@ -100,6 +100,7 @@ Use project-specific namespaces for attributes that apply to one consumer rather
 
 - `nemo.run.id` — unique run identifier, shared across all ranks
 - `nemo.user.id` — optional team/user label
+- `nemo.span.truncated` — optional; set to `true` only on a span that was still open at telemetry shutdown and was force-closed. Its end timestamp is the shutdown time, not the time the work finished, so exclude these spans from duration statistics. Absent on every normally ended span. See [Production](../user-guide/production.mdx).
 
 ### Environment Namespaces
 

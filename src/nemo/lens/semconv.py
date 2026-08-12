@@ -126,6 +126,10 @@ SLURM_CLUSTER_NAME = "slurm.cluster.name"
 NEMO_RUN_ID = "nemo.run.id"
 NEMO_USER_ID = "nemo.user.id"
 
+# Set on a span that was still open at telemetry shutdown and was force-closed:
+# its end time is the shutdown time, not when the work actually finished.
+NEMO_SPAN_TRUNCATED = "nemo.span.truncated"
+
 # ------------------------------------------------------------------ #
 # W&B Weave (wandb.*)
 # ------------------------------------------------------------------ #
