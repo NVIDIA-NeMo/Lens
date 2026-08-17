@@ -155,13 +155,20 @@ def trace_fn(group: str, name: str, tracer: trace.Tracer | None = None):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            from opentelemetry.trace import StatusCode
+
             from nemo.lens.state import is_span_group_enabled
 
             if not is_span_group_enabled(group):
                 return func(*args, **kwargs)
             t = tracer if tracer is not None else trace.get_tracer("nemo.lens")
-            with t.start_as_current_span(name):
-                return func(*args, **kwargs)
+            with t.start_as_current_span(name) as span:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as exc:
+                    span.record_exception(exc)
+                    span.set_status(StatusCode.ERROR, str(exc))
+                    raise
 
         return wrapper
 
