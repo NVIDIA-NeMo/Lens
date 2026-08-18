@@ -8,7 +8,7 @@ Bug reports, feature requests, and questions are tracked on the [GitHub issues p
 
 ## Development Setup
 
-Requires Python 3.13+.
+Requires Python 3.12+.
 
 ```bash
 git clone https://github.com/NVIDIA-NeMo/Lens.git

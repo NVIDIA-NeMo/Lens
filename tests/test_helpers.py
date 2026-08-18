@@ -162,3 +162,18 @@ class TestTraceFn:
         spans = exporter.get_finished_spans()
         assert len(spans) == 1
         assert spans[0].name == "test.fn"
+
+    def test_exception_recorded(self, tracer_and_exporter):
+        tracer, exporter = tracer_and_exporter
+        set_enabled_span_groups(frozenset(["step"]))
+
+        @trace_fn("step", "test.fn.fail", tracer=tracer)
+        def my_func():
+            raise ValueError("boom")
+
+        with pytest.raises(ValueError, match="boom"):
+            my_func()
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+        assert spans[0].status.status_code.name == "ERROR"
