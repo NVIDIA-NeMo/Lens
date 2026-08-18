@@ -15,13 +15,19 @@
 
 """Unit tests for provider construction."""
 
+import os
+
 import pytest
 from opentelemetry import metrics, trace
 from opentelemetry.metrics import NoOpMeterProvider
 from opentelemetry.trace import NoOpTracerProvider
 
 from nemo.lens.config import NemoLensConfig
-from nemo.lens.providers import build_noop_providers, build_providers
+from nemo.lens.providers import (
+    SeedIndependentIdGenerator,
+    build_noop_providers,
+    build_providers,
+)
 
 
 class TestBuildNoopProviders:
@@ -156,3 +162,77 @@ class TestOtlpProtocolSelection:
 
         cfg = NemoLensConfig(enabled=True, exporter="otlp")
         assert isinstance(_build_metric_exporter(cfg), GrpcMetric)
+
+
+class TestSeedIndependentIds:
+    def test_trace_and_span_ids_survive_identical_random_seed(self):
+        """Data-parallel ranks seed Python's `random` identically, which makes OTel's
+        default RandomIdGenerator emit the SAME span/trace IDs on every rank. The
+        provider must use a seed-independent generator so IDs stay unique."""
+        import random
+
+        cfg = NemoLensConfig(enabled=True, exporter="console")
+        build_providers(cfg, rank=0, world_size=1)
+        id_generator = trace.get_tracer_provider().id_generator
+
+        state = random.getstate()  # don't leak a deterministic global RNG into later tests
+        try:
+            random.seed(1234)  # what training frameworks do identically across DP ranks
+            first = (id_generator.generate_trace_id(), id_generator.generate_span_id())
+            random.seed(1234)
+            second = (id_generator.generate_trace_id(), id_generator.generate_span_id())
+        finally:
+            random.setstate(state)
+
+        assert first != second
+
+    def test_ids_are_in_range_and_never_invalid(self):
+        gen = SeedIndependentIdGenerator()
+        for _ in range(100):
+            trace_id = gen.generate_trace_id()
+            span_id = gen.generate_span_id()
+            assert 0 < trace_id < 2**128
+            assert 0 < span_id < 2**64
+
+    def test_declares_random_trace_id(self):
+        """W3C Trace Context L2 `random-trace-id` flag: OTel's own generator sets it, and
+        dropping it forces downstream consistent-probability sampling onto its fallback."""
+        assert SeedIndependentIdGenerator().is_trace_id_random() is True
+
+    def test_spans_carry_the_random_trace_id_flag(self):
+        from opentelemetry.trace import TraceFlags
+
+        cfg = NemoLensConfig(enabled=True, exporter="console")
+        build_providers(cfg, rank=0, world_size=1)
+
+        tracer = trace.get_tracer("test")
+        with tracer.start_as_current_span("root") as span:
+            assert span.get_span_context().trace_flags & TraceFlags.RANDOM_TRACE_ID
+
+    @pytest.mark.skipif(not hasattr(os, "fork"), reason="requires os.fork()")
+    def test_ids_differ_across_forked_children(self):
+        """CPython reseeds only the GLOBAL random module at fork, so a private
+        random.Random() would hand every forked child (dataloader workers, Pool)
+        the same state and the same IDs -- the collision this generator prevents."""
+        gen = SeedIndependentIdGenerator()
+
+        read_fds = []
+        for _ in range(3):
+            read_fd, write_fd = os.pipe()
+            if os.fork() == 0:  # child
+                try:
+                    os.close(read_fd)
+                    os.write(write_fd, f"{gen.generate_trace_id():032x}".encode())
+                finally:
+                    os._exit(0)  # never unwind pytest's stack in the child
+            os.close(write_fd)
+            read_fds.append(read_fd)
+
+        ids = []
+        for read_fd in read_fds:
+            ids.append(os.read(read_fd, 32).decode())
+            os.close(read_fd)
+        for _ in read_fds:
+            os.wait()
+
+        assert len(set(ids)) == len(ids), f"forked children shared trace IDs: {ids}"
