@@ -37,6 +37,9 @@ NeMo Lens ships `nemo.lens.fallbacks` with canonical no-op implementations of ev
 - `span_cm(name, **kwargs)` → context manager yielding `None`
 - `is_span_group_enabled(group)` → always `False`
 - `safe_set_span_attributes(span, attributes, redact_keys=None)` → no-op
+- `SpanRegistry` → accepts registrations and forgets them; `groups()` is always empty and `resolve(spec)` returns `(frozenset(), <every spec entry>)`
+
+`SpanRegistry` is on this list because a consuming library calls `SpanRegistry.register(...)` at import time to declare the span groups it emits, and that call has to keep working when NeMo Lens is absent.
 
 When NeMo Lens is installed, consumers can re-export these:
 
@@ -44,8 +47,8 @@ When NeMo Lens is installed, consumers can re-export these:
 # <project>/telemetry/_fallbacks.py
 try:
     from nemo.lens.fallbacks import (
-        is_span_group_enabled, managed_span, safe_set_span_attributes,
-        span_cm, trace_fn,
+        SpanRegistry, is_span_group_enabled, managed_span,
+        safe_set_span_attributes, span_cm, trace_fn,
     )
 except ImportError:
     from contextlib import contextmanager
@@ -78,13 +81,13 @@ Shipping canonical no-ops in `nemo.lens.fallbacks` eliminates the drift: consume
 
 ## Signature Compatibility
 
-The fallback signatures must match the real API exactly. If `managed_span` adds a new keyword argument, `fallbacks.py` must add it too (ignoring it is fine, because it is a no-op). Tests catch this; `lens/tests/test_fallbacks.py` exercises every fallback to verify signature compatibility.
+The fallback signatures must match the real API exactly. If `managed_span` adds a new keyword argument, or a `SpanRegistry` method changes shape, `fallbacks.py` must match (ignoring the value is fine, because it is a no-op). Tests catch this; `lens/tests/test_fallbacks.py` exercises every fallback to verify signature compatibility.
 
 ## What Consumers Can Use without ImportError Fallbacks
 
 Anything under `nemo.lens.fallbacks` has a guaranteed no-op equivalent. Anything else does not.
 
-The following are safe to use with fallbacks: `managed_span`, `trace_fn`, `span_cm`, `is_span_group_enabled`, and `safe_set_span_attributes`.
+The following are safe to use with fallbacks: `managed_span`, `trace_fn`, `span_cm`, `is_span_group_enabled`, `safe_set_span_attributes`, and `SpanRegistry`.
 
 The following require NeMo Lens to be installed: `NemoLensConfig`, `setup_telemetry`, `TelemetryHandle`, `inject_context`, `extract_context`, `broadcast_trace_context`, `create_linked_span`, all of `contrib/`, and all of `instruments/`.
 

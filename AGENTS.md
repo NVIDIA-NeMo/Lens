@@ -48,8 +48,8 @@ src/nemo/lens/
 ├── config.py          NemoLensConfig + from_env()
 ├── handle.py          setup_telemetry(), TelemetryHandle, double-init guard
 ├── providers.py       ONLY module allowed to import opentelemetry.sdk.*
-├── groups.py          SpanGroup base class + presets
-├── state.py           enabled-group frozenset; the hot-path gate
+├── groups.py          SpanRegistry — consumers declare the groups they emit
+├── state.py           span-group spec + enabled frozenset; the hot-path gate
 ├── helpers.py         span_cm, managed_span, trace_fn, safe_set_span_attributes
 ├── fallbacks.py       canonical no-ops mirrored by consumer repos
 ├── strategies.py      export-strategy registry (which ranks export)
@@ -90,22 +90,24 @@ whether or not they enabled telemetry.
 
 ```python
 # right: attributes computed only when the group is live
-with managed_span(SpanGroup.STEP, "train.step") as span:
+with managed_span("step", "train.step") as span:
     if span:
         span.set_attribute(DL_ITERATION, i)
 
 # wrong: the f-string runs even when 'step' is disabled
-with managed_span(SpanGroup.STEP, "train.step", label=f"iter {i}") as span:
+with managed_span("step", "train.step", label=f"iter {i}") as span:
 ```
 
 Passing an already-materialized value as a kwarg is fine; *building* one is not.
 
 ### 3. `fallbacks.py` signatures match the real API exactly
 
-Consumers import from `nemo.lens.fallbacks` when lens is absent. Five symbols
+Consumers import from `nemo.lens.fallbacks` when lens is absent. Six symbols
 form that surface: `trace_fn`, `managed_span`, `span_cm`,
-`is_span_group_enabled`, `safe_set_span_attributes`. Add a parameter to a real
-implementation and you must add it to the no-op too (it may ignore it).
+`is_span_group_enabled`, `safe_set_span_attributes`, and `SpanRegistry` — the
+last because consumers call `SpanRegistry.register()` at import time, which has
+to work with lens absent. Add a parameter to a real implementation and you must
+add it to the no-op too (it may ignore it).
 `tests/test_fallbacks.py` is the enforcement. See
 `docs/design/optional-dependency.mdx` for why this exists.
 
@@ -122,22 +124,61 @@ point is almost always a mistake.
 
 ## Span groups
 
-`SpanGroup` (`groups.py`) is the base class. Base groups: `job`, `checkpoint`,
-`evaluate` (coarse) and `model_init`, `load_checkpoint`, `step`,
-`forward_backward`, `optimizer` (medium). Consumers subclass it to add their own.
+**Lens defines no group names and no preset contents.** `SpanRegistry`
+(`groups.py`) is a process-global registry; each consuming library declares what
+it emits under its own namespace:
 
-Presets resolved by `SpanGroup.resolve(spec)`, where `spec` is a comma-separated
-mix of preset names and bare group names:
+```python
+SpanRegistry.register(
+    "megatron",
+    groups={"step", "microbatch", "layer"},
+    presets={"default": {"step"}, "per_step": {"step", "microbatch"}},
+)
+```
 
-| Preset | Contents |
-|---|---|
-| `default` | `job`, `checkpoint`, `evaluate` — must stay cheap enough for production |
-| `per_step` | `default` + the medium-grained groups |
-| `all` | everything in `ALL_GROUPS` |
+Group names are one flat namespace across libraries (so call sites stay terse);
+two namespaces claiming one name is an error without `allow_override=True`.
+Presets **union** across namespaces — `default` means every registered library's
+default, which is the fix for the old subclass scheme where `_PRESETS` was
+overridden wholesale. A preset may reference any group already registered, which
+is how a library layers on one it imports; referencing a name whose owner has not
+been imported raises at registration. `all` is built in, means "everything
+registered", and is reserved as a preset name.
 
-Adding to `default` raises always-on overhead for every user. Subclass `_PRESETS`
-is overridden wholesale, not merged — a new base group does not automatically
-appear in a subclass preset. Procedure: `docs/developer/new-span-group.mdx`.
+**Register before `setup_telemetry`.** Importing a library registers its groups,
+so by setup time everything in play is known. But resolution **never raises** —
+an entry naming nothing registered here is warned about, kept in
+`pending_span_groups()`, and the rest of the spec still applies. Two reasons, and
+both are load-bearing:
+
+- **A registry is per process; a spec is usually job-wide.** A launcher agent or
+  a spawned checkpoint worker inherits one `NEMO_LENS_SPAN_GROUPS` from the
+  trainer but imports different libraries, so a value valid in the trainer names
+  nothing there. That is not a typo. Such a process should take its own prefix
+  (`from_env(prefix="NVRX_OTEL", fallback_prefix="NEMO_LENS")`).
+- **Raising from `setup_telemetry` is worse than it looks.** The raise used to
+  land after `build_providers`, leaving real SDK providers and live batch threads
+  installed while the caller got an exception instead of a handle to shut them
+  down. Do not reintroduce a raise on the setup path.
+
+Registering *after* `setup_telemetry` still takes effect — `state.py` retains the
+spec and re-resolves — but warns, since the group was not selectable when the
+spec was resolved. Refusing it would drop spans silently.
+
+`set_enabled_span_groups()` *pins* a set and drops the spec, which is how a
+disabled process stays disabled when a library registers afterwards.
+
+**Lock order is state → registry.** `state._LOCK` is held across resolution, so
+`state` calls into `SpanRegistry` while holding its own lock. `SpanRegistry`'s
+mutators therefore notify `state` only *after* releasing `_LOCK` — every one of
+them puts `cls._notify()` below its `with cls._LOCK` block. Move a `_notify()`
+inside that block and the cycle closes on the first concurrent registration.
+Likewise, `register()` validates presets and commits under one hold: splitting
+them lets a concurrent `unregister` land between, and the preset commits a
+reference to a group that no longer exists.
+
+Adding to `default` raises always-on overhead for every user of every library in
+the process, not just yours. Procedure: `docs/developer/new-span-group.mdx`.
 
 ## Classify before you record
 
@@ -158,7 +199,7 @@ training metrics like `megatron.training.loss` live in the consumer, not here.
 
 ## Configuration
 
-`NemoLensConfig.from_env(prefix="NEMO_LENS", fallback_prefix=..., span_group_cls=...)`.
+`NemoLensConfig.from_env(prefix="NEMO_LENS", fallback_prefix=...)`.
 Consumers pass their own prefix (e.g. `MEGATRON_OTEL`) and fall back to
 `NEMO_LENS`. Env keys, all `<PREFIX>_`-suffixed unless noted:
 
@@ -185,12 +226,14 @@ Everything `OTEL_EXPORTER_OTLP_*` is the SDK's business — don't reimplement it
 
 `pytest` from the repo root. The suite runs in seconds, so always run all of it
 rather than a subset. Its defining constraint is that
-OTel providers and lens's enabled-group set are **process-global**, so
-`conftest.py` has three `autouse` fixtures that reset them around every test:
-providers + `_INITIALIZED`, the span-group set + PP carrier, and the export
-strategy registry. Consequences:
+OTel providers, the span registry, and lens's enabled-group set are
+**process-global**, so `conftest.py` has three `autouse` fixtures that reset them
+around every test: providers + `_INITIALIZED`, the `SpanRegistry` + span-group
+set + PP carrier, and the export strategy registry. Consequences:
 
-- A test that needs a group active must enable it explicitly; nothing carries over.
+- Lens ships no groups, so a test that needs one must register it. The
+  `demo_groups` fixture does that; `set_enabled_span_groups()` pins a set
+  directly. Nothing carries over between tests.
 - Calling `setup_telemetry()` twice in one process raises. Tests that legitimately
   need to (e.g. looping over ranks) pass `_allow_reinit=True`.
 - Assert on span content with `InMemorySpanExporter` from `conftest.py`, passed
@@ -270,7 +313,7 @@ and CI gates: `docs/developer/building-docs.mdx`.
 
 | Task | Authoritative source |
 |---|---|
-| Add a span group | `docs/developer/new-span-group.mdx` |
+| Register a span group | `docs/developer/new-span-group.mdx` |
 | Add / change a public API symbol | `docs/design/optional-dependency.mdx` |
 | Add a metric instrument | `docs/user-guide/metrics.mdx` (§ Architecture) |
 | Write or fix a test | `docs/developer/testing.mdx` |

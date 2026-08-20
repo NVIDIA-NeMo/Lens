@@ -20,9 +20,9 @@ description: ""
 
 | Consumer | Domain | Span group extension |
 |---|---|---|
-| [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) | Transformer pre-training | `MegatronSpanGroup`: microbatch, layer, communication, activation_offload, data_loading, inference |
-| [NeMo RL](https://github.com/NVIDIA-NeMo/RL) | RLHF, GRPO, DPO | `RLSpanGroup`: rollout, generation, logprob, reward, advantage, policy_update, reference_policy, data_processing |
-| [NeMo Gym](https://github.com/NVIDIA-NeMo/Gym) | RL environments | `GymSpanGroup`: server, rollout_collection, verify, aggregate_metrics |
+| [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) | Transformer pre-training | registers `megatron`: microbatch, layer, communication, activation_offload, data_loading, inference |
+| [NeMo RL](https://github.com/NVIDIA-NeMo/RL) | RLHF, GRPO, DPO | registers `nemo_rl`: rollout, generation, logprob, reward, advantage, policy_update, reference_policy, data_processing |
+| [NeMo Gym](https://github.com/NVIDIA-NeMo/Gym) | RL environments | registers `nemo_gym`: server, rollout_collection, verify, aggregate_metrics |
 
 NeMo Lens emits OTLP; choosing and running an observability stack is up to you. Quick links for sending telemetry to common destinations:
 

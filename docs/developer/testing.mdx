@@ -32,7 +32,7 @@ tests/
 ├── conftest.py                     — shared fixtures (state reset, InMemorySpanExporter)
 ├── test_config.py                  — NemoLensConfig, from_env, validation
 ├── test_state.py                   — is_span_group_enabled, thread safety
-├── test_groups.py                  — SpanGroup.resolve, preset handling
+├── test_groups.py                  — SpanRegistry: register, resolve, presets
 ├── test_helpers.py                 — managed_span, trace_fn, span_cm, attribute safety
 ├── test_handle.py                  — setup_telemetry, TelemetryHandle, double-init guard
 ├── test_providers.py               — build_providers, custom exporters
@@ -68,7 +68,18 @@ def reset_span_groups():
     set_pp_trace_carrier(None)
 ```
 
-Because `reset_span_groups` clears the enabled set before every test, a test that needs a group active must opt in explicitly. The `set_enabled_span_groups(...)` function, which is a top-level export from `nemo.lens`, provides the escape hatch for enabling groups inside a test.
+`reset_span_groups` empties the `SpanRegistry` and then pins an empty enabled set, in that order — pinning drops the stored spec, so a registration inside the next test cannot reopen groups it did not ask for.
+
+NeMo Lens ships no groups of its own, so a test that needs one must register it. The `demo_groups` fixture in `conftest.py` registers a small set for exactly this:
+
+```python
+def test_something(demo_groups):
+    cfg = NemoLensConfig(enabled=True, span_groups="per_step", exporter="console")
+    setup_telemetry(cfg)
+    assert is_span_group_enabled("step")
+```
+
+For a test that wants a specific set with no registration at all, `set_enabled_span_groups(...)` — a top-level export from `nemo.lens` — pins one directly.
 
 A third autouse fixture, `reset_strategy_registry`, snapshots `nemo.lens.strategies._REGISTRY` (under `_REGISTRY_LOCK`) before each test and restores it afterward, so custom export strategies registered through `register_export_strategy` do not leak between tests:
 

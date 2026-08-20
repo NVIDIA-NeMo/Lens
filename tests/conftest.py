@@ -69,16 +69,48 @@ def reset_otel_providers():
     _reset_otel_globals()
 
 
-@pytest.fixture(autouse=True)
-def reset_span_groups():
-    """Reset span group state before and after each test."""
+def _reset_span_group_state() -> None:
+    """Pin an empty enabled set, then empty the registry.
+
+    Order matters. Pinning first drops the stored spec, so a registration inside
+    the next test cannot reopen groups it did not ask for -- and so the clear()
+    below re-resolves nothing, which keeps an "unresolved span groups" warning
+    out of every single test teardown.
+    """
+    from nemo.lens.groups import SpanRegistry
     from nemo.lens.state import set_enabled_span_groups, set_pp_trace_carrier
 
     set_enabled_span_groups(frozenset())
-    set_pp_trace_carrier(None)
-    yield
+    SpanRegistry.clear()
     set_enabled_span_groups(frozenset())
     set_pp_trace_carrier(None)
+
+
+@pytest.fixture(autouse=True)
+def reset_span_groups():
+    """Reset registry + span group state before and after each test."""
+    _reset_span_group_state()
+    yield
+    _reset_span_group_state()
+
+
+@pytest.fixture
+def demo_groups():
+    """Register a small span-group set for tests that need live groups.
+
+    Lens ships no groups of its own, so a test that wants one must register it.
+    """
+    from nemo.lens.groups import SpanRegistry
+
+    SpanRegistry.register(
+        "demo",
+        groups={"job", "checkpoint", "step", "forward_backward"},
+        presets={
+            "default": {"job", "checkpoint"},
+            "per_step": {"job", "checkpoint", "step", "forward_backward"},
+        },
+    )
+    return SpanRegistry
 
 
 @pytest.fixture(autouse=True)

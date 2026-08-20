@@ -18,7 +18,6 @@
 import pytest
 
 from nemo.lens.config import NemoLensConfig
-from nemo.lens.groups import SpanGroup
 
 
 class TestNemoLensConfigDefaults:
@@ -62,13 +61,17 @@ class TestNemoLensConfigDefaults:
         cfg = NemoLensConfig()
         assert cfg.exporter == "otlp"
 
-    def test_default_resolved_span_groups(self):
+    def test_default_resolved_span_groups_is_empty_without_a_registration(self):
+        """Lens names no groups, so "default" means nothing until a library registers."""
+        cfg = NemoLensConfig()
+        assert cfg.resolved_span_groups == frozenset()
+
+    def test_default_resolved_span_groups_follows_the_registry(self, demo_groups):
         cfg = NemoLensConfig()
         groups = cfg.resolved_span_groups
-        assert SpanGroup.JOB in groups
-        assert SpanGroup.CHECKPOINT in groups
-        assert SpanGroup.EVALUATE in groups
-        assert SpanGroup.STEP not in groups
+        assert "job" in groups
+        assert "checkpoint" in groups
+        assert "step" not in groups
 
 
 class TestNemoLensConfigFromEnv:
@@ -156,8 +159,6 @@ class TestNemoLensConfigFromEnv:
         monkeypatch.setenv("NEMO_LENS_SPAN_GROUPS", "per_step")
         cfg = NemoLensConfig.from_env()
         assert cfg.span_groups == "per_step"
-        groups = cfg.resolved_span_groups
-        assert SpanGroup.STEP in groups
 
     def test_logs_enabled(self, monkeypatch):
         self._clear_env(monkeypatch)
@@ -183,17 +184,20 @@ class TestNemoLensConfigFromEnv:
         with pytest.raises(ValueError, match="NEMO_LENS_EXPORT_SAMPLE_RATE"):
             NemoLensConfig.from_env()
 
-    def test_span_group_cls_passed_through(self, monkeypatch):
+    def test_all_resolves_against_the_registry(self, monkeypatch, demo_groups):
+        """Replaces the span_group_cls hook: there is no class to pass any more."""
         self._clear_env(monkeypatch)
         monkeypatch.setenv("NEMO_LENS_SPAN_GROUPS", "all")
 
-        # Use base SpanGroup with "all" preset — verify resolution works
-        from nemo.lens.groups import SpanGroup
-
-        cfg = NemoLensConfig.from_env(span_group_cls=SpanGroup)
+        cfg = NemoLensConfig.from_env()
         groups = cfg.resolved_span_groups
-        assert SpanGroup.JOB in groups
-        assert SpanGroup.FORWARD_BACKWARD in groups
+        assert "job" in groups
+        assert "forward_backward" in groups
+
+    def test_from_env_no_longer_takes_span_group_cls(self):
+        import inspect
+
+        assert "span_group_cls" not in inspect.signature(NemoLensConfig.from_env).parameters
 
     def test_export_sample_rate_below_zero_raises(self, monkeypatch):
         self._clear_env(monkeypatch)
