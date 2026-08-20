@@ -35,19 +35,6 @@ class NemoLensConfig:
     #: Human-readable service name for the OTLP backend.
     service_name: str = "nemo"
 
-    #: Export strategy: ``"all_ranks"``, ``"sampled"``, ``"single_rank"``, ``"first_rank_per_node"``.
-    export_strategy: str = "single_rank"
-
-    #: For ``single_rank``: which rank exports (-1 = last rank).
-    export_rank: int = -1
-
-    #: For ``sampled``: fraction of ranks that export (0.0–1.0).
-    export_sample_rate: float = 1.0
-
-    #: Enable the RankAwareSampler on the TracerProvider. When True,
-    #: spans are filtered at the SDK level using the export_sample_rate.
-    sampler_enabled: bool = False
-
     #: Enable trace spans.
     traces_enabled: bool = True
 
@@ -78,12 +65,6 @@ class NemoLensConfig:
 
     #: Span group class used for resolution. Set by library-specific subclasses.
     _span_group_cls: type | None = field(default=None, repr=False)
-
-    def __post_init__(self) -> None:
-        if not (0.0 <= self.export_sample_rate <= 1.0):
-            raise ValueError(
-                f"export_sample_rate must be in [0.0, 1.0], got {self.export_sample_rate}"
-            )
 
     @property
     def resolved_span_groups(self) -> frozenset:
@@ -127,33 +108,11 @@ class NemoLensConfig:
                 "Expected '1'/'0', 'true'/'false', 'yes'/'no', 'on'/'off'."
             )
 
-        def _int(key: str, default: int) -> int:
-            val = _env(key)
-            if not val:
-                return default
-            try:
-                return int(val)
-            except ValueError as exc:
-                raise ValueError(f"Invalid integer for {prefix}_{key}: {val!r}.") from exc
-
-        def _float(key: str, default: float) -> float:
-            val = _env(key)
-            if not val:
-                return default
-            try:
-                return float(val)
-            except ValueError as exc:
-                raise ValueError(f"Invalid float for {prefix}_{key}: {val!r}.") from exc
-
         service_name = os.environ.get("OTEL_SERVICE_NAME", "").strip() or "nemo"
 
         return cls(
             enabled=_bool("ENABLED", False),
             service_name=service_name,
-            export_strategy=_env("EXPORT_STRATEGY", "single_rank"),
-            export_rank=_int("EXPORT_RANK", -1),
-            export_sample_rate=_float("EXPORT_SAMPLE_RATE", 1.0),
-            sampler_enabled=_bool("SAMPLER_ENABLED", False),
             traces_enabled=_bool("TRACES_ENABLED", True),
             metrics_enabled=_bool("METRICS_ENABLED", True),
             logs_enabled=_bool("LOGS_ENABLED", False),

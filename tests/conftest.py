@@ -79,16 +79,3 @@ def reset_span_groups():
     yield
     set_enabled_span_groups(frozenset())
     set_pp_trace_carrier(None)
-
-
-@pytest.fixture(autouse=True)
-def reset_strategy_registry():
-    """Snapshot the strategy registry before each test, restore after."""
-    from nemo.lens.strategies import _REGISTRY, _REGISTRY_LOCK
-
-    with _REGISTRY_LOCK:
-        snapshot = dict(_REGISTRY)
-    yield
-    with _REGISTRY_LOCK:
-        _REGISTRY.clear()
-        _REGISTRY.update(snapshot)

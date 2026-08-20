@@ -106,7 +106,7 @@ def test_my_new_group_in_per_step_preset():
         span_groups="per_step",
         exporter="console",
     )
-    setup_telemetry(cfg, rank=0, world_size=1)
+    setup_telemetry(cfg)
     assert is_span_group_enabled("my_new_group")
 ```
 

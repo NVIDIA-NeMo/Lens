@@ -54,8 +54,6 @@ exporter = ConsoleSpanExporter(
 config = NemoLensConfig(enabled=True, exporter="console")  # falls back if custom skipped
 handle = setup_telemetry(
     config,
-    rank=0,
-    world_size=1,
     span_exporter=exporter,
 )
 
@@ -237,7 +235,7 @@ export OTEL_TRACES_SAMPLER=parentbased_traceidratio
 export OTEL_TRACES_SAMPLER_ARG=0.01    # keep 1% of traces
 ```
 
-See the [sampling](../user-guide/sampling.mdx) documentation for how this composes with NeMo Lens's export strategies.
+NeMo Lens does no sampling of its own, so this SDK-level setting is the only trace sampling in play unless you add tail sampling in the collector.
 
 ### Understand Exported Data
 
@@ -309,7 +307,7 @@ Honeycomb migrated from dataset-per-service (Classic) to environment-based organ
 
 Honeycomb bills on event volume. A `per_step` Megatron run on many ranks will ship a lot of events. Layer your sampling:
 
-1. NeMo Lens `export_strategy` at the rank level (start with `single_rank`).
+1. Leaving `enabled` false on ranks that need not report (start with one rank).
 2. OTel SDK `OTEL_TRACES_SAMPLER=parentbased_traceidratio` at the trace level.
 3. Honeycomb **Refinery** tail sampling, which provides access to the full trace before making a decision. This is recommended for production; see [Honeycomb's Refinery docs](https://docs.honeycomb.io/manage-data-volume/refinery/).
 
@@ -674,7 +672,7 @@ The NeMo Lens `providers.py` tries gRPC first, and falls back to HTTP if the gRP
 
 A `per_step` run on 1,000 ranks can produce over 100,000 spans per second. Most backends cannot (or will not affordably) ingest that volume. Layer your sampling:
 
-1. NeMo Lens `export_strategy` at the rank level, where `single_rank` sends one rank's data. This is usually the correct starting point.
+1. Leaving `enabled` false on ranks that need not report, so a single rank sends data. This is usually the correct starting point.
 2. The OTel SDK sampler at the trace level, where setting `OTEL_TRACES_SAMPLER=parentbased_traceidratio` with `OTEL_TRACES_SAMPLER_ARG=0.1` keeps 10% of traces.
 3. Collector tail sampling for intelligent decisions, which keeps all errors and samples 1% of successes.
 

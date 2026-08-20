@@ -124,5 +124,5 @@ The `config.resolved_span_groups` field now resolves against `MegatronSpanGroup.
 ## Design Notes
 
 - **Configure groups at runtime.** Groups are runtime knobs rather than compile-time settings. Toggling an env var and restarting your application constitutes the entire configuration workflow, requiring no code changes.
-- **Ensure orthogonal controls.** Groups operate independently of rank sampling (`NEMO_LENS_SAMPLER_ENABLED` and `NEMO_LENS_EXPORT_SAMPLE_RATE`) and export strategy (`NEMO_LENS_EXPORT_STRATEGY`). You can combine these settings to enable `per_step` groups, sample 10% of ranks, and export from only a single rank.
+- **Ensure orthogonal controls.** Groups operate independently of which processes are enabled and of the OTel SDK's own `OTEL_TRACES_SAMPLER`. You can enable `per_step` groups, keep 10% of traces at the SDK, and turn telemetry on for only one rank.
 - **Filter at multiple granularities.** Groups act as coarse-grained filters. For fine-grained control, such as tracing only iterations where loss exceeds a specific threshold, add a runtime check inside your instrumented code, as `is_span_group_enabled` is only one signal.

@@ -66,7 +66,7 @@ Shared across Megatron-LM, NeMo RL, NeMo Gym. Anything a distributed training jo
 
 ```
 dl.rank                      — global rank
-dl.world_size                — total ranks
+dl.world_size                — total ranks (caller-supplied)
 dl.local_rank                — rank on this node
 dl.tensor_parallel.{rank,size}
 dl.pipeline_parallel.{rank,size}

@@ -47,9 +47,9 @@ grep -n "^from opentelemetry.sdk\|^import opentelemetry.sdk" src/nemo/lens/provi
 ```
 
 Both should come back empty. A module-level SDK import in `providers.py` is as
-much a violation as one elsewhere. `sampling.py` and `providers.py` duck-type
-SDK base classes on purpose — if the diff makes either subclass a real SDK type,
-that is a blocker.
+much a violation as one elsewhere. `providers.py` duck-types SDK base classes
+(`SeedIndependentIdGenerator`, `_OpenSpanCloser`) on purpose — if the diff makes
+either subclass a real SDK type, that is a blocker.
 
 ### 2. Hot-path gating
 

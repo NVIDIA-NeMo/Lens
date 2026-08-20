@@ -48,6 +48,24 @@ are NeMo-specific extensions that do not exist upstream.
 # wandb.*   — NeMo custom (stable within NeMo ecosystem)
 
 # ------------------------------------------------------------------ #
+# Attribute value types
+# ------------------------------------------------------------------ #
+# These constants name attributes; they do not constrain the value type,
+# and the type depends on which channel the value arrives through:
+#
+#   setup_telemetry(resource_attributes={DL_RANK: 3})  -> dl.rank is int 3
+#   OTEL_RESOURCE_ATTRIBUTES="dl.rank=3"               -> dl.rank is str "3"
+#
+# The env channel is string-only by construction (OTel spec), and it is the
+# only one that survives a spawn or exec, so numeric attributes really can
+# arrive either way in one job. Consumers filtering on a numeric attribute in
+# a collector or backend must tolerate both representations.
+#
+# Not normalised here on purpose: coercing would mean semconv carrying a
+# per-key type table, which is a different kind of knowledge from a name
+# registry. Tracked for a follow-up.
+
+# ------------------------------------------------------------------ #
 # Distributed learning (dl.*)
 # ------------------------------------------------------------------ #
 

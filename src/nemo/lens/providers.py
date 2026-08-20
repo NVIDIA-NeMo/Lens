@@ -28,7 +28,7 @@ import random
 import threading
 from typing import TYPE_CHECKING
 
-from nemo.lens.semconv import NEMO_SPAN_TRUNCATED
+from nemo.lens.semconv import DL_RANK, DL_WORLD_SIZE, NEMO_SPAN_TRUNCATED
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
@@ -194,8 +194,6 @@ class SeedIndependentIdGenerator:
 
 def build_providers(
     config: NemoLensConfig,
-    rank: int = 0,
-    world_size: int = 1,
     resource_attributes: dict | None = None,
     span_exporter=None,
     metric_reader=None,
@@ -206,14 +204,14 @@ def build_providers(
 
     Args:
         config: Telemetry configuration.
-        rank: Current process rank.
-        world_size: Total number of ranks.
-        resource_attributes: Extra resource attributes to merge.
+        resource_attributes: Extra resource attributes to merge. A distributed
+            caller supplies its own identity here (``dl.rank``, ``dl.world_size``);
+            lens does not derive them.
         span_exporter: Optional custom span exporter (bypasses config-based exporter).
         metric_reader: Optional custom metric reader (bypasses config-based reader).
     """
     try:
-        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.resources import OTELResourceDetector, Resource
     except ImportError as exc:
         raise ImportError(
             "OpenTelemetry SDK is required for telemetry export but is not installed. "
@@ -228,13 +226,10 @@ def build_providers(
     attrs = {
         "service.name": config.service_name,
         "service.version": __version__,
-        "dl.rank": rank,
-        "dl.world_size": world_size,
     }
     # Run identification — shared across all ranks in a job.
     if config.run_id:
         attrs["nemo.run.id"] = config.run_id
-        attrs["service.instance.id"] = f"{config.run_id}-rank{rank}"
     if config.user:
         attrs["nemo.user.id"] = config.user
     # W&B Weave resource attributes (required when exporting to Weave).
@@ -254,6 +249,36 @@ def build_providers(
     detected = detect_resource()
     attrs.update(detected)
 
+    # OTEL_RESOURCE_ATTRIBUTES is the only identity channel that survives a spawn
+    # or an exec, so dl.rank legitimately arrives there rather than through
+    # `resource_attributes` -- a spawned checkpoint worker or a relaunched rank has
+    # no call site to reach. Deriving from `attrs` alone meant such a process got a
+    # service.instance.id pinned to the bare run id (identical on every rank) plus a
+    # warning telling it to supply what it had just supplied, while the Resource it
+    # emitted carried dl.rank the whole time.
+    #
+    # Resolve the two explicit sources the way Resource.create will -- caller over
+    # env -- and decide from that.
+    env_attrs = dict(OTELResourceDetector().detect().attributes)
+    resolved = {**env_attrs, **attrs}
+
+    rank = resolved.get(DL_RANK)
+    # Captured before deriving: distinguishes "the caller named this process" from
+    # "we named it after the run id because nobody else did".
+    explicit_identity = "service.instance.id" in resolved
+    if config.run_id and not explicit_identity:
+        # Checked against `resolved`, NOT against the built Resource: the SDK
+        # auto-populates service.instance.id with a per-process UUID, so asking the
+        # merged resource whether one is set is always true and this would never run.
+        # Only a caller- or env-supplied value should suppress the derivation.
+        attrs["service.instance.id"] = (
+            config.run_id if rank is None else f"{config.run_id}-rank{rank}"
+        )
+        resolved["service.instance.id"] = attrs["service.instance.id"]
+
+    if rank is None:
+        _warn_no_rank(resolved, config, explicit_identity=explicit_identity)
+
     resource = Resource.create(attrs)
 
     # ------------------------------------------------------------------
@@ -269,15 +294,9 @@ def build_providers(
         # Seed-independent IDs cover EVERY setup_telemetry caller -- trainer, ckpt worker, nvrx --
         # since they all build their TracerProvider here (the worker/nvrx set telemetry up in their
         # own process via from_env, so a caller-side patch would miss them; fixing it here does not).
-        kwargs: dict = {"resource": resource, "id_generator": SeedIndependentIdGenerator()}
-        if config.sampler_enabled:
-            from nemo.lens.sampling import RankAwareSampler
-
-            kwargs["sampler"] = RankAwareSampler(
-                rank=rank, world_size=world_size, sample_rate=config.export_sample_rate
-            )
-
-        tracer_provider = TracerProvider(**kwargs)
+        tracer_provider = TracerProvider(
+            resource=resource, id_generator=SeedIndependentIdGenerator()
+        )
         # Order matters: the closer is registered BEFORE the batch processor so its
         # shutdown() runs first and ends any still-open spans -> they flow into the
         # batch queue via on_end -> the batch shutdown then flushes them out.
@@ -315,6 +334,63 @@ def build_providers(
     # Propagator (W3C TraceContext + Baggage)
     # ------------------------------------------------------------------
     _set_propagator()
+
+
+def _warn_no_rank(attrs, config: NemoLensConfig, *, explicit_identity: bool) -> None:
+    """Report that no ``dl.rank`` reached the resolved resource.
+
+    Takes the **merged** resource attributes, so a rank arriving through
+    ``OTEL_RESOURCE_ATTRIBUTES`` counts and this stays quiet.
+
+    Lens cannot derive a rank, so an absent one is either a single-process run or
+    a distributed caller that forgot -- and guessing which is not available to us.
+    The distinction that matters is *which* env var:
+
+    * ``RANK`` / ``WORLD_SIZE`` are launcher conventions. Reading them would put
+      back exactly the rank-awareness this module shed, and would be wrong for any
+      caller whose rank is not the process's global rank.
+    * ``OTEL_RESOURCE_ATTRIBUTES`` is the standard OTel resource channel, which
+      here happens to carry ``dl.rank`` -- a name lens defines in its own
+      ``semconv``. Honouring it is not knowing about ranks; it is reading back an
+      attribute lens named and the SDK resolved.
+
+    Severity depends on whether identity survived. A process that named itself has
+    no problem to report; one that fell back to the bare run id does.
+    """
+    log = logging.getLogger(__name__)
+
+    if explicit_identity:
+        # The caller, or OTEL_RESOURCE_ATTRIBUTES, named this process. The harm a
+        # warning would claim -- indistinguishable from every other rank -- is
+        # simply false here. A launcher agent or a sidecar that identifies itself
+        # and has no training rank to claim is a *correct* configuration, and
+        # warning once per node per job for it is noise that teaches people to
+        # filter this logger out. Rank-based filtering is still unavailable, which
+        # is worth a debug line and nothing louder.
+        log.debug(
+            "No %s resource attribute was supplied, so telemetry from this process "
+            "cannot be filtered by rank. service.instance.id was supplied explicitly "
+            "(%r), so the process is still identifiable.",
+            DL_RANK,
+            attrs.get("service.instance.id"),
+        )
+        return
+
+    log.warning(
+        "No %s resource attribute was supplied, so telemetry from this process "
+        "cannot be told apart from any other rank's, and cannot be filtered by rank "
+        "in the collector. service.instance.id has fallen back to the run id alone, "
+        "which every process in the job reports identically. Pass "
+        "resource_attributes={%s: rank, %s: world_size} to setup_telemetry(), or set "
+        "OTEL_RESOURCE_ATTRIBUTES=%s=<rank> in the process environment when you "
+        "cannot reach the call site (a spawned worker, an exec'd relaunch). A "
+        "genuinely single-process caller can pass rank 0, or supply its own "
+        "service.instance.id, to silence this.",
+        DL_RANK,
+        DL_RANK,
+        DL_WORLD_SIZE,
+        DL_RANK,
+    )
 
 
 def build_noop_providers() -> None:

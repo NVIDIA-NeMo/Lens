@@ -14,8 +14,6 @@ position: 8
 ```python
 setup_telemetry(
     config,
-    rank=0,
-    world_size=1,
     resource_attributes=None,
     span_exporter=None,        # optional custom SpanExporter
     metric_reader=None,         # optional custom MetricReader
@@ -33,8 +31,6 @@ exporter = InMemorySpanExporter()
 
 handle = setup_telemetry(
     config,
-    rank=0,
-    world_size=1,
     span_exporter=exporter,
 )
 
@@ -54,8 +50,6 @@ reader = InMemoryMetricReader()
 
 handle = setup_telemetry(
     config,
-    rank=0,
-    world_size=1,
     metric_reader=reader,
 )
 
@@ -100,7 +94,7 @@ Use the same pattern for `MetricReader` (refer to the [OpenTelemetry documentati
 
 ## Custom Exporters and Sampling
 
-Custom exporters plug into the `BatchSpanProcessor` that NeMo Lens installs. By default (`sampler_enabled=False`), no span-level sampling occurs, and a custom exporter receives every span produced on an exporting rank. When `sampler_enabled=True`, NeMo Lens's `RankAwareSampler` makes a single per-rank decision at construction time (`sampling.py`), where all spans on a rank are either kept or dropped together, meaning it is not a per-span sample. If you want a parallel processor regardless of sampling, install your own `SpanProcessor` as shown below:
+Custom exporters plug into the `BatchSpanProcessor` that NeMo Lens installs. NeMo Lens does no sampling of its own, so a custom exporter receives every span the process produces; configure the OTel SDK's `OTEL_TRACES_SAMPLER` if you need to reduce that. If you want a parallel processor, install your own `SpanProcessor` as shown below:
 
 ```python
 from opentelemetry import trace
@@ -112,7 +106,7 @@ provider.add_span_processor(BatchSpanProcessor(MyArchiveExporter()))
 ```
 
 <Note>
-This approach only works on an exporting rank with traces enabled, which occurs when `handle.is_exporting` is `True`. On disabled or non-exporting ranks, `setup_telemetry` installs a `NoOpTracerProvider`, so `trace.get_tracer_provider()` returns a no-op provider that has no `add_span_processor` method, and this call raises an `AttributeError`. Guard this call with `if handle.is_exporting:`:
+This approach only works when telemetry is enabled and traces are on, which is what `handle.is_exporting` reports. When telemetry is disabled, `setup_telemetry` installs a `NoOpTracerProvider`, so `trace.get_tracer_provider()` returns a no-op provider that has no `add_span_processor` method, and this call raises an `AttributeError`. Guard this call with `if handle.is_exporting:`:
 
 </Note>
 
