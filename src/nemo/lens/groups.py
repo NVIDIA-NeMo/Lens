@@ -91,8 +91,10 @@ class SpanRegistry:
                 :meth:`unregister`.
             groups: Group names this library emits. Lowercase ``snake_case``.
             presets: Optional named subsets, e.g. ``{"default": {"step"}}``.
-                Every name must appear in *groups*. Presets union across
-                namespaces. ``"all"`` is reserved.
+                A member may be any group already in the registry, not only the
+                ones this call declares -- that is how a library layers a preset
+                onto a group it depends on. Presets union across namespaces.
+                ``"all"`` is reserved.
             allow_override: Permit re-registering *namespace*, or claiming a
                 group name another namespace already registered. Re-registering
                 **replaces** the namespace wholesale: omit ``presets`` and its
@@ -100,15 +102,23 @@ class SpanRegistry:
                 time.
 
         Raises:
-            ValueError: Empty namespace, empty group name, a preset naming a
-                group this call does not register, a preset named ``"all"``, or
-                a collision without ``allow_override=True``.
+            ValueError: Empty namespace, empty group name, a group or preset
+                named ``"all"``, a preset naming a group no namespace has
+                registered, or a collision without ``allow_override=True``.
         """
         if not namespace:
             raise ValueError("Namespace must be a non-empty string.")
         resolved_groups = frozenset(g.strip().lower() for g in groups)
         if not all(resolved_groups):
             raise ValueError(f"Namespace {namespace!r} registered an empty group name.")
+        if ALL in resolved_groups:
+            # Reserved on both sides of the namespace. resolve() checks presets
+            # first, so a group called "all" would be permanently unselectable:
+            # asking for it by name would enable every group in the process.
+            raise ValueError(
+                f"Group name {ALL!r} is reserved; it always means every group. "
+                f"Namespace {namespace!r} must pick another name."
+            )
 
         # Everything that touches the registry -- both collision checks, preset
         # validation, and the commit -- happens under one lock hold, so a
@@ -122,9 +132,10 @@ class SpanRegistry:
                     "Pass allow_override=True to replace it."
                 )
             if not allow_override:
+                # `namespace` itself cannot be in _GROUPS here -- the check above
+                # already raised for that -- so every entry belongs to some other
+                # namespace and none needs skipping.
                 for other, owned in cls._GROUPS.items():
-                    if other == namespace:
-                        continue
                     clash = owned & resolved_groups
                     if clash:
                         raise ValueError(
@@ -218,10 +229,11 @@ class SpanRegistry:
             return sorted(cls._GROUPS)
 
     @classmethod
-    def presets(cls) -> dict[str, frozenset[str]]:
-        """Preset name -> members, unioned across every namespace.
+    def _snapshot(cls) -> tuple[dict[str, frozenset[str]], frozenset[str]]:
+        """``(presets, groups)`` from a single ``_LOCK`` hold.
 
-        Includes the built-in ``"all"``.
+        One hold, so the two cannot come from different registry generations.
+        Everything after the ``with`` is pure string work on local copies.
         """
         with cls._LOCK:
             merged: dict[str, set[str]] = {}
@@ -229,9 +241,25 @@ class SpanRegistry:
                 for name, members in by_name.items():
                     merged.setdefault(name, set()).update(members)
             everything = cls._groups_locked()
-        result = {name: frozenset(members) for name, members in merged.items()}
+
+        # Intersected with the live group set, so a preset can never name a group
+        # that is no longer registered. unregister() and register(allow_override=True)
+        # both drop a namespace's groups while another namespace's preset may still
+        # reference them -- without this, `default` could enable a group absent from
+        # `all`, which contradicts both the definition of `all` and the check in
+        # _normalise_presets that refuses such a preset at registration time.
+        result = {name: frozenset(members) & everything for name, members in merged.items()}
         result[ALL] = everything
-        return result
+        return result, everything
+
+    @classmethod
+    def presets(cls) -> dict[str, frozenset[str]]:
+        """Preset name -> members, unioned across every namespace.
+
+        Includes the built-in ``"all"``. Members are always a subset of
+        :meth:`groups`.
+        """
+        return cls._snapshot()[0]
 
     @classmethod
     def resolve(cls, spec: str) -> tuple[frozenset[str], frozenset[str]]:
@@ -248,8 +276,19 @@ class SpanRegistry:
             ``(enabled, pending)`` -- the groups that resolved, and the spec
             entries that matched nothing yet.
         """
-        presets = cls.presets()
-        known = cls.groups()
+        enabled, pending, _ = cls._resolve_snapshot(spec)
+        return enabled, pending
+
+    @classmethod
+    def _resolve_snapshot(cls, spec: str) -> tuple[frozenset[str], frozenset[str], bool]:
+        """:meth:`resolve`, plus whether the registry was empty in the same hold.
+
+        ``nemo.lens.state`` needs all three to describe one registry generation.
+        Asking the registry separately -- ``resolve()`` then ``groups()`` -- let a
+        concurrent registration land between them, so the enabled set and the
+        diagnostic could disagree about what was registered.
+        """
+        presets, known = cls._snapshot()
 
         enabled: set[str] = set()
         pending: set[str] = set()
@@ -260,7 +299,7 @@ class SpanRegistry:
                 enabled.add(part)
             else:
                 pending.add(part)
-        return frozenset(enabled), frozenset(pending)
+        return frozenset(enabled), frozenset(pending), not known
 
     @staticmethod
     def _warn_if_late(namespace: str) -> None:

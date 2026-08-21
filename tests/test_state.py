@@ -87,6 +87,41 @@ class TestSpecDrivenState:
             set_span_group_spec("default")
         assert "no library has registered any span groups" in caplog.text
 
+    def test_all_against_an_empty_registry_still_reports(self, caplog):
+        """The quietest version of the loudest problem.
+
+        "all" is always a preset, so it resolves cleanly and leaves nothing
+        pending -- which used to mean zero telemetry and zero diagnostics. An
+        empty registry is the expected state of a consumer that has not yet
+        migrated to SpanRegistry.register(), and "all" is the likeliest spec for
+        someone asking for everything.
+        """
+        with caplog.at_level("WARNING"):
+            set_span_group_spec("all")
+        assert enabled_span_groups() == frozenset()
+        assert "no library has registered any span groups" in caplog.text
+
+    def test_an_empty_spec_against_an_empty_registry_stays_quiet(self, caplog):
+        """Asking for nothing and getting nothing is not a problem to report."""
+        with caplog.at_level("WARNING"):
+            set_span_group_spec("")
+        assert caplog.text == ""
+
+    def test_a_typo_is_re_reported_once_the_registry_fills(self, caplog):
+        """The repeat-suppression key must include the registry-empty flag.
+
+        Keyed on the unresolved set alone, the first message ("no library has
+        registered any span groups") suppressed the second and far more useful
+        one -- the message listing the registered groups, which is what turns
+        "stepp" into a visible typo of "step".
+        """
+        set_span_group_spec("stepp")
+        caplog.clear()  # the empty-registry message above legitimately warned once
+        with caplog.at_level("WARNING"):
+            SpanRegistry.register("mega", {"step"})
+        assert "'step'" in caplog.text
+        assert "mega" in caplog.text
+
     def test_an_identical_unresolved_set_is_not_re_reported(self, caplog):
         """Re-resolution happens on every registration; the log should not."""
         SpanRegistry.register("mega", {"step"})
@@ -155,7 +190,10 @@ class TestResolutionIsAtomic:
         SpanRegistry.register("mega", {"step"})
         set_span_group_spec("all")
 
-        real_resolve = SpanRegistry.resolve
+        # Patches the entry point `state` actually calls. _resolve_snapshot also
+        # returns the registry-empty flag, so the resolution and the diagnostic
+        # come from one registry hold.
+        real_resolve = SpanRegistry._resolve_snapshot
         gate = threading.Event()
         slow_started = threading.Event()
 
@@ -168,7 +206,7 @@ class TestResolutionIsAtomic:
                 gate.wait(10)
             return result
 
-        monkeypatch.setattr(SpanRegistry, "resolve", slow_resolve)
+        monkeypatch.setattr(SpanRegistry, "_resolve_snapshot", slow_resolve)
 
         slow = threading.Thread(target=refresh_enabled_span_groups, name="slow-resolver")
         slow.start()
@@ -192,6 +230,49 @@ class TestResolutionIsAtomic:
         # The newer registration must win regardless of which resolution finished
         # first. Ordering is enforced by the lock, so this does not depend on the
         # timer firing at any particular moment.
+        assert "extra" in enabled_span_groups()
+        assert enabled_span_groups() == SpanRegistry.groups()
+
+    def test_the_initial_spec_resolution_is_also_atomic(self, monkeypatch):
+        """`set_span_group_spec` carries the same read-resolve-write pattern.
+
+        Split apart, a `setup_telemetry` racing an import-time `register()` pins
+        the pre-registration resolution for the life of the process: the stalled
+        resolver stores its stale answer *and* the spec, while the registration
+        that would have refreshed it saw no spec yet and returned early.
+        """
+        SpanRegistry.register("mega", {"step"})
+
+        real_resolve = SpanRegistry._resolve_snapshot
+        gate = threading.Event()
+        slow_started = threading.Event()
+
+        def slow_resolve(spec):
+            result = real_resolve(spec)
+            if threading.current_thread().name == "slow-spec":
+                slow_started.set()
+                gate.wait(10)
+            return result
+
+        monkeypatch.setattr(SpanRegistry, "_resolve_snapshot", slow_resolve)
+
+        slow = threading.Thread(target=set_span_group_spec, args=("all",), name="slow-spec")
+        slow.start()
+        try:
+            assert slow_started.wait(10), "slow resolver never started"
+
+            timer = threading.Timer(0.3, gate.set)
+            timer.start()
+            try:
+                SpanRegistry.register("late", {"extra"})
+            finally:
+                timer.cancel()
+                gate.set()
+        finally:
+            gate.set()
+            slow.join(10)
+            assert not slow.is_alive(), "slow resolver deadlocked"
+
         assert "extra" in enabled_span_groups()
         assert enabled_span_groups() == SpanRegistry.groups()
 

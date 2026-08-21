@@ -82,7 +82,6 @@ def _reset_span_group_state() -> None:
 
     set_enabled_span_groups(frozenset())
     SpanRegistry.clear()
-    set_enabled_span_groups(frozenset())
     set_pp_trace_carrier(None)
 
 

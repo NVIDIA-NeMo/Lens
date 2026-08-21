@@ -18,7 +18,7 @@
 
 import pytest
 
-from nemo.lens.groups import SpanRegistry
+from nemo.lens.groups import ALL, SpanRegistry
 
 
 class TestEmptyRegistry:
@@ -77,6 +77,15 @@ class TestRegister:
     def test_all_is_a_reserved_preset_name(self):
         with pytest.raises(ValueError, match="reserved"):
             SpanRegistry.register("mega", {"step"}, {"all": {"step"}})
+
+    def test_all_is_a_reserved_group_name_too(self):
+        """resolve() checks presets first, so such a group is unselectable.
+
+        Accepted, it would sit in the registry permanently unreachable: asking
+        for it by name enables every group in the process instead.
+        """
+        with pytest.raises(ValueError, match="reserved"):
+            SpanRegistry.register("mega", {"all", "quiet"})
 
 
 class TestPresetsUnionAcrossNamespaces:
@@ -195,6 +204,33 @@ class TestCrossNamespacePresets:
         SpanRegistry.register("rl", {"rollout"}, {"default": {"rollout", "step"}})
         SpanRegistry.unregister("mega")
         assert "step" not in SpanRegistry.groups()
+
+    def test_unregistering_prunes_the_borrowing_preset(self):
+        """A borrowed group must not outlive its owner's registration.
+
+        Left dangling, `default` enabled a group absent from `all` -- and spans
+        were actually emitted for a group no namespace owned. It also contradicts
+        _normalise_presets, which refuses to accept such a preset in the first
+        place.
+        """
+        SpanRegistry.register("mega", {"step"})
+        SpanRegistry.register("rl", {"rollout"}, {"default": {"rollout", "step"}})
+        SpanRegistry.unregister("mega")
+
+        presets = SpanRegistry.presets()
+        assert presets["default"] == frozenset({"rollout"})
+        assert SpanRegistry.resolve("default")[0] == frozenset({"rollout"})
+        assert presets["default"] <= presets[ALL]
+
+    def test_override_prunes_a_dropped_group_from_a_borrowing_preset(self):
+        """Same leak by the other route: re-registering replaces wholesale."""
+        SpanRegistry.register("mega", {"step"})
+        SpanRegistry.register("rl", {"rollout"}, {"default": {"rollout", "step"}})
+        SpanRegistry.register("mega", {"other"}, allow_override=True)
+
+        presets = SpanRegistry.presets()
+        assert "step" not in presets["default"]
+        assert presets["default"] <= presets[ALL]
 
 
 class TestLateRegistrationWarning:

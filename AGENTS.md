@@ -142,8 +142,11 @@ Presets **union** across namespaces — `default` means every registered library
 default, which is the fix for the old subclass scheme where `_PRESETS` was
 overridden wholesale. A preset may reference any group already registered, which
 is how a library layers on one it imports; referencing a name whose owner has not
-been imported raises at registration. `all` is built in, means "everything
-registered", and is reserved as a preset name.
+been imported raises at registration; a preset member that stops being registered
+is pruned, so a preset can never name a group outside `all`. `all` is built in,
+means "everything registered", and is reserved as **both** a preset and a group
+name — `resolve()` checks presets first, so a group called `all` would be
+permanently unselectable.
 
 **Register before `setup_telemetry`.** Importing a library registers its groups,
 so by setup time everything in play is known. But resolution **never raises** —
@@ -175,7 +178,10 @@ them puts `cls._notify()` below its `with cls._LOCK` block. Move a `_notify()`
 inside that block and the cycle closes on the first concurrent registration.
 Likewise, `register()` validates presets and commits under one hold: splitting
 them lets a concurrent `unregister` land between, and the preset commits a
-reference to a group that no longer exists.
+reference to a group that no longer exists. Reads are the same rule:
+`SpanRegistry._snapshot()` returns presets and groups from one hold, and
+`_resolve_snapshot()` adds the registry-empty flag, so `state` describes one
+registry generation instead of asking three times and getting three answers.
 
 Adding to `default` raises always-on overhead for every user of every library in
 the process, not just yours. Procedure: `docs/developer/new-span-group.mdx`.

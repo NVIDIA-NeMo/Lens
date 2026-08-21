@@ -36,7 +36,7 @@ SpanRegistry.register(
 |---|---|
 | `namespace` | The owning library. Also the key for `SpanRegistry.unregister`. |
 | `groups` | Every group name this library emits. Lowercase `snake_case`. |
-| `presets` | Optional named subsets. Every member must appear in `groups`. |
+| `presets` | Optional named subsets. A member may be any group already in the registry, not only the ones this call declares — see [Reference Another Library's Groups](#reference-another-librarys-groups). |
 | `allow_override` | Permit re-registering the namespace, or claiming a group name another namespace already registered. |
 
 Group names share one flat namespace across libraries, which keeps instrumentation call sites terse. Two libraries claiming the same name is an error unless you pass `allow_override=True`.
@@ -118,7 +118,7 @@ SpanRegistry.register(
 )
 ```
 
-Referencing a name whose owner has not been imported raises at registration, so the import-order requirement enforces itself rather than failing silently later. Referencing a group does not transfer ownership: if Megatron unregisters, `step` leaves the registry.
+Referencing a name whose owner has not been imported raises at registration, so the import-order requirement enforces itself rather than failing silently later. Referencing a group does not transfer ownership: if Megatron unregisters, `step` leaves the registry, and any preset that borrowed it drops it too — a preset can never name a group that is no longer registered.
 
 ## Inspect What Resolved
 

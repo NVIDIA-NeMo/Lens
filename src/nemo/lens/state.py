@@ -21,14 +21,15 @@ Holds a frozenset of enabled span groups so that any module can call
 Two ways in, and the last one called wins:
 
 * :func:`set_span_group_spec` stores the raw user spec (e.g. ``"default,step"``)
-  and resolves it **strictly** against :class:`~nemo.lens.groups.SpanRegistry`,
-  raising on an entry that names nothing. Libraries register their groups when
-  they are imported, which is before ``setup_telemetry``, so an unrecognised
-  name at that point is a typo and gets said out loud.
+  and resolves it against :class:`~nemo.lens.groups.SpanRegistry`. It never
+  raises: an entry naming nothing is warned about and kept pending, because this
+  process's registry is not the authority on a job-wide spec. Several processes
+  in one job routinely share a spec while importing different libraries, so a
+  name that resolves nowhere here may be perfectly valid next door.
 
-  The spec is nonetheless retained, so that a library registering late still
-  takes effect (:func:`refresh_enabled_span_groups`) instead of silently
-  emitting nothing. That path warns — see ``SpanRegistry._warn_if_late``.
+  The spec is retained, so a library registering late still takes effect
+  (:func:`refresh_enabled_span_groups`) instead of silently emitting nothing.
+  That path warns — see ``SpanRegistry._warn_if_late``.
 * :func:`set_enabled_span_groups` pins an explicit set and drops the spec, so a
   later registration cannot reopen it. This is how a disabled process stays
   disabled, and how a test enables exactly the groups it means to.
@@ -57,9 +58,10 @@ _LOCK = threading.Lock()
 _ENABLED_GROUPS: frozenset = frozenset()
 _SPEC: str = ""
 _PENDING: frozenset = frozenset()
-#: Last unresolved set already reported, so re-resolving on each registration
-#: does not repeat an identical warning.
-_WARNED: frozenset | None = None
+#: Last (unresolved set, registry-empty) already reported, so re-resolving on each
+#: registration does not repeat an identical warning. Both halves are in the key
+#: because the message text depends on both.
+_WARNED: tuple[frozenset, bool] | None = None
 
 
 def set_enabled_span_groups(groups: frozenset) -> None:
@@ -90,13 +92,14 @@ def set_span_group_spec(spec: str) -> None:
     with _LOCK:
         # Resolve inside the lock so the stored spec and the set derived from it
         # are always the same generation; a concurrent refresh cannot land a
-        # resolution from a different one on top.
-        enabled, unknown = SpanRegistry.resolve(spec)
+        # resolution from a different one on top. _resolve_snapshot returns the
+        # registry-empty flag from the same registry hold as the resolution, so
+        # the enabled set and the diagnostic cannot describe different states.
+        enabled, unknown, registry_empty = SpanRegistry._resolve_snapshot(spec)
         _SPEC = spec
         _ENABLED_GROUPS = enabled
         _PENDING = unknown
-        _WARNED = unknown
-        registry_empty = not SpanRegistry.groups()
+        _WARNED = (unknown, registry_empty)
 
     _report(spec, unknown, registry_empty)
 
@@ -120,12 +123,16 @@ def refresh_enabled_span_groups() -> None:
         spec = _SPEC
         if not spec:
             return
-        enabled, unknown = SpanRegistry.resolve(spec)
+        enabled, unknown, registry_empty = SpanRegistry._resolve_snapshot(spec)
         _ENABLED_GROUPS = enabled
         _PENDING = unknown
-        repeat = unknown == _WARNED
-        _WARNED = unknown
-        registry_empty = not SpanRegistry.groups()
+        # Keyed on both halves the message depends on. Keying on `unknown` alone
+        # suppressed the *useful* report: a typo against an empty registry warns
+        # "no library has registered any span groups", and when the owning library
+        # then registered, the message naming the registered groups -- the one that
+        # reveals the typo -- looked like a repeat and was dropped.
+        repeat = (unknown, registry_empty) == _WARNED
+        _WARNED = (unknown, registry_empty)
 
     if not repeat:
         _report(spec, unknown, registry_empty)
@@ -139,7 +146,14 @@ def _report(spec: str, unknown: frozenset, registry_empty: bool) -> None:
     and got nothing" into a diagnosis -- either a typo, or a library this process
     never imported.
     """
-    if not unknown:
+    # Not gated on `unknown`. A spec of "all" against an empty registry resolves
+    # cleanly -- "all" is always a preset, so nothing is ever unknown -- and would
+    # otherwise return here having enabled nothing and reported nothing. That is
+    # the expected state of any consumer that has not yet migrated to
+    # SpanRegistry.register(), and "all" is the likeliest spec for someone asking
+    # for everything, so it was the quietest possible version of the loudest
+    # possible problem.
+    if not unknown and not (registry_empty and spec.strip()):
         return
 
     from nemo.lens.groups import SpanRegistry
