@@ -16,7 +16,7 @@
 """NemoLensConfig: unified OTel configuration for the NeMo ecosystem."""
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -76,9 +76,6 @@ class NemoLensConfig:
     #: W&B project name. Required when exporting traces to W&B Weave.
     wandb_project: str = ""
 
-    #: Span group class used for resolution. Set by library-specific subclasses.
-    _span_group_cls: type | None = field(default=None, repr=False)
-
     def __post_init__(self) -> None:
         if not (0.0 <= self.export_sample_rate <= 1.0):
             raise ValueError(
@@ -87,25 +84,32 @@ class NemoLensConfig:
 
     @property
     def resolved_span_groups(self) -> frozenset:
-        """Resolve :attr:`span_groups` to a frozenset of group names."""
-        from nemo.lens.groups import SpanGroup
+        """Resolve :attr:`span_groups` against the current registry contents.
 
-        cls = self._span_group_cls or SpanGroup
-        return cls.resolve(self.span_groups)
+        A snapshot; the live value is
+        :func:`nemo.lens.state.enabled_span_groups`. Entries that name nothing
+        registered are dropped, not raised — see
+        :func:`nemo.lens.state.pending_span_groups`.
+        """
+        from nemo.lens.groups import SpanRegistry
+
+        return SpanRegistry.resolve(self.span_groups)[0]
 
     @classmethod
     def from_env(
         cls,
         prefix: str = "NEMO_LENS",
         fallback_prefix: str | None = None,
-        span_group_cls: type | None = None,
     ) -> "NemoLensConfig":
         """Build config from environment variables.
+
+        Span groups resolve against :class:`~nemo.lens.groups.SpanRegistry`,
+        so there is nothing to pass here — a consuming library registers what
+        it emits instead.
 
         Args:
             prefix: Primary env var prefix (e.g. ``"MEGATRON_OTEL"``).
             fallback_prefix: Fallback prefix (e.g. ``"NEMO_LENS"``).
-            span_group_cls: SpanGroup subclass for resolution.
         """
 
         def _env(key: str, default: str = "") -> str:
@@ -163,5 +167,4 @@ class NemoLensConfig:
             user=_env("USER_ID", ""),
             wandb_entity=os.environ.get("WANDB_ENTITY", ""),
             wandb_project=os.environ.get("WANDB_PROJECT", ""),
-            _span_group_cls=span_group_cls,
         )

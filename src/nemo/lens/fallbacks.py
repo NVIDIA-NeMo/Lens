@@ -21,10 +21,14 @@ works unchanged regardless of whether telemetry is initialised.
 Consumer libraries should use these as their ImportError fallback::
 
     try:
+        from nemo.lens.groups import SpanRegistry
         from nemo.lens.helpers import managed_span
         from nemo.lens.state import is_span_group_enabled
     except ImportError:
-        from nemo.lens.fallbacks import managed_span, is_span_group_enabled
+        from nemo.lens.fallbacks import SpanRegistry, managed_span, is_span_group_enabled
+
+``SpanRegistry`` is here because a consuming library registers the groups it
+emits at import time, which has to keep working when lens is absent.
 """
 
 from contextlib import contextmanager
@@ -59,3 +63,39 @@ def is_span_group_enabled(group):
 def safe_set_span_attributes(span, attributes, redact_keys=None):
     """No-op."""
     pass
+
+
+class SpanRegistry:
+    """No-op registry — accepts registrations and forgets them."""
+
+    @classmethod
+    def register(cls, namespace, groups, presets=None, *, allow_override=False):
+        """No-op."""
+
+    @classmethod
+    def unregister(cls, namespace):
+        """No-op."""
+
+    @classmethod
+    def clear(cls):
+        """No-op."""
+
+    @classmethod
+    def groups(cls):
+        """Always empty."""
+        return frozenset()
+
+    @classmethod
+    def namespaces(cls):
+        """Always empty."""
+        return []
+
+    @classmethod
+    def presets(cls):
+        """Only the built-in wildcard, over an empty registry."""
+        return {"all": frozenset()}
+
+    @classmethod
+    def resolve(cls, spec):
+        """Nothing resolves; every spec entry comes back unknown."""
+        return frozenset(), frozenset(p.strip().lower() for p in spec.split(",") if p.strip())

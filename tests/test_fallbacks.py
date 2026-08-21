@@ -16,6 +16,7 @@
 """Unit tests for nemo.lens.fallbacks — canonical no-op implementations."""
 
 from nemo.lens.fallbacks import (
+    SpanRegistry,
     is_span_group_enabled,
     managed_span,
     safe_set_span_attributes,
@@ -81,3 +82,48 @@ class TestFallbackSafeSetSpanAttributes:
 
     def test_noop_with_empty_dict(self):
         safe_set_span_attributes(None, {})
+
+
+class TestFallbackSpanRegistry:
+    """Consumers register at import time, so this has to work without lens."""
+
+    def test_register_accepts_the_real_signature(self):
+        SpanRegistry.register("mega", {"step"}, {"default": {"step"}}, allow_override=True)
+
+    def test_register_forgets_everything(self):
+        SpanRegistry.register("mega", {"step"})
+        assert SpanRegistry.groups() == frozenset()
+        assert SpanRegistry.namespaces() == []
+
+    def test_unregister_does_not_raise_on_unknown(self):
+        SpanRegistry.unregister("never-registered")
+
+    def test_clear_is_a_noop(self):
+        SpanRegistry.clear()
+
+    def test_presets_expose_only_the_wildcard(self):
+        assert SpanRegistry.presets() == {"all": frozenset()}
+
+    def test_resolve_returns_the_two_tuple_shape(self):
+        enabled, pending = SpanRegistry.resolve("default,step")
+        assert enabled == frozenset()
+        assert pending == frozenset({"default", "step"})
+
+    def test_signature_parity_with_the_real_registry(self):
+        """Invariant 3: the no-op surface must match the real API."""
+        import inspect
+
+        from nemo.lens.groups import SpanRegistry as Real
+
+        for name in (
+            "register",
+            "unregister",
+            "clear",
+            "groups",
+            "namespaces",
+            "presets",
+            "resolve",
+        ):
+            real = inspect.signature(getattr(Real, name))
+            noop = inspect.signature(getattr(SpanRegistry, name))
+            assert list(real.parameters) == list(noop.parameters), name

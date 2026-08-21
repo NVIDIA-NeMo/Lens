@@ -18,35 +18,191 @@
 Holds a frozenset of enabled span groups so that any module can call
 :func:`is_span_group_enabled` without importing the full nemo.lens package.
 
-Span groups are registered once via :func:`set_enabled_span_groups` (called
-from :func:`~nemo.lens.handle.setup_telemetry`).  Before that call every
-:func:`is_span_group_enabled` query returns ``False``.
+Two ways in, and the last one called wins:
+
+* :func:`set_span_group_spec` stores the raw user spec (e.g. ``"default,step"``)
+  and resolves it against :class:`~nemo.lens.groups.SpanRegistry`. It never
+  raises: an entry naming nothing is warned about and kept pending, because this
+  process's registry is not the authority on a job-wide spec. Several processes
+  in one job routinely share a spec while importing different libraries, so a
+  name that resolves nowhere here may be perfectly valid next door.
+
+  The spec is retained, so a library registering late still takes effect
+  (:func:`refresh_enabled_span_groups`) instead of silently emitting nothing.
+  That path warns — see ``SpanRegistry._warn_if_late``.
+* :func:`set_enabled_span_groups` pins an explicit set and drops the spec, so a
+  later registration cannot reopen it. This is how a disabled process stays
+  disabled, and how a test enables exactly the groups it means to.
+
+Before either is called every :func:`is_span_group_enabled` query returns
+``False``.
 """
 
 from __future__ import annotations
 
+import logging
 import threading
 
+#: Guards ``_SPEC`` and ``_ENABLED_GROUPS`` together, and is held across
+#: resolution so the two never drift apart.
+#:
+#: Lock order is **state -> registry**: the functions below hold this while
+#: calling into :class:`~nemo.lens.groups.SpanRegistry`, which takes its own lock.
+#: SpanRegistry's mutators therefore call back here only after releasing theirs
+#: (see ``SpanRegistry._notify``). Do not call into this module while holding the
+#: registry lock, or the cycle closes.
+#:
+#: :func:`is_span_group_enabled` deliberately does not take it. Rebinding a name
+#: to an immutable frozenset is atomic, so the hot path stays one membership test.
 _LOCK = threading.Lock()
 _ENABLED_GROUPS: frozenset = frozenset()
+_SPEC: str = ""
+_PENDING: frozenset = frozenset()
+#: Last (unresolved set, registry-empty) already reported, so re-resolving on each
+#: registration does not repeat an identical warning. Both halves are in the key
+#: because the message text depends on both.
+_WARNED: tuple[frozenset, bool] | None = None
 
 
 def set_enabled_span_groups(groups: frozenset) -> None:
-    """Register the active span groups.
+    """Pin the active span groups explicitly, discarding any stored spec.
 
-    Called once from :func:`~nemo.lens.handle.setup_telemetry`.
-    Subsequent calls override the previous value (useful for testing).
+    Subsequent registrations will not change the set — use
+    :func:`set_span_group_spec` if you want it to track the registry.
     """
-    global _ENABLED_GROUPS
+    global _ENABLED_GROUPS, _SPEC, _PENDING, _WARNED
     with _LOCK:
         _ENABLED_GROUPS = groups
+        _SPEC = ""
+        _PENDING = frozenset()
+        _WARNED = None
+
+
+def set_span_group_spec(spec: str) -> None:
+    """Store the user's span-group spec and resolve it against the registry.
+
+    Called from :func:`~nemo.lens.handle.setup_telemetry`. Never raises: an entry
+    that resolves to nothing is warned about and kept pending, because this
+    process's registry is not the authority on a job-wide spec.
+    """
+    global _ENABLED_GROUPS, _SPEC, _PENDING, _WARNED
+
+    from nemo.lens.groups import SpanRegistry  # imported before the lock, never under it
+
+    with _LOCK:
+        # Resolve inside the lock so the stored spec and the set derived from it
+        # are always the same generation; a concurrent refresh cannot land a
+        # resolution from a different one on top. _resolve_snapshot returns the
+        # registry-empty flag from the same registry hold as the resolution, so
+        # the enabled set and the diagnostic cannot describe different states.
+        enabled, unknown, registry_empty = SpanRegistry._resolve_snapshot(spec)
+        _SPEC = spec
+        _ENABLED_GROUPS = enabled
+        _PENDING = unknown
+        _WARNED = (unknown, registry_empty)
+
+    _report(spec, unknown, registry_empty)
+
+
+def refresh_enabled_span_groups() -> None:
+    """Re-resolve the stored spec. Called whenever the registry changes.
+
+    A no-op when the groups were pinned explicitly rather than from a spec.
+    Registration happens at import time, so the cost never lands on the hot
+    path -- :func:`is_span_group_enabled` stays one frozenset membership test.
+    """
+    global _ENABLED_GROUPS, _PENDING, _WARNED
+
+    from nemo.lens.groups import SpanRegistry  # imported before the lock, never under it
+
+    with _LOCK:
+        # Read, resolve and store in one hold. Splitting them would let two
+        # registrations racing to notify commit out of order, so the enabled set
+        # could keep a resolution from an older registry indefinitely -- until
+        # some later registration happened to refresh it, or forever if none did.
+        spec = _SPEC
+        if not spec:
+            return
+        enabled, unknown, registry_empty = SpanRegistry._resolve_snapshot(spec)
+        _ENABLED_GROUPS = enabled
+        _PENDING = unknown
+        # Keyed on both halves the message depends on. Keying on `unknown` alone
+        # suppressed the *useful* report: a typo against an empty registry warns
+        # "no library has registered any span groups", and when the owning library
+        # then registered, the message naming the registered groups -- the one that
+        # reveals the typo -- looked like a repeat and was dropped.
+        repeat = (unknown, registry_empty) == _WARNED
+        _WARNED = (unknown, registry_empty)
+
+    if not repeat:
+        _report(spec, unknown, registry_empty)
+
+
+def _report(spec: str, unknown: frozenset, registry_empty: bool) -> None:
+    """Warn about spec entries that resolved to nothing.
+
+    Deliberately a warning and not an exception: see the module docstring.
+    Carries what *is* registered, because that is what turns "I set SPAN_GROUPS
+    and got nothing" into a diagnosis -- either a typo, or a library this process
+    never imported.
+    """
+    # Not gated on `unknown`. A spec of "all" against an empty registry resolves
+    # cleanly -- "all" is always a preset, so nothing is ever unknown -- and would
+    # otherwise return here having enabled nothing and reported nothing. That is
+    # the expected state of any consumer that has not yet migrated to
+    # SpanRegistry.register(), and "all" is the likeliest spec for someone asking
+    # for everything, so it was the quietest possible version of the loudest
+    # possible problem.
+    if not unknown and not (registry_empty and spec.strip()):
+        return
+
+    from nemo.lens.groups import SpanRegistry
+
+    log = logging.getLogger(__name__)
+    if registry_empty:
+        log.warning(
+            "Span groups %r were requested, but no library has registered any span "
+            "groups in this process. Nothing group-gated will be emitted. Import the "
+            "telemetry module of the library you are instrumenting before "
+            "setup_telemetry().",
+            spec,
+        )
+        return
+
+    log.warning(
+        "Span group spec %r names %s, which no library registered in this process "
+        "provides; nothing will be emitted for those. Registered groups: %s. "
+        "Presets: %s. Namespaces: %s. If a name is real, the library that owns it "
+        "was not imported here -- which is expected when several processes share "
+        "one spec, and is why this is a warning rather than an error.",
+        spec,
+        sorted(unknown),
+        sorted(SpanRegistry.groups()),
+        sorted(SpanRegistry.presets()),
+        SpanRegistry.namespaces(),
+    )
+
+
+def enabled_span_groups() -> frozenset:
+    """The groups currently enabled. Diagnostic; not for the hot path."""
+    return _ENABLED_GROUPS
+
+
+def pending_span_groups() -> frozenset:
+    """Spec entries that resolved to nothing. Diagnostic; not for the hot path.
+
+    Non-empty here is the usual explanation for "I set SPAN_GROUPS and got
+    nothing": either a typo, or a name belonging to a library this process never
+    imported.
+    """
+    return _PENDING
 
 
 def is_span_group_enabled(group: str) -> bool:
     """Return ``True`` if the named span group is currently enabled.
 
     This is the primary check at every instrumentation site (~2ns overhead).
-    Returns ``False`` before :func:`set_enabled_span_groups` is called.
+    Returns ``False`` before any group has been enabled.
     """
     return group in _ENABLED_GROUPS
 

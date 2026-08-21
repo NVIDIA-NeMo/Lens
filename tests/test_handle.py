@@ -18,7 +18,7 @@
 import pytest
 
 from nemo.lens.config import NemoLensConfig
-from nemo.lens.groups import SpanGroup
+from nemo.lens.groups import SpanRegistry
 from nemo.lens.handle import TelemetryHandle, _should_export, setup_telemetry
 from nemo.lens.state import is_span_group_enabled
 
@@ -156,30 +156,85 @@ class TestSetupTelemetryEnabled:
 
 
 class TestSetupTelemetrySpanGroups:
-    def test_disabled_clears_all_groups(self):
+    def test_disabled_clears_all_groups(self, demo_groups):
         cfg = NemoLensConfig(enabled=False, span_groups="all")
         setup_telemetry(cfg, rank=0, world_size=1)
-        for group in SpanGroup.ALL_GROUPS:
+        for group in SpanRegistry.groups():
             assert not is_span_group_enabled(group)
 
-    def test_enabled_registers_default_groups(self):
+    def test_enabled_registers_default_groups(self, demo_groups):
         cfg = NemoLensConfig(enabled=True, span_groups="default", exporter="console")
         setup_telemetry(cfg, rank=0, world_size=1)
-        assert is_span_group_enabled(SpanGroup.JOB) is True
-        assert is_span_group_enabled(SpanGroup.CHECKPOINT) is True
-        assert is_span_group_enabled(SpanGroup.STEP) is False
+        assert is_span_group_enabled("job") is True
+        assert is_span_group_enabled("checkpoint") is True
+        assert is_span_group_enabled("step") is False
 
-    def test_enabled_registers_per_step_groups(self):
+    def test_enabled_registers_per_step_groups(self, demo_groups):
         cfg = NemoLensConfig(enabled=True, span_groups="per_step", exporter="console")
         setup_telemetry(cfg, rank=0, world_size=1)
-        assert is_span_group_enabled(SpanGroup.STEP) is True
-        assert is_span_group_enabled(SpanGroup.FORWARD_BACKWARD) is True
+        assert is_span_group_enabled("step") is True
+        assert is_span_group_enabled("forward_backward") is True
 
-    def test_non_export_rank_clears_span_groups(self):
+    def test_non_export_rank_clears_span_groups(self, demo_groups):
         cfg = NemoLensConfig(enabled=True, span_groups="all", exporter="console")
         setup_telemetry(cfg, rank=0, world_size=4)
-        for group in SpanGroup.ALL_GROUPS:
+        for group in SpanRegistry.groups():
             assert not is_span_group_enabled(group)
+
+    def test_a_library_registering_after_setup_warns_but_still_works(self, demo_groups, caplog):
+        """Registering late is a consumer import-order bug, not a lens feature.
+
+        It is loud rather than fatal: refusing it would drop spans silently, and
+        raising would let a telemetry misconfiguration kill a training job.
+        """
+        cfg = NemoLensConfig(enabled=True, span_groups="per_step", exporter="console")
+        setup_telemetry(cfg, rank=0, world_size=1)
+        assert is_span_group_enabled("extra") is False
+
+        with caplog.at_level("WARNING"):
+            SpanRegistry.register("late", {"extra"}, {"per_step": {"extra"}})
+
+        assert is_span_group_enabled("extra") is True
+        assert "registered after setup_telemetry()" in caplog.text
+
+    def test_a_typo_in_the_spec_warns_but_still_starts(self, demo_groups, caplog):
+        cfg = NemoLensConfig(enabled=True, span_groups="per_stpe", exporter="console")
+        with caplog.at_level("WARNING"):
+            handle = setup_telemetry(cfg, rank=0, world_size=1)
+        assert handle.is_exporting is True
+        assert "no library registered in this process provides" in caplog.text
+
+    def test_a_process_missing_the_job_wide_vocabulary_still_gets_telemetry(self, caplog):
+        """A launcher agent or spawned worker inherits one NEMO_LENS_SPAN_GROUPS
+        from the trainer but imports a different set of libraries. The spec names
+        the trainer's groups, which are absent here -- that must not cost this
+        process its own telemetry, nor leave it exporting with no handle.
+        """
+        from opentelemetry import trace
+
+        SpanRegistry.register("sidecar", {"sidecar.ft"}, {"default": {"sidecar.ft"}})
+        cfg = NemoLensConfig(enabled=True, span_groups="per_step", exporter="console")
+        with caplog.at_level("WARNING"):
+            handle = setup_telemetry(cfg, rank=0, world_size=1)
+
+        assert handle.is_exporting is True
+        assert hasattr(trace.get_tracer_provider(), "force_flush"), (
+            "the caller must be able to bound its own flush"
+        )
+        assert "per_step" in caplog.text
+        handle.shutdown(timeout_ms=100)
+
+    def test_no_registered_library_does_not_crash_startup(self):
+        """The default spec must survive a process with nothing instrumented."""
+        cfg = NemoLensConfig(enabled=True, span_groups="default", exporter="console")
+        handle = setup_telemetry(cfg, rank=0, world_size=1)
+        assert handle.is_exporting is True
+
+    def test_a_disabled_process_stays_disabled_after_a_late_registration(self):
+        cfg = NemoLensConfig(enabled=False, span_groups="all")
+        setup_telemetry(cfg, rank=0, world_size=1)
+        SpanRegistry.register("late", {"step"})
+        assert is_span_group_enabled("step") is False
 
 
 class TestDoubleInitGuard:

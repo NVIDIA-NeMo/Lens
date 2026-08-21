@@ -79,9 +79,11 @@ grep -n "^def \|^@contextmanager" src/nemo/lens/helpers.py
 ```
 
 A new name in `nemo.lens.__all__` is not automatically part of the fallback
-surface — that surface is exactly those five symbols. A sixth is a deliberate
-contract change and should be called out as one, since consumer repos mirror
-this file.
+surface — that surface is exactly those six symbols (`trace_fn`, `managed_span`,
+`span_cm`, `is_span_group_enabled`, `safe_set_span_attributes`, `SpanRegistry`).
+A seventh is a deliberate contract change and should be called out as one, since
+consumer repos mirror this file. A changed `SpanRegistry` method signature counts
+too — the no-op class must match.
 
 ### 4. Public surface
 
@@ -97,13 +99,34 @@ Flag that the PR must name the affected files and new signatures for those repos
 
 ### 5. Span groups and presets
 
-New constant present in `ALL_GROUPS`? Assigned to at least one preset (otherwise
-it is reachable only by typing its bare name)? Anything added to `default` needs
-justification — that is the always-on production tier. Fine-grained groups belong
-in `all`, medium ones in `per_step`.
+Lens defines no group names of its own — a diff that hard-codes one into
+`groups.py` is a blocker. Groups arrive through `SpanRegistry.register()` in a
+consuming library.
 
-Subclass `_PRESETS` are overridden wholesale, so a base-class addition does not
-propagate into a consumer's presets.
+Anything added to a `default` preset needs justification: presets union across
+namespaces, so it raises the always-on tier for every library in the process, not
+just the one registering it.
+
+Watch for two regressions specifically:
+
+- Work moved *before* the `is_span_group_enabled` gate, or re-resolution moved
+  out of registration and onto the gating path. The gate must stay one
+  `frozenset` membership test.
+- Resolution made strict again (raising on an unknown spec entry), or any new
+  raise on the `setup_telemetry` path. A registry is per process while the spec
+  is job-wide, so an unresolvable name is as likely to be another process's
+  vocabulary as a typo — and a raise after `build_providers` strands live
+  exporters with no handle to close them. Warnings plus `pending_span_groups()`
+  are the contract.
+- A `SpanRegistry._notify()` moved *inside* a `with cls._LOCK` block, or a
+  read-resolve-write in `state.py` split across two lock holds. Lock order is
+  state → registry; inverting it deadlocks, and splitting the resolve lets a
+  stale enabled set stick for the life of the process. Both entry points carry
+  the pattern — `set_span_group_spec` and `refresh_enabled_span_groups` — and
+  `tests/test_state.py::TestResolutionIsAtomic` covers each. Registry *reads*
+  are the same rule: `_snapshot()` returns presets and groups from one hold and
+  `_resolve_snapshot()` adds the registry-empty flag, so a caller cannot mix
+  generations by asking twice.
 
 ### 6. Naming
 

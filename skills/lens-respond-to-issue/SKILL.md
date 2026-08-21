@@ -98,7 +98,7 @@ missing fallback signature, a one-line fix — tell the maintainer and offer to
 open a branch and PR. Don't stop at drafting a comment when the fix is small.
 
 If it touches the public surface — `__all__`, a `fallbacks.py` signature, a
-`NemoLensConfig` field, a base `SpanGroup` constant — say so explicitly. The
+`NemoLensConfig` field, a `SpanRegistry` method — say so explicitly. The
 consumer mirror obligation applies (Megatron-LM, NeMo-RL, NeMo-Gym each carry
 their own copy of that contract) and it is easy to forget from an issue thread.
 

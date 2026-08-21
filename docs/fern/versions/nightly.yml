@@ -63,7 +63,7 @@ navigation:
     contents:
       - page: "Test"
         path: ../../developer/testing.mdx
-      - page: "Add a New Span Group"
+      - page: "Register a Span Group"
         path: ../../developer/new-span-group.mdx
       - page: "Contributing"
         path: ../../developer/contributing.mdx

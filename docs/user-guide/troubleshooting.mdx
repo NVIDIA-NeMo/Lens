@@ -107,11 +107,15 @@ You instrumented a site with `managed_span('my_group', ...)`, and nothing export
 
 ### `my_group` Is Not in the Enabled Set
 
-The base `default` preset includes only `job`, `checkpoint`, and `evaluate`, but consumer subclasses extend it; Megatron's `default` adds `inference`, and Gym's adds `server` (RL's matches the base). The authoritative set is the `_PRESETS`/`ALL_GROUPS` of the `SpanGroup` subclass you pass to `from_env(span_group_cls=...)`. Groups like `step`, `microbatch`, `forward_backward` live in `per_step` or `all`. Check what's enabled:
+NeMo Lens defines no groups; the authoritative set is whatever the libraries in your process registered, unioned. Presets merge across libraries, so `default` means every registered library's idea of default. Groups like `step` and `microbatch` typically live in `per_step` or `all`. Check what actually resolved:
 
 ```python
-from nemo.lens.state import is_span_group_enabled
+from nemo.lens import enabled_span_groups, is_span_group_enabled
+from nemo.lens.groups import SpanRegistry
+
 print(is_span_group_enabled("my_group"))
+print(sorted(enabled_span_groups()))
+print(SpanRegistry.namespaces(), sorted(SpanRegistry.groups()))
 ```
 
 Set `NEMO_LENS_SPAN_GROUPS` to include it:
@@ -122,9 +126,31 @@ NEMO_LENS_SPAN_GROUPS=per_step
 NEMO_LENS_SPAN_GROUPS=default,my_group
 ```
 
-### The Preset Resolved but the Name Is Wrong
+### The Name in Your Spec Was Never Registered
 
-`span_groups` resolution is strict; unknown names raise `ValueError` at config time with the valid list. If your app started, the name is real. If you just added a new group, double-check it's in `ALL_GROUPS` of the `SpanGroup` subclass being passed to `from_env(span_group_cls=...)`.
+Resolution never raises. An entry that names nothing registered in this process
+is warned about, listing the registered groups, presets, and namespaces, and the
+rest of the spec still applies. Ask what did not resolve:
+
+```python
+from nemo.lens import pending_span_groups
+print(sorted(pending_span_groups()))    # ['my_gropu']
+```
+
+A name in there is either a typo, or it belongs to a library this process never
+imported. The second case is normal in a multi-process job: a launcher agent or a
+spawned worker inherits one `NEMO_LENS_SPAN_GROUPS` from the trainer but loads a
+different set of libraries. Give such a process its own env prefix
+(`from_env(prefix="NVRX_OTEL", fallback_prefix="NEMO_LENS")`) rather than looking
+for one spec that fits every process.
+
+If you instead see a `WARNING` about groups "registered after
+`setup_telemetry()`", that is an import-order problem caught from the other side:
+the groups do work, but they were not selectable when your spec was resolved.
+
+A `WARNING` that no library registered any span groups means nothing
+group-gated will be emitted at all — the library you expected to instrument was
+never imported.
 
 ### You Are on a Non-Exporting Rank
 

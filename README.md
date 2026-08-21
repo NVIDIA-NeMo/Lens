@@ -45,7 +45,7 @@ Enable with environment variables:
 ```bash
 NEMO_LENS_ENABLED=1
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
-NEMO_LENS_SPAN_GROUPS=per_step   # includes the 'step' group used above (default={job,checkpoint,evaluate} omits it)
+NEMO_LENS_SPAN_GROUPS=per_step   # whichever groups your library put in its 'per_step' preset
 ```
 
 ## Three instrumentation primitives
@@ -55,6 +55,14 @@ NEMO_LENS_SPAN_GROUPS=per_step   # includes the 'step' group used above (default
 | `managed_span(group, name, **attrs)` | Context manager; group-gated, yields `None` when disabled |
 | `@trace_fn(group, name)` | Decorator; same gating, no re-indentation |
 | `span_cm(name, tracer=...)` | Always-on context manager; use for top-level spans |
+
+Group names are declared by the consuming library, not by lens:
+
+```python
+from nemo.lens import SpanRegistry
+
+SpanRegistry.register('mylib', groups={'step'}, presets={'per_step': {'step'}})
+```
 
 ## Distributed training
 
