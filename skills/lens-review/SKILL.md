@@ -121,8 +121,12 @@ Watch for two regressions specifically:
 - A `SpanRegistry._notify()` moved *inside* a `with cls._LOCK` block, or a
   read-resolve-write in `state.py` split across two lock holds. Lock order is
   state → registry; inverting it deadlocks, and splitting the resolve lets a
-  stale enabled set stick for the life of the process.
-  `tests/test_state.py::TestResolutionIsAtomic` covers this.
+  stale enabled set stick for the life of the process. Both entry points carry
+  the pattern — `set_span_group_spec` and `refresh_enabled_span_groups` — and
+  `tests/test_state.py::TestResolutionIsAtomic` covers each. Registry *reads*
+  are the same rule: `_snapshot()` returns presets and groups from one hold and
+  `_resolve_snapshot()` adds the registry-empty flag, so a caller cannot mix
+  generations by asking twice.
 
 ### 6. Naming
 
