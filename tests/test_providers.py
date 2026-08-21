@@ -22,6 +22,7 @@ import os
 import signal
 import threading
 import time
+import uuid
 
 import pytest
 from opentelemetry import metrics, trace
@@ -35,7 +36,7 @@ from nemo.lens.providers import (
     build_noop_providers,
     build_providers,
 )
-from nemo.lens.semconv import NEMO_SPAN_TRUNCATED
+from nemo.lens.semconv import DL_RANK, DL_WORLD_SIZE, NEMO_SPAN_TRUNCATED
 
 
 class TestBuildNoopProviders:
@@ -53,7 +54,7 @@ class TestBuildNoopProviders:
 class TestBuildProviders:
     def test_console_exporter(self):
         cfg = NemoLensConfig(enabled=True, exporter="console")
-        build_providers(cfg, rank=0, world_size=1)
+        build_providers(cfg)
         # Should not raise; tracer provider should be SDK type
         tracer = trace.get_tracer("test")
         with tracer.start_as_current_span("test") as span:
@@ -62,24 +63,237 @@ class TestBuildProviders:
     def test_invalid_exporter_raises(self):
         cfg = NemoLensConfig(enabled=True, exporter="invalid")
         with pytest.raises(ValueError, match="Unknown exporter"):
-            build_providers(cfg, rank=0, world_size=1)
+            build_providers(cfg)
 
     def test_resource_attributes_merged(self):
         cfg = NemoLensConfig(enabled=True, exporter="console")
-        build_providers(cfg, rank=0, world_size=1, resource_attributes={"custom.attr": "value"})
+        build_providers(cfg, resource_attributes={"custom.attr": "value"})
         # Should not raise
         tracer = trace.get_tracer("test")
         assert tracer is not None
 
     def test_traces_disabled(self):
         cfg = NemoLensConfig(enabled=True, exporter="console", traces_enabled=False)
-        build_providers(cfg, rank=0, world_size=1)
+        build_providers(cfg)
         # Tracer should be no-op (not set by us)
 
     def test_metrics_disabled(self):
         cfg = NemoLensConfig(enabled=True, exporter="console", metrics_enabled=False)
-        build_providers(cfg, rank=0, world_size=1)
+        build_providers(cfg)
         # Meter should be no-op (not set by us)
+
+
+class TestResourceIdentity:
+    """Rank identity is supplied by the caller now, not derived by lens."""
+
+    @staticmethod
+    def _resource_attrs():
+        return dict(trace.get_tracer_provider().resource.attributes)
+
+    def test_lens_does_not_invent_a_rank(self):
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        build_providers(cfg)
+        attrs = self._resource_attrs()
+        assert DL_RANK not in attrs
+        assert DL_WORLD_SIZE not in attrs
+
+    def test_caller_supplied_rank_lands_on_the_resource(self):
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        build_providers(cfg, resource_attributes={DL_RANK: 3, DL_WORLD_SIZE: 8})
+        attrs = self._resource_attrs()
+        assert attrs[DL_RANK] == 3
+        assert attrs[DL_WORLD_SIZE] == 8
+
+    def test_instance_id_derives_from_caller_supplied_rank(self):
+        """Preserves the pre-removal `{run_id}-rank{rank}` shape."""
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        build_providers(cfg, resource_attributes={DL_RANK: 3})
+        assert self._resource_attrs()["service.instance.id"] == "run1-rank3"
+
+    def test_no_rank_leaves_instance_id_to_the_sdk(self):
+        """Without a rank lens must not name the process after the run.
+
+        The run id is already published as ``nemo.run.id``, so pinning
+        ``service.instance.id`` to it would duplicate that attribute while
+        destroying a genuinely per-process value: opentelemetry-sdk >= 1.43.0
+        auto-populates ``service.instance.id`` with a per-process UUID. Lens
+        overwriting that with a job-wide constant manufactured the very collision
+        the missing-rank warning then reported.
+        """
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        build_providers(cfg)
+        attrs = self._resource_attrs()
+
+        assert attrs["nemo.run.id"] == "run1"
+        # Either the SDK's per-process UUID (>= 1.43.0) or nothing at all
+        # (< 1.43.0) -- never the job-wide run id.
+        instance_id = attrs.get("service.instance.id")
+        assert instance_id != "run1"
+        if instance_id is not None:
+            # A per-process UUID, not something derived from the run.
+            assert uuid.UUID(instance_id).version == 4
+
+    def test_instance_id_derives_from_rank_zero(self):
+        """Rank 0 is a rank, not a missing one.
+
+        Guards the derivation against a truthiness slip (``not rank``), which
+        would silently hand rank 0 -- the rank the warning tells single-process
+        callers to pass -- the bare run id.
+        """
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        build_providers(cfg, resource_attributes={DL_RANK: 0})
+        assert self._resource_attrs()["service.instance.id"] == "run1-rank0"
+
+    def test_instance_id_derives_from_rank_zero_via_the_env_channel(self, monkeypatch):
+        """The env twin of the above; dl.rank arrives as the string "0"."""
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", f"{DL_RANK}=0")
+        build_providers(cfg)
+        assert self._resource_attrs()["service.instance.id"] == "run1-rank0"
+
+    def test_explicit_instance_id_wins(self):
+        """Callers could override this before the removal; they still can."""
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        build_providers(cfg, resource_attributes={DL_RANK: 3, "service.instance.id": "chosen"})
+        assert self._resource_attrs()["service.instance.id"] == "chosen"
+
+
+class TestEnvSuppliedIdentity:
+    """OTEL_RESOURCE_ATTRIBUTES is the only identity channel that survives a spawn.
+
+    A spawned checkpoint worker or an exec'd relaunch has no setup_telemetry call
+    site to reach, so this is how it supplies dl.rank. Deriving from the caller's
+    dict alone made lens blind to it.
+    """
+
+    @staticmethod
+    def _attrs():
+        return dict(trace.get_tracer_provider().resource.attributes)
+
+    def test_rank_from_the_env_channel_reaches_the_resource(self, monkeypatch):
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "dl.rank=5,dl.world_size=8")
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        build_providers(cfg)
+        attrs = self._attrs()
+        assert attrs[DL_RANK] == "5"
+        assert attrs[DL_WORLD_SIZE] == "8"
+
+    def test_instance_id_derives_from_an_env_supplied_rank(self, monkeypatch):
+        """The regression: this used to degrade to the bare run id."""
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "dl.rank=5")
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        build_providers(cfg)
+        assert self._attrs()["service.instance.id"] == "run1-rank5"
+
+    def test_an_env_supplied_rank_silences_the_warning(self, monkeypatch, caplog):
+        """It used to warn, telling the caller to supply what it had supplied."""
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "dl.rank=5")
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.providers"):
+            build_providers(cfg)
+        assert "No dl.rank resource attribute was supplied" not in caplog.text
+
+    def test_the_caller_dict_still_wins_over_the_env(self, monkeypatch):
+        """Precedence must match what Resource.create would have done anyway."""
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "dl.rank=5")
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        build_providers(cfg, resource_attributes={DL_RANK: 3})
+        attrs = self._attrs()
+        assert attrs[DL_RANK] == 3
+        assert attrs["service.instance.id"] == "run1-rank3"
+
+    def test_an_env_supplied_instance_id_suppresses_the_derivation(self, monkeypatch):
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "service.instance.id=from-env")
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        build_providers(cfg)
+        assert self._attrs()["service.instance.id"] == "from-env"
+
+    def test_the_sdk_auto_uuid_does_not_suppress_the_derivation(self):
+        """The SDK populates service.instance.id with a per-process UUID.
+
+        Testing "is one already set?" against the built Resource is therefore
+        always true, and would silently disable lens's derivation entirely.
+        """
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        build_providers(cfg, resource_attributes={DL_RANK: 2})
+        assert self._attrs()["service.instance.id"] == "run1-rank2"
+
+
+class TestMissingRankWarning:
+    """Lens cannot derive a rank, so an absent one is the caller's to resolve."""
+
+    def test_warns_when_no_rank_is_supplied(self, caplog):
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.providers"):
+            build_providers(cfg)
+        assert "No dl.rank resource attribute was supplied" in caplog.text
+
+    def test_silent_when_a_rank_is_supplied(self, caplog):
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.providers"):
+            build_providers(cfg, resource_attributes={DL_RANK: 3, DL_WORLD_SIZE: 8})
+        assert "dl.rank" not in caplog.text
+
+    def test_rank_zero_silences_it(self, caplog):
+        """The documented escape hatch for a genuinely single-process caller."""
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.providers"):
+            build_providers(cfg, resource_attributes={DL_RANK: 0})
+        assert "dl.rank" not in caplog.text
+
+    def test_names_the_real_consequence(self, caplog):
+        """Rank filtering, not identifiability.
+
+        ``detect_local`` always attaches host.name and process.pid, so the process
+        stays distinguishable; claiming otherwise overstates the harm in a message
+        that fires once per process per job.
+        """
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.providers"):
+            build_providers(cfg)
+
+        assert "cannot be filtered by rank" in caplog.text
+        assert "service.instance.id is not rank-derived" in caplog.text
+        assert "told apart" not in caplog.text
+        assert "fallen back to the run id" not in caplog.text
+
+    def test_a_caller_supplied_identity_silences_the_warning(self, caplog):
+        """A process that names itself has no problem to report.
+
+        The warning's stated harm -- indistinguishable from every other rank --
+        is simply false here. A launcher agent or sidecar that identifies itself
+        and has no training rank to claim is a correct configuration; warning
+        once per node per job for it teaches people to filter the logger out.
+        """
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.providers"):
+            build_providers(cfg, resource_attributes={"service.instance.id": "agent-node07"})
+        assert caplog.text == ""
+
+    def test_an_env_supplied_identity_also_silences_it(self, monkeypatch, caplog):
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "service.instance.id=agent-node07")
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.providers"):
+            build_providers(cfg)
+        assert caplog.text == ""
+
+    def test_the_suppressed_case_still_says_so_at_debug(self, caplog):
+        """Rank filtering is genuinely unavailable; that stays discoverable."""
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        with caplog.at_level(logging.DEBUG, logger="nemo.lens.providers"):
+            build_providers(cfg, resource_attributes={"service.instance.id": "agent-node07"})
+        assert "cannot be filtered by rank" in caplog.text
+        assert "agent-node07" in caplog.text
+
+    def test_does_not_guess_the_rank_from_the_environment(self, monkeypatch, caplog):
+        """Reading RANK/WORLD_SIZE would restore exactly what this PR removed."""
+        monkeypatch.setenv("RANK", "5")
+        monkeypatch.setenv("WORLD_SIZE", "8")
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.providers"):
+            build_providers(cfg)
+        assert "No dl.rank resource attribute was supplied" in caplog.text
+        assert DL_RANK not in dict(trace.get_tracer_provider().resource.attributes)
 
 
 class TestCustomExporters:
@@ -88,7 +302,7 @@ class TestCustomExporters:
 
         custom_exporter = InMemorySpanExporter()
         cfg = NemoLensConfig(enabled=True, exporter="console")
-        build_providers(cfg, rank=0, world_size=1, span_exporter=custom_exporter)
+        build_providers(cfg, span_exporter=custom_exporter)
         tracer = trace.get_tracer("test")
         with tracer.start_as_current_span("custom") as span:
             span.set_attribute("key", "value")
@@ -102,7 +316,7 @@ class TestCustomExporters:
 
         reader = InMemoryMetricReader()
         cfg = NemoLensConfig(enabled=True, exporter="console")
-        build_providers(cfg, rank=0, world_size=1, metric_reader=reader)
+        build_providers(cfg, metric_reader=reader)
         meter = metrics.get_meter("test")
         counter = meter.create_counter("test.counter")
         counter.add(1)
@@ -180,7 +394,7 @@ class TestSeedIndependentIds:
         import random
 
         cfg = NemoLensConfig(enabled=True, exporter="console")
-        build_providers(cfg, rank=0, world_size=1)
+        build_providers(cfg)
         id_generator = trace.get_tracer_provider().id_generator
 
         state = random.getstate()  # don't leak a deterministic global RNG into later tests
@@ -211,7 +425,7 @@ class TestSeedIndependentIds:
         from opentelemetry.trace import TraceFlags
 
         cfg = NemoLensConfig(enabled=True, exporter="console")
-        build_providers(cfg, rank=0, world_size=1)
+        build_providers(cfg)
 
         tracer = trace.get_tracer("test")
         with tracer.start_as_current_span("root") as span:
@@ -527,7 +741,7 @@ class TestOpenSpanCloserWiring:
     @staticmethod
     def _build(span_exporter):
         cfg = NemoLensConfig(enabled=True, exporter="console")
-        build_providers(cfg, rank=0, world_size=1, span_exporter=span_exporter)
+        build_providers(cfg, span_exporter=span_exporter)
         return trace.get_tracer_provider()
 
     def test_open_span_reaches_the_exporter_end_to_end(self):

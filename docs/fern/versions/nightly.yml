@@ -27,12 +27,8 @@ navigation:
         path: ../../user-guide/context-propagation.mdx
       - page: "Distributed Tracing"
         path: ../../user-guide/distributed-tracing.mdx
-      - page: "Sampling"
-        path: ../../user-guide/sampling.mdx
       - page: "Custom Exporters"
         path: ../../user-guide/custom-exporters.mdx
-      - page: "Custom Export Strategies"
-        path: ../../user-guide/custom-strategies.mdx
       - page: "Resource Detection"
         path: ../../user-guide/resources.mdx
       - page: "Contrib Helpers"

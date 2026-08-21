@@ -39,10 +39,6 @@ Public API
         get_meter,
         is_span_group_enabled,
         set_enabled_span_groups,
-        ExportStrategy,
-        register_export_strategy,
-        registered_strategies,
-        unregister_export_strategy,
     )
 
 Consumers that need to tolerate lens being absent at runtime can import
@@ -53,8 +49,9 @@ Quick start
 
 1. Set ``NEMO_LENS_ENABLED=1`` and optionally
    ``OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317``.
-2. Call ``setup_telemetry(NemoLensConfig.from_env(), rank, world_size)``
-   once per process (raises ``RuntimeError`` on second call when enabled).
+2. Call ``setup_telemetry(NemoLensConfig.from_env())`` once per process
+   (raises ``RuntimeError`` on second call when enabled). Distributed callers
+   pass their own identity via ``resource_attributes={DL_RANK: rank, ...}``.
 3. Use ``managed_span``, ``trace_fn``, or ``span_cm`` at instrumentation sites.
 """
 
@@ -84,12 +81,6 @@ from nemo.lens.package_info import (
 )
 from nemo.lens.propagation import extract_context, inject_context
 from nemo.lens.state import is_span_group_enabled, set_enabled_span_groups
-from nemo.lens.strategies import (
-    ExportStrategy,
-    register_export_strategy,
-    registered_strategies,
-    unregister_export_strategy,
-)
 
 
 def get_tracer(name: str = "nemo.lens") -> _trace_mod.Tracer:
@@ -128,8 +119,4 @@ __all__ = [
     "set_enabled_span_groups",
     "broadcast_trace_context",
     "create_linked_span",
-    "ExportStrategy",
-    "register_export_strategy",
-    "registered_strategies",
-    "unregister_export_strategy",
 ]

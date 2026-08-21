@@ -33,7 +33,7 @@ class TestE2EConsoleExporter:
     def test_full_lifecycle(self):
         """Test complete setup -> use -> shutdown lifecycle."""
         cfg = NemoLensConfig(enabled=True, exporter="console", span_groups="all")
-        handle = setup_telemetry(cfg, rank=0, world_size=1)
+        handle = setup_telemetry(cfg)
 
         assert isinstance(handle, TelemetryHandle)
         assert handle.is_exporting is True
@@ -49,7 +49,7 @@ class TestE2EConsoleExporter:
     def test_disabled_zero_overhead(self):
         """When disabled, no spans should be created."""
         cfg = NemoLensConfig(enabled=False, span_groups="all")
-        handle = setup_telemetry(cfg, rank=0, world_size=1)
+        handle = setup_telemetry(cfg)
 
         assert handle.is_exporting is False
 
@@ -59,40 +59,10 @@ class TestE2EConsoleExporter:
         handle.shutdown(timeout_ms=100)
 
 
-class TestE2EExportStrategies:
-    def test_all_ranks_strategy(self):
-        cfg = NemoLensConfig(
-            enabled=True,
-            exporter="console",
-            export_strategy="all_ranks",
-            span_groups="default",
-        )
-        for rank in range(4):
-            handle = setup_telemetry(cfg, rank=rank, world_size=4, _allow_reinit=True)
-            assert handle.is_exporting is True
-            handle.shutdown(timeout_ms=100)
-
-    def test_single_rank_strategy(self):
-        cfg = NemoLensConfig(
-            enabled=True,
-            exporter="console",
-            export_strategy="single_rank",
-            export_rank=0,
-            span_groups="default",
-        )
-        h0 = setup_telemetry(cfg, rank=0, world_size=4)
-        assert h0.is_exporting is True
-        h0.shutdown(timeout_ms=100)
-
-        h1 = setup_telemetry(cfg, rank=1, world_size=4, _allow_reinit=True)
-        assert h1.is_exporting is False
-        h1.shutdown(timeout_ms=100)
-
-
 class TestE2ESpanHierarchy:
     def test_nested_spans(self):
         cfg = NemoLensConfig(enabled=True, exporter="console", span_groups="all")
-        handle = setup_telemetry(cfg, rank=0, world_size=1)
+        handle = setup_telemetry(cfg)
 
         with managed_span(SpanGroup.JOB, "dl.train", tracer=handle.tracer) as job:
             assert job is not None
@@ -111,7 +81,7 @@ class TestE2ESpanHierarchy:
 class TestE2EContextPropagation:
     def test_inject_extract_roundtrip(self):
         cfg = NemoLensConfig(enabled=True, exporter="console", span_groups="default")
-        handle = setup_telemetry(cfg, rank=0, world_size=1)
+        handle = setup_telemetry(cfg)
 
         tracer = get_tracer()
         with tracer.start_as_current_span("origin") as span:
