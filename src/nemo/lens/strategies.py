@@ -28,13 +28,15 @@ import hashlib
 import os
 import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
 
 
-type ExportStrategy = Callable[["NemoLensConfig", int, int], bool]
+#: Spelled with ``TypeAlias`` rather than a PEP 695 ``type`` statement, which
+#: needs 3.12. This was the tree's only 3.12-only construct.
+ExportStrategy: TypeAlias = Callable[["NemoLensConfig", int, int], bool]
 """Callable taking ``(config, rank, world_size)``; returns ``True`` if this
 rank should export. Implementations may read environment variables for extra
 context (e.g. ``LOCAL_RANK``)."""
