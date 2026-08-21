@@ -128,13 +128,14 @@ NEMO_LENS_SPAN_GROUPS=default,my_group
 
 ### Every Rank Looks Like the Same Process
 
-If spans from different ranks are indistinguishable in your backend, or
-`service.instance.id` is identical everywhere, you did not pass `dl.rank`. NeMo
-Lens logs this at startup:
+If you cannot filter or group spans by rank in your backend, or
+`service.instance.id` carries no rank, you did not pass `dl.rank`. NeMo Lens logs
+this at startup:
 
 ```
 No dl.rank resource attribute was supplied, so telemetry from this process
-cannot be told apart from any other rank's ...
+cannot be filtered by rank in the collector, and service.instance.id is not
+rank-derived ...
 ```
 
 Fix it at the `setup_telemetry` call:

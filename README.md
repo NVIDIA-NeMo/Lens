@@ -80,9 +80,9 @@ worker, an `exec`'d relaunch — supplies the same identity through the standard
 `OTEL_RESOURCE_ATTRIBUTES=dl.rank=5,dl.world_size=8`, which lens resolves
 alongside `resource_attributes`.
 
-Omitting `dl.rank` from both logs a warning at startup — without it, telemetry from one
-rank is indistinguishable from any other's and `service.instance.id` is no longer
-unique per process. Lens will not guess it from `RANK`/`WORLD_SIZE`; a genuinely
+Omitting `dl.rank` from both logs a warning at startup — without it, telemetry
+cannot be filtered or grouped by rank in the collector, and `service.instance.id`
+is not rank-derived. Lens will not guess it from `RANK`/`WORLD_SIZE`; a genuinely
 single-process caller can pass rank `0` to silence the warning.
 
 ## Local observability stack

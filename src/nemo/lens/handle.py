@@ -76,6 +76,7 @@ class TelemetryHandle:
 
 def setup_telemetry(
     config: NemoLensConfig,
+    *,
     resource_attributes: dict | None = None,
     span_exporter=None,
     metric_reader=None,
@@ -104,6 +105,13 @@ def setup_telemetry(
     Restricting export to a subset of ranks is likewise the caller's decision:
     leave ``config.enabled`` false on ranks that should stay quiet, or filter on
     ``dl.rank`` in the collector.
+
+    Everything after ``config`` is keyword-only, deliberately. The removed
+    signature was ``(config, rank, world_size, resource_attributes, ...)``, so a
+    stale ``setup_telemetry(cfg, 0, 8)`` would otherwise rebind ``0`` to
+    ``resource_attributes`` and ``8`` to ``span_exporter`` -- yielding a handle
+    that reports ``is_exporting=True``, exports nothing, and still exits zero.
+    Keyword-only turns every such call site into an immediate ``TypeError``.
 
     Args:
         config: Telemetry configuration.

@@ -74,12 +74,35 @@ class TestSetupTelemetryEnabled:
             assert handle.is_exporting is True
 
     def test_rank_identity_travels_as_a_resource_attribute(self):
-        """The replacement for the two removed positional parameters."""
+        """The replacement for the two removed positional parameters.
+
+        Asserts on the built Resource, not on ``is_exporting``: the latter is just
+        ``config.enabled`` and would stay green if the parameter were dropped on
+        the floor between ``setup_telemetry`` and ``build_providers``, which is the
+        whole seam this replaces.
+        """
+        from opentelemetry import trace
+
         from nemo.lens.semconv import DL_RANK, DL_WORLD_SIZE
 
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        setup_telemetry(cfg, resource_attributes={DL_RANK: 3, DL_WORLD_SIZE: 8})
+
+        attrs = dict(trace.get_tracer_provider().resource.attributes)
+        assert attrs[DL_RANK] == 3
+        assert attrs[DL_WORLD_SIZE] == 8
+        assert attrs["service.instance.id"] == "run1-rank3"
+
+    def test_setup_telemetry_rejects_the_removed_positional_arguments(self):
+        """A stale ``setup_telemetry(cfg, rank, world_size)`` must fail loudly.
+
+        Before the parameters were made keyword-only these rebound onto
+        ``resource_attributes`` and ``span_exporter``, producing a handle that
+        claimed to be exporting, dropped every span, and exited zero.
+        """
         cfg = NemoLensConfig(enabled=True, exporter="console")
-        handle = setup_telemetry(cfg, resource_attributes={DL_RANK: 3, DL_WORLD_SIZE: 8})
-        assert handle.is_exporting is True
+        with pytest.raises(TypeError):
+            setup_telemetry(cfg, 0, 8)
 
 
 class TestSetupTelemetrySpanGroups:

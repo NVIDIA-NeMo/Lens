@@ -221,14 +221,18 @@ dict alone made lens blind to it — see the rank section below.
 `pytest` from the repo root. The suite runs in seconds, so always run all of it
 rather than a subset. Its defining constraint is that
 OTel providers and lens's enabled-group set are **process-global**, so
-`conftest.py` has two `autouse` fixtures that reset them around every test:
-providers + `_INITIALIZED`, and the span-group set + PP carrier. Consequences:
+`conftest.py` has three `autouse` fixtures that reset them around every test:
+providers + `_INITIALIZED`, the span-group set + PP carrier, and the ambient
+`OTEL_RESOURCE_ATTRIBUTES`. Consequences:
 
 - A test that needs a group active must enable it explicitly; nothing carries over.
 - Calling `setup_telemetry()` twice in one process raises. Tests that legitimately
   need to (e.g. re-initialising with a different config) pass `_allow_reinit=True`.
 - Assert on span content with `InMemorySpanExporter` from `conftest.py`, passed
   via `setup_telemetry(..., span_exporter=...)`.
+- `OTEL_RESOURCE_ATTRIBUTES` is cleared before every test. It is a real identity
+  channel for `build_providers`, so an inherited value from an instrumented CI
+  runner would otherwise silently supply a `dl.rank` and break the no-rank tests.
 
 Full conventions: `docs/developer/testing.mdx`.
 

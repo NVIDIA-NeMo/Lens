@@ -264,16 +264,22 @@ def build_providers(
 
     rank = resolved.get(DL_RANK)
     # Captured before deriving: distinguishes "the caller named this process" from
-    # "we named it after the run id because nobody else did".
+    # "nobody named it, so leave it to the SDK".
+    #
+    # Tested against `resolved`, NOT against the built Resource: opentelemetry-sdk
+    # >= 1.43.0 auto-populates service.instance.id with a per-process UUID, so
+    # asking the merged Resource whether one is set would always be true there and
+    # the derivation would never run. Only a caller- or env-supplied value should
+    # suppress it.
     explicit_identity = "service.instance.id" in resolved
-    if config.run_id and not explicit_identity:
-        # Checked against `resolved`, NOT against the built Resource: the SDK
-        # auto-populates service.instance.id with a per-process UUID, so asking the
-        # merged resource whether one is set is always true and this would never run.
-        # Only a caller- or env-supplied value should suppress the derivation.
-        attrs["service.instance.id"] = (
-            config.run_id if rank is None else f"{config.run_id}-rank{rank}"
-        )
+    # Derived only when a rank is present. Without one there is nothing to add: the
+    # run id is already published as nemo.run.id above, so pinning
+    # service.instance.id to it would duplicate that attribute while destroying the
+    # SDK's per-process UUID -- manufacturing the job-wide collision that
+    # _warn_no_rank would then report. Below 1.43.0 the SDK leaves it unset and
+    # nothing is lost either way, because nemo.run.id still carries the run id.
+    if rank is not None and config.run_id and not explicit_identity:
+        attrs["service.instance.id"] = f"{config.run_id}-rank{rank}"
         resolved["service.instance.id"] = attrs["service.instance.id"]
 
     if rank is None:
@@ -355,18 +361,23 @@ def _warn_no_rank(attrs, config: NemoLensConfig, *, explicit_identity: bool) -> 
       attribute lens named and the SDK resolved.
 
     Severity depends on whether identity survived. A process that named itself has
-    no problem to report; one that fell back to the bare run id does.
+    no problem to report; one relying on the SDK's per-process default does.
+
+    The consequence is rank-based *filtering*, not identifiability: ``detect_local``
+    always attaches ``host.name`` and ``process.pid``, so processes remain
+    distinguishable from one another regardless. Claiming otherwise overstates the
+    harm in a message that fires once per process per job, which is how a logger
+    gets filtered out wholesale.
     """
     log = logging.getLogger(__name__)
 
     if explicit_identity:
-        # The caller, or OTEL_RESOURCE_ATTRIBUTES, named this process. The harm a
-        # warning would claim -- indistinguishable from every other rank -- is
-        # simply false here. A launcher agent or a sidecar that identifies itself
-        # and has no training rank to claim is a *correct* configuration, and
-        # warning once per node per job for it is noise that teaches people to
-        # filter this logger out. Rank-based filtering is still unavailable, which
-        # is worth a debug line and nothing louder.
+        # The caller, or OTEL_RESOURCE_ATTRIBUTES, named this process. A launcher
+        # agent or a sidecar that identifies itself and has no training rank to
+        # claim is a *correct* configuration, and warning once per node per job for
+        # it is noise that teaches people to filter this logger out. Rank-based
+        # filtering is still unavailable, which is worth a debug line and nothing
+        # louder.
         log.debug(
             "No %s resource attribute was supplied, so telemetry from this process "
             "cannot be filtered by rank. service.instance.id was supplied explicitly "
@@ -378,9 +389,8 @@ def _warn_no_rank(attrs, config: NemoLensConfig, *, explicit_identity: bool) -> 
 
     log.warning(
         "No %s resource attribute was supplied, so telemetry from this process "
-        "cannot be told apart from any other rank's, and cannot be filtered by rank "
-        "in the collector. service.instance.id has fallen back to the run id alone, "
-        "which every process in the job reports identically. Pass "
+        "cannot be filtered by rank in the collector, and service.instance.id is "
+        "not rank-derived. Pass "
         "resource_attributes={%s: rank, %s: world_size} to setup_telemetry(), or set "
         "OTEL_RESOURCE_ATTRIBUTES=%s=<rank> in the process environment when you "
         "cannot reach the call site (a spawned worker, an exec'd relaunch). A "

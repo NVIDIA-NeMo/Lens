@@ -79,3 +79,21 @@ def reset_span_groups():
     yield
     set_enabled_span_groups(frozenset())
     set_pp_trace_carrier(None)
+
+
+@pytest.fixture(autouse=True)
+def isolate_otel_resource_env(monkeypatch):
+    """Detach the ambient ``OTEL_RESOURCE_ATTRIBUTES`` from every test.
+
+    ``build_providers`` resolves identity from two channels -- the caller's
+    ``resource_attributes`` and this variable, via ``OTELResourceDetector``. That
+    makes an inherited value load-bearing: a runner exporting
+    ``OTEL_RESOURCE_ATTRIBUTES=dl.rank=7`` silently supplies a rank to tests
+    written to assert the no-rank path, and one exporting a ``service.instance.id``
+    suppresses the derivation outright. Either way six tests fail for reasons that
+    have nothing to do with the code under test.
+
+    OTel-instrumented CI runners set this routinely, so clear it rather than
+    trusting the environment to be empty.
+    """
+    monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)

@@ -12,7 +12,7 @@ NeMo Lens is a thin, well-tested library built on OpenTelemetry (API required, S
 - **Unified configuration.** A configuration object (`NemoLensConfig`) with prefix and fallback environment variable support.
 - **Instrumentation primitives.** Three hot-path primitives designed for performance: `managed_span`, `trace_fn`, and `span_cm`.
 - **Span-group gating.** Granularity control that is coarse for production and fine-grained for debugging.
-- **Rank-aware export.** Export strategies for distributed training including single rank, all ranks, and sampled.
+- **Rank-agnostic export.** Every process where `config.enabled` is true exports; the caller supplies its own `dl.rank` / `dl.world_size` and decides which ranks report.
 - **Trace context propagation.** Cross-rank trace context broadcast and span linking for pipeline-parallel correlation.
 - **Resource auto-detection.** Automatic environment detection for SLURM, Kubernetes, and local environments.
 - **Framework integration.** Contrib modules for FastAPI, aiohttp, Ray, and NCCL.

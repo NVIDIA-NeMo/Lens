@@ -64,7 +64,15 @@ def reset_span_groups():
     yield
     set_enabled_span_groups(frozenset())
     set_pp_trace_carrier(None)
+
+@pytest.fixture(autouse=True)
+def isolate_otel_resource_env(monkeypatch):
+    monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
 ```
+
+`OTEL_RESOURCE_ATTRIBUTES` is one of the two channels `build_providers` resolves
+identity from, so an ambient value — common on an OTel-instrumented CI runner —
+would otherwise supply a `dl.rank` to tests written to assert the no-rank path.
 
 Because `reset_span_groups` clears the enabled set before every test, a test that needs a group active must opt in explicitly. The `set_enabled_span_groups(...)` function, which is a top-level export from `nemo.lens`, provides the escape hatch for enabling groups inside a test.
 

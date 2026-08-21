@@ -22,6 +22,7 @@ import os
 import signal
 import threading
 import time
+import uuid
 
 import pytest
 from opentelemetry import metrics, trace
@@ -109,14 +110,46 @@ class TestResourceIdentity:
         build_providers(cfg, resource_attributes={DL_RANK: 3})
         assert self._resource_attrs()["service.instance.id"] == "run1-rank3"
 
-    def test_instance_id_degrades_to_run_id_without_a_rank(self):
-        """Documented consequence: not unique per process when no rank is given.
+    def test_no_rank_leaves_instance_id_to_the_sdk(self):
+        """Without a rank lens must not name the process after the run.
 
-        Warned about rather than swallowed -- see TestMissingRankWarning.
+        The run id is already published as ``nemo.run.id``, so pinning
+        ``service.instance.id`` to it would duplicate that attribute while
+        destroying a genuinely per-process value: opentelemetry-sdk >= 1.43.0
+        auto-populates ``service.instance.id`` with a per-process UUID. Lens
+        overwriting that with a job-wide constant manufactured the very collision
+        the missing-rank warning then reported.
         """
         cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
         build_providers(cfg)
-        assert self._resource_attrs()["service.instance.id"] == "run1"
+        attrs = self._resource_attrs()
+
+        assert attrs["nemo.run.id"] == "run1"
+        # Either the SDK's per-process UUID (>= 1.43.0) or nothing at all
+        # (< 1.43.0) -- never the job-wide run id.
+        instance_id = attrs.get("service.instance.id")
+        assert instance_id != "run1"
+        if instance_id is not None:
+            # A per-process UUID, not something derived from the run.
+            assert uuid.UUID(instance_id).version == 4
+
+    def test_instance_id_derives_from_rank_zero(self):
+        """Rank 0 is a rank, not a missing one.
+
+        Guards the derivation against a truthiness slip (``not rank``), which
+        would silently hand rank 0 -- the rank the warning tells single-process
+        callers to pass -- the bare run id.
+        """
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        build_providers(cfg, resource_attributes={DL_RANK: 0})
+        assert self._resource_attrs()["service.instance.id"] == "run1-rank0"
+
+    def test_instance_id_derives_from_rank_zero_via_the_env_channel(self, monkeypatch):
+        """The env twin of the above; dl.rank arrives as the string "0"."""
+        cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", f"{DL_RANK}=0")
+        build_providers(cfg)
+        assert self._resource_attrs()["service.instance.id"] == "run1-rank0"
 
     def test_explicit_instance_id_wins(self):
         """Callers could override this before the removal; they still can."""
@@ -208,11 +241,21 @@ class TestMissingRankWarning:
             build_providers(cfg, resource_attributes={DL_RANK: 0})
         assert "dl.rank" not in caplog.text
 
-    def test_mentions_the_instance_id_fallback_when_it_applies(self, caplog):
+    def test_names_the_real_consequence(self, caplog):
+        """Rank filtering, not identifiability.
+
+        ``detect_local`` always attaches host.name and process.pid, so the process
+        stays distinguishable; claiming otherwise overstates the harm in a message
+        that fires once per process per job.
+        """
         cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
         with caplog.at_level(logging.WARNING, logger="nemo.lens.providers"):
             build_providers(cfg)
-        assert "service.instance.id has fallen back to the run id" in caplog.text
+
+        assert "cannot be filtered by rank" in caplog.text
+        assert "service.instance.id is not rank-derived" in caplog.text
+        assert "told apart" not in caplog.text
+        assert "fallen back to the run id" not in caplog.text
 
     def test_a_caller_supplied_identity_silences_the_warning(self, caplog):
         """A process that names itself has no problem to report.

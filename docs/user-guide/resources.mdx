@@ -13,7 +13,7 @@ Every exporter-rank process emits these attributes (set in `providers.py:build_p
 |---|---|---|
 | `service.name` | `config.service_name` (populated from `OTEL_SERVICE_NAME` through `NemoLensConfig.from_env()`, default `"nemo"`) | `"megatron-lm"` |
 | `service.version` | `nemo.lens.__version__` | `"0.1.0"`, `"0.1.0.post3+gabc1234"` |
-| `service.instance.id` | `"{run_id}-rank{rank}"` when the caller supplies `dl.rank`, otherwise just `"{run_id}"` (and NeMo Lens logs a warning) | `"abc123-rank0"` |
+| `service.instance.id` | `"{run_id}-rank{rank}"` when `dl.rank` is available through either channel; otherwise left to the SDK (a per-process UUID from 1.43.0), and NeMo Lens logs a warning | `"abc123-rank0"` |
 | `dl.rank` | caller-supplied `resource_attributes` | `0` |
 | `dl.world_size` | caller-supplied `resource_attributes` | `8` |
 | `nemo.run.id` | `config.run_id` (auto-generated if empty) | `"abc123"` |
@@ -65,10 +65,13 @@ These attributes are active when `KUBERNETES_SERVICE_HOST` is set or the `/var/r
 
 <Warning>
 NeMo Lens does not derive `dl.rank` — it has no notion of a rank. If you omit it,
-a warning is logged at startup: telemetry from this process cannot be told apart
-from any other rank's, it cannot be filtered by rank in the collector, and
-`service.instance.id` falls back to the run id, which every process in the job
-reports identically.
+a warning is logged at startup: telemetry from this process cannot be filtered by
+rank in the collector, and `service.instance.id` is not rank-derived.
+
+The process itself stays identifiable either way — `host.name` and `process.pid`
+are always attached, and `service.instance.id` is left to the SDK, which supplies
+a per-process UUID from version 1.43.0 onward. What you lose is rank-based
+filtering and correlation, not the ability to tell two processes apart.
 
 NeMo Lens deliberately does **not** read `RANK` or `WORLD_SIZE` to fill the gap —
 that would restore the rank-awareness it was designed to shed, and would be wrong
