@@ -82,6 +82,56 @@ handle = setup_telemetry(
 
 These attributes merge with the auto-detected set. In Jaeger, they appear as **Process** tags and are filterable across every span in the run.
 
+## Propagate Attributes to a Child Process
+
+A process that cannot reach a `setup_telemetry` call site — a spawned checkpoint
+worker, an `exec`'d relaunch, a launcher-started agent — receives its resource
+attributes through `OTEL_RESOURCE_ATTRIBUTES`. That is the only channel that
+survives the boundary: `multiprocessing.Process` has no `env` parameter at all,
+so mutating `os.environ` before `start()` is not one option among several.
+
+Use `encode_resource_attributes` to build the value rather than formatting it by
+hand:
+
+```python
+import os
+from nemo.lens import encode_resource_attributes
+from nemo.lens.semconv import DL_RANK, DL_WORLD_SIZE
+
+# multiprocessing — set it before start()
+os.environ['OTEL_RESOURCE_ATTRIBUTES'] = encode_resource_attributes(
+    {DL_RANK: rank, DL_WORLD_SIZE: world_size}
+)
+ctx.Process(target=worker).start()
+
+# subprocess — build the child's environment
+env = {**os.environ, 'OTEL_RESOURCE_ATTRIBUTES': encode_resource_attributes(
+    {DL_RANK: rank, DL_WORLD_SIZE: world_size}
+)}
+subprocess.Popen(cmd, env=env)
+```
+
+It returns the value and does not touch the environment; where it goes is yours
+to decide.
+
+### What It Handles
+
+| Concern | Behavior |
+|---|---|
+| Separators in values | Percent-encoded. Unencoded, a comma truncates its value *and* invents a key — a run id of `exp/2026-01,seed=7` arrives as `nemo.run.id="exp/2026-01"` plus a spurious `seed="7"`, with no error. |
+| Value types | `str`, `bool`, `int` and `float` are stringified. `None` is dropped rather than written as `"None"`, and anything else — `bytes`, a list, a dict — is dropped with a warning, because this channel is string-typed and a repr is not a round trip. |
+| An inherited value | Carried through byte-for-byte, never re-encoded, so a launcher's bytes survive untouched. A key you pass replaces an earlier occurrence of that key rather than shadowing it. |
+| Repeated calls | The default `inherited` reads the **live** `OTEL_RESOURCE_ATTRIBUTES`, so a value written after `import nemo.lens` is still seen — which matters under `fork`, where the child inherits the parent's already-imported modules. Because a key you pass replaces its earlier occurrence, feeding the result back through `os.environ` in a loop does not accumulate copies. Pass `inherited=""` to start clean. |
+| Non-string keys | Dropped with a warning. `str(key)` would ship `None` as the literal attribute name `"None"`. |
+| Separators in *keys* | Dropped with a warning. The SDK unquotes only the value half, so such a key has no representation; encoding it would ship the escape sequence as the attribute name. No semconv name contains `,` or `=`. |
+
+<Note>
+Values arrive in the child as **strings** — the env format has no other type.
+`resource_attributes={DL_RANK: 3}` yields the integer `3`, the env channel yields
+`"3"`. A collector filtering on a numeric attribute should tolerate both.
+</Note>
+
+
 ## Use Cases
 
 ### Filter by Global Rank
