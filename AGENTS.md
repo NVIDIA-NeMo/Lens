@@ -35,7 +35,7 @@ dependency by Megatron-LM, NeMo-RL, and NeMo-Gym — those repos live elsewhere
 and are not part of this checkout. Everything here is the library, its tests,
 its docs, and a local observability stack for manual verification.
 
-- Package: `nemo-lens`, importable as `nemo.lens` · Python ≥ 3.12
+- Package: `nemo-lens`, importable as `nemo.lens` · Python ≥ 3.10
 - Docs: <https://docs.nvidia.com/nemo/lens> · Source: `docs/` (Fern)
 - `src/nemo/__init__.py` is a **PEP 420 namespace package** so `nemo.lens` can
   coexist with the upstream NeMo Framework's `nemo` package. Never add code to it.
