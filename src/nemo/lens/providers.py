@@ -169,8 +169,8 @@ class SeedIndependentIdGenerator:
     construction and is unaffected by ``random.seed()`` on the global module.
 
     Duck-typed rather than subclassing ``opentelemetry.sdk.trace.id_generator.
-    IdGenerator`` (same as :class:`~nemo.lens.sampling.RankAwareSampler`) so this
-    module stays importable without the SDK installed.
+    IdGenerator`` (same as :class:`_OpenSpanCloser`) so this module stays
+    importable without the SDK installed.
     """
 
     def __init__(self) -> None:
@@ -283,7 +283,7 @@ def build_providers(
         resolved["service.instance.id"] = attrs["service.instance.id"]
 
     if rank is None:
-        _warn_no_rank(resolved, config, explicit_identity=explicit_identity)
+        _warn_no_rank(resolved, explicit_identity=explicit_identity)
 
     resource = Resource.create(attrs)
 
@@ -342,7 +342,7 @@ def build_providers(
     _set_propagator()
 
 
-def _warn_no_rank(attrs, config: NemoLensConfig, *, explicit_identity: bool) -> None:
+def _warn_no_rank(attrs, *, explicit_identity: bool) -> None:
     """Report that no ``dl.rank`` reached the resolved resource.
 
     Takes the **merged** resource attributes, so a rank arriving through

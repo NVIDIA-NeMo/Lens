@@ -58,6 +58,8 @@ process that calls `setup_telemetry` with `enabled=True` exports.
 To keep most ranks quiet in a large job, decide it in the caller:
 
 ```python
+from nemo.lens.semconv import DL_RANK, DL_WORLD_SIZE
+
 cfg = NemoLensConfig.from_env()
 cfg.enabled = cfg.enabled and rank == world_size - 1   # last rank only
 setup_telemetry(cfg, resource_attributes={DL_RANK: rank, DL_WORLD_SIZE: world_size})
@@ -146,6 +148,7 @@ In addition, `build_providers` reads the non-prefixed `DEPLOYMENT_ENV` (falling 
 ```python
 setup_telemetry(
     config: NemoLensConfig,
+    *,
     resource_attributes: dict | None = None,
     span_exporter=None,
     metric_reader=None,
@@ -155,7 +158,7 @@ setup_telemetry(
 
 | Parameter | Description |
 |---|---|
-| `config` | The `NemoLensConfig` object, typically from `from_env()`. |
+| `config` | The `NemoLensConfig` object, typically from `from_env()`. The only positional parameter — everything after it is keyword-only. |
 | `resource_attributes` | Extra attributes to merge into the OTel `Resource` (become Jaeger "Process" tags). A distributed caller supplies its own position here, as `{DL_RANK: rank, DL_WORLD_SIZE: world_size}` — lens does not derive it, and warns at startup if `dl.rank` is missing. |
 | `span_exporter` | Optional custom `SpanExporter`, bypasses config-based construction. See [Custom Exporters](../user-guide/custom-exporters.mdx). |
 | `metric_reader` | Optional custom `MetricReader`, bypasses config-based construction. |

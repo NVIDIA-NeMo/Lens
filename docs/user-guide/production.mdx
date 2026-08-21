@@ -22,6 +22,8 @@ Set `enabled` per rank in the caller:
 - **Investigate per-rank issues.** Enable everywhere for the duration of a hang, `NaN`, or faulty-node investigation, then revert.
 
 ```python
+from nemo.lens.semconv import DL_RANK, DL_WORLD_SIZE
+
 cfg = NemoLensConfig.from_env()
 cfg.enabled = cfg.enabled and rank == world_size - 1
 handle = setup_telemetry(cfg, resource_attributes={DL_RANK: rank, DL_WORLD_SIZE: world_size})
@@ -40,7 +42,7 @@ See [Span Groups](../user-guide/span-groups.mdx) for complete details.
 
 ## Layer Your Sampling
 
-You can configure sampling across four composable layers:
+You can configure sampling across three composable layers:
 
 1. **Which processes are enabled.** `config.enabled`, decided per rank by the caller, determines which ranks emit telemetry at all. Disabled ranks are fully set to no-op.
 2. **OTel SDK trace sampler.** Configured through `OTEL_TRACES_SAMPLER`, this sampler makes a per-trace decision on whether to record the trace.
@@ -127,6 +129,6 @@ Spans are recovered on a graceful exit and on an uncaught exception. A process t
 - [ ] Verify that `nemo.run.id` is configured or automatically derived and visible in your dashboards.
 - [ ] Confirm that Jaeger, Grafana, or your specific backend can filter query results by `nemo.run.id`.
 - [ ] Test connection reachability to the OTLP endpoint using `curl` from a training host.
-- [ ] Select a sampler and export strategy deliberately instead of relying on default values.
+- [ ] Decide per rank which processes set `enabled`, and select an `OTEL_TRACES_SAMPLER` deliberately, instead of relying on default values.
 - [ ] Verify that dashboards contain panels for step duration, loss, throughput, and gradient norm.
 - [ ] Confirm a rollback plan exists (such as setting `NEMO_LENS_ENABLED=0` and restarting your application without code changes).

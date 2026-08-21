@@ -132,8 +132,10 @@ New behavior needs a test in the mirroring `tests/test_*.py`. Beyond presence,
 check new tests cooperate with the three `autouse` fixtures in `conftest.py`:
 they must not assume a span group is enabled, must not assume a provider
 survives from a previous test, and must pass `_allow_reinit=True` if they call
-`setup_telemetry()` more than once. A test registering an export strategy needs
-no cleanup — the registry fixture handles it.
+`setup_telemetry()` more than once. A test that needs `OTEL_RESOURCE_ATTRIBUTES`
+must set it itself — the fixture clears it before every test, because it is a
+real identity channel for `build_providers` and an inherited value from a CI
+runner would otherwise supply a `dl.rank`.
 
 Run what the diff touches and report the real result:
 
