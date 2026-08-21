@@ -63,6 +63,54 @@ These attributes are active when `KUBERNETES_SERVICE_HOST` is set or the `/var/r
 
 ## Add Custom Resource Attributes
 
+## Propagate Attributes to a Child Process
+
+A process that cannot reach a `setup_telemetry` call site — a spawned checkpoint
+worker, an `exec`'d relaunch, a launcher-started agent — receives its resource
+attributes through `OTEL_RESOURCE_ATTRIBUTES`. That is the only channel that
+survives the boundary: `multiprocessing.Process` has no `env` parameter at all,
+so mutating `os.environ` before `start()` is not one option among several.
+
+Use `encode_resource_attributes` to build the value rather than formatting it by
+hand:
+
+```python
+import os
+from nemo.lens import encode_resource_attributes
+from nemo.lens.semconv import DL_RANK, DL_WORLD_SIZE
+
+# multiprocessing — set it before start()
+os.environ['OTEL_RESOURCE_ATTRIBUTES'] = encode_resource_attributes(
+    {DL_RANK: rank, DL_WORLD_SIZE: world_size}
+)
+ctx.Process(target=worker).start()
+
+# subprocess — build the child's environment
+env = {**os.environ, 'OTEL_RESOURCE_ATTRIBUTES': encode_resource_attributes(
+    {DL_RANK: rank, DL_WORLD_SIZE: world_size}
+)}
+subprocess.Popen(cmd, env=env)
+```
+
+It returns the value and does not touch the environment; where it goes is yours
+to decide.
+
+### What It Handles
+
+| Concern | Behavior |
+|---|---|
+| Separators in values | Percent-encoded. Unencoded, a comma truncates its value *and* invents a key — a run id of `exp/2026-01,seed=7` arrives as `nemo.run.id="exp/2026-01"` plus a spurious `seed="7"`, with no error. |
+| Non-string values | Stringified. `None` values are dropped, not written as `"None"`. |
+| An inherited value | Appended to, never re-parsed, so a launcher's bytes pass through untouched. The SDK resolves duplicate keys last-wins, so your keys override inherited ones. |
+| Repeated calls | The default `inherited` is a snapshot taken at **import**, so spawning in a loop or re-`exec`ing does not accumulate keys. Pass `inherited=""` to start clean. |
+| Separators in *keys* | Dropped with a warning. The SDK unquotes only the value half, so such a key has no representation; encoding it would ship the escape sequence as the attribute name. No semconv name contains `,` or `=`. |
+
+<Note>
+Values arrive in the child as **strings** — the env format has no other type.
+`resource_attributes={DL_RANK: 3}` yields the integer `3`, the env channel yields
+`"3"`. A collector filtering on a numeric attribute should tolerate both.
+</Note>
+
 Pass the `resource_attributes` argument to `setup_telemetry`:
 
 ```python
