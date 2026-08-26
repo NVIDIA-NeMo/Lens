@@ -92,3 +92,20 @@ def reset_strategy_registry():
     with _REGISTRY_LOCK:
         _REGISTRY.clear()
         _REGISTRY.update(snapshot)
+
+
+@pytest.fixture(autouse=True)
+def reset_metric_registry():
+    """Snapshot the metric-group registry before each test, restore after.
+
+    Groups are process-global once registered, so a test that registers one must
+    not leak it into the next.
+    """
+    from nemo.lens.instruments.registry import _REGISTRY, _REGISTRY_LOCK
+
+    with _REGISTRY_LOCK:
+        snapshot = dict(_REGISTRY)
+    yield
+    with _REGISTRY_LOCK:
+        _REGISTRY.clear()
+        _REGISTRY.update(snapshot)

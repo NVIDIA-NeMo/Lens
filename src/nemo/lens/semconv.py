@@ -31,7 +31,7 @@ SEMCONV_VERSION = "1.29.0"
 """OTel semantic conventions version these constants are aligned with.
 
 Standard namespaces (gen_ai.*, k8s.*) follow the upstream spec at this
-version. Custom namespaces (dl.*, rl.*, gym.*, slurm.*, nemo.*, wandb.*)
+version. Custom namespaces (dl.*, gym.*, slurm.*, nemo.*, wandb.*)
 are NeMo-specific extensions that do not exist upstream.
 """
 
@@ -41,7 +41,6 @@ are NeMo-specific extensions that do not exist upstream.
 # gen_ai.*  — Experimental (upstream, stabilising in semconv 1.30+)
 # k8s.*     — Stable (upstream)
 # dl.*      — NeMo custom (stable within NeMo ecosystem)
-# rl.*      — NeMo custom (stable within NeMo ecosystem)
 # gym.*     — NeMo custom (stable within NeMo ecosystem)
 # slurm.*   — NeMo custom (stable within NeMo ecosystem)
 # nemo.*    — NeMo custom (stable within NeMo ecosystem)
@@ -82,20 +81,9 @@ GENAI_TOKEN_TYPE = "gen_ai.token.type"
 # ------------------------------------------------------------------ #
 # Reinforcement learning (rl.*)
 # ------------------------------------------------------------------ #
-
-RL_ALGORITHM = "rl.algorithm"
-RL_REWARD = "rl.reward"
-RL_REWARD_MEAN = "rl.reward.mean"
-RL_KL_DIVERGENCE = "rl.kl_divergence"
-RL_POLICY_LOSS = "rl.policy_loss"
-RL_VALUE_LOSS = "rl.value_loss"
-RL_ENTROPY = "rl.entropy"
-RL_GENERATION_BACKEND = "rl.generation.backend"
-RL_NUM_ROLLOUTS = "rl.num_rollouts"
-RL_RESPONSE_LENGTH_MEAN = "rl.response_length.mean"
-RL_GRAD_NORM = "rl.grad_norm"
-RL_LEARNING_RATE = "rl.learning_rate"
-RL_THROUGHPUT_TOKENS_PER_SEC = "rl.throughput.tokens_per_sec"
+# RL series and attribute names are owned by the NeMo-RL consumer, which
+# declares them through the metric registry (register_metric_group). They are
+# deliberately not defined here — see docs/design/semconv.mdx.
 
 # ------------------------------------------------------------------ #
 # Gym (gym.*)

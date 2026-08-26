@@ -13,8 +13,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""OTel metric instruments for the NeMo ecosystem."""
+"""OTel metric instruments for the NeMo ecosystem.
+
+Lens owns the ``gen_ai.*`` inference instruments (:func:`record_inference_metrics`).
+Consumer-owned metric families — RL series in NeMo-RL, environment series in
+NeMo-Gym — are declared by the consumer through the registry
+(:class:`MetricSpec`, :func:`register_metric_group`, :func:`record_metrics`)
+rather than shipped as a per-consumer module here.
+"""
 
 from nemo.lens.instruments.inference import record_inference_metrics
+from nemo.lens.instruments.registry import (
+    METRIC_KINDS,
+    MetricSpec,
+    record_metrics,
+    register_metric_group,
+    registered_metric_groups,
+    unregister_metric_group,
+)
 
-__all__ = ["record_inference_metrics"]
+__all__ = [
+    "record_inference_metrics",
+    "MetricSpec",
+    "METRIC_KINDS",
+    "register_metric_group",
+    "unregister_metric_group",
+    "registered_metric_groups",
+    "record_metrics",
+]
