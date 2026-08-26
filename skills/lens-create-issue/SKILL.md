@@ -61,16 +61,17 @@ workflow filenames.
 
 | Job | Reads as | Signal to extract |
 |---|---|---|
-| `Test (Python 3.12)` / `(Python 3.13)` | pytest | `FAILED tests/...::...` node IDs and the assertion or traceback |
+| `Test (Python 3.10)` … `(Python 3.13)` | pytest | `FAILED tests/...::...` node IDs and the assertion or traceback |
 | `Lint check` | pre-commit | the failing hook id and its diff or error block |
 | `Copyright check` | template workflow | the file paths missing an SPDX header |
 | `Secrets detector` | template workflow | the flagged path — **do not quote the matched secret in the issue** |
 | `Validate PR title` | Conventional Commits lint | not a code failure; the PR title is malformed. Tell the user to retitle rather than filing a bug |
 | `Fern Docs CI` | docs build / link check | the MDX file and the broken link or tag |
 
-The test matrix is Python 3.12 and 3.13. A failure on **both** is a real
-regression; a failure on one is version-specific and worth saying so in the
-issue, since it changes who needs to look at it.
+The test matrix is Python 3.10, 3.11, 3.12 and 3.13. A failure on **all** of
+them is a real regression; a failure on a subset is version-specific and worth
+saying so in the issue, since it changes who needs to look at it. A failure only
+on 3.10 or 3.11 usually means a construct newer than the declared floor.
 
 ## 4. Resolve the triggering PR
 
