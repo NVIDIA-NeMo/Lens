@@ -104,18 +104,24 @@ class TestEncodeResourceAttributes:
 
     @pytest.fixture(autouse=True)
     def _isolate_env(self, monkeypatch):
-        """`_parse` writes OTEL_RESOURCE_ATTRIBUTES and the default `inherited`
-        reads it, so without this every test inherits the previous one's value."""
+        """Give every test a clean OTEL_RESOURCE_ATTRIBUTES, and take it away after.
+
+        `_parse` sets the variable and the default `inherited` reads it, so both
+        directions matter. The monkeypatch handle is stashed so `_parse` can go
+        through it: a raw `os.environ` write is invisible to monkeypatch, which
+        then has nothing to undo, and the value outlives the test -- and the
+        *next* test's `delenv` records that leaked value as the "original" and
+        faithfully restores it at its own teardown. The result is a value that
+        survives to the end of the session and escapes into other test files.
+        """
         monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
+        self._monkeypatch = monkeypatch
 
-    @staticmethod
-    def _parse(value):
+    def _parse(self, value):
         """Decode through the real SDK parser, not a reimplementation of it."""
-        import os
-
         from opentelemetry.sdk.resources import OTELResourceDetector
 
-        os.environ["OTEL_RESOURCE_ATTRIBUTES"] = value
+        self._monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", value)
         return dict(OTELResourceDetector().detect().attributes)
 
     def test_basic_round_trip(self):
@@ -137,6 +143,28 @@ class TestEncodeResourceAttributes:
     def test_values_are_stringified(self):
         out = encode_resource_attributes({"a": 5, "b": True, "c": 1.5}, inherited="")
         assert self._parse(out) == {"a": "5", "b": "True", "c": "1.5"}
+
+    def test_a_scalar_subclass_encodes_as_its_value_not_its_repr(self):
+        """`isinstance` is not enough — the conversion has to be too.
+
+        A `str`/`int` mixin enum passes the scalar check, but `str()` on one
+        renders its *name*: `str(Backend.NCCL)` is "Backend.NCCL", not "nccl".
+        Shipping that is the same silent corruption the scalar check exists to
+        prevent, one level further in. (`IntEnum` happens to override `__str__`;
+        a plain `int` mixin does not, so both are covered here.)
+        """
+        from enum import Enum
+
+        class Backend(str, Enum):
+            NCCL = "nccl"
+
+        class Size(int, Enum):
+            LARGE = 5
+
+        out = encode_resource_attributes(
+            {"backend": Backend.NCCL, "size": Size.LARGE}, inherited=""
+        )
+        assert self._parse(out) == {"backend": "nccl", "size": "5"}
 
     def test_none_values_are_dropped_not_written(self):
         out = encode_resource_attributes({"a": 1, "b": None}, inherited="")
@@ -364,3 +392,18 @@ class TestEndToEndAcrossAProcessBoundary:
         assert got["launcher.id"] == "abc"  # the inherited value survived
         assert got["dl.rank"] == "2"
         assert got["dl.world_size"] == "8"
+
+
+class TestTheseTestsLeakNothing:
+    """Declared last on purpose: the leak is only visible *after* the class above.
+
+    `_parse` used to write `os.environ` directly. monkeypatch had nothing to undo,
+    so the value outlived its test -- and the next test's `delenv` then recorded
+    that leaked value as the "original" and faithfully restored it at its own
+    teardown, carrying it to the end of the session and into other test files.
+    Every test in that class still passed throughout, because its fixture clears
+    the variable on the way *in*. Only a check that runs afterwards can see it.
+    """
+
+    def test_no_resource_attributes_survive_the_encode_tests(self):
+        assert "OTEL_RESOURCE_ATTRIBUTES" not in os.environ

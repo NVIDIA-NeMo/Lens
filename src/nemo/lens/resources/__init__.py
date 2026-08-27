@@ -54,6 +54,39 @@ OTEL_RESOURCE_ATTRIBUTES = "OTEL_RESOURCE_ATTRIBUTES"
 _SCALARS = (str, bool, int, float)
 
 
+def _as_text(value: object) -> str:
+    """Render a scalar without going through a subclass's ``__str__``.
+
+    ``str()`` is not safe here even after the ``_SCALARS`` check, because a
+    subclass may render as its own repr rather than its value::
+
+        class Backend(str, Enum):
+            NCCL = "nccl"
+
+        str(Backend.NCCL)   # "Backend.NCCL", not "nccl"
+
+    That passes ``isinstance(value, str)`` and would ship the enum's name as the
+    attribute value, which is the same silent corruption the ``_SCALARS`` check
+    exists to prevent -- just one level further in. ``int`` mixin enums have the
+    identical flaw (``str`` of an ``int``-mixin member is its name, though
+    ``IntEnum`` overrides that). Normalising through the base type is what makes
+    the check mean what it says.
+
+    ``bool`` is handled before ``int`` because it is a subclass of it, and is
+    rendered as ``"True"``/``"False"`` to match what ``resource_attributes=``
+    produces for the same value.
+    """
+    if isinstance(value, str):
+        # quote() reads the underlying character data, so a str subclass encodes
+        # as its value without any conversion.
+        return value
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int):
+        return str(int(value))
+    return str(float(value))
+
+
 def encode_resource_attributes(
     attributes: Mapping[str, object],
     inherited: str | None = None,
@@ -159,7 +192,7 @@ def encode_resource_attributes(
             )
             continue
         superseded.add(name)
-        encoded.append(f"{name}={quote(str(value), safe='')}")
+        encoded.append(f"{name}={quote(_as_text(value), safe='')}")
 
     # Inherited segments pass through byte-for-byte -- re-encoding them would
     # round-trip a launcher's bytes through our parser and mangle anything it
