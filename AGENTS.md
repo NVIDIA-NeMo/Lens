@@ -247,9 +247,10 @@ and CI gates: `docs/developer/building-docs.mdx`.
 - **`instruments/__init__.py` re-exports `record_inference_metrics` plus the
   metric registry** (`MetricSpec`, `register_metric_group`, `record_metrics`,
   `unregister_metric_group`, `registered_metric_groups`). `record_gym_metrics`
-  is still reachable only through its submodule. There is no `rl.py`: RL series
-  are consumer-owned and declared through the registry (`register_metric_group`),
-  and their `rl.*` names live in the consumer (NeMo-RL), not in `semconv`. Ship a
+  is still reachable only through its submodule. There is no `rl.py`: RL metric
+  series are consumer-owned and declared through the registry
+  (`register_metric_group`), so their metric names live in the consumer (NeMo-RL),
+  not in `semconv` (the `rl.*` span-attribute names stay in `semconv`). Ship a
   dedicated module only when a series needs per-point logic the registry cannot
   express (e.g. inference token usage); otherwise use the registry.
 - **`SeedIndependentIdGenerator` exists for a real bug.** Training frameworks

@@ -31,7 +31,7 @@ SEMCONV_VERSION = "1.29.0"
 """OTel semantic conventions version these constants are aligned with.
 
 Standard namespaces (gen_ai.*, k8s.*) follow the upstream spec at this
-version. Custom namespaces (dl.*, gym.*, slurm.*, nemo.*, wandb.*)
+version. Custom namespaces (dl.*, rl.*, gym.*, slurm.*, nemo.*, wandb.*)
 are NeMo-specific extensions that do not exist upstream.
 """
 
@@ -41,6 +41,7 @@ are NeMo-specific extensions that do not exist upstream.
 # gen_ai.*  — Experimental (upstream, stabilising in semconv 1.30+)
 # k8s.*     — Stable (upstream)
 # dl.*      — NeMo custom (stable within NeMo ecosystem)
+# rl.*      — NeMo custom (stable within NeMo ecosystem)
 # gym.*     — NeMo custom (stable within NeMo ecosystem)
 # slurm.*   — NeMo custom (stable within NeMo ecosystem)
 # nemo.*    — NeMo custom (stable within NeMo ecosystem)
@@ -81,9 +82,16 @@ GENAI_TOKEN_TYPE = "gen_ai.token.type"
 # ------------------------------------------------------------------ #
 # Reinforcement learning (rl.*)
 # ------------------------------------------------------------------ #
-# RL series and attribute names are owned by the NeMo-RL consumer, which
-# declares them through the metric registry (register_metric_group). They are
-# deliberately not defined here — see docs/design/semconv.mdx.
+# Span-attribute names only. RL *metric* series (rl.reward.mean, rl.kl_divergence,
+# rl.policy_loss, rl.value_loss, rl.entropy, rl.response_length.mean, rl.grad_norm,
+# rl.learning_rate, rl.throughput.tokens_per_sec) are owned by the NeMo-RL
+# consumer and declared through the metric registry (register_metric_group) in
+# its own tree — deliberately not defined here. See docs/design/semconv.mdx.
+
+RL_ALGORITHM = "rl.algorithm"
+RL_REWARD = "rl.reward"
+RL_GENERATION_BACKEND = "rl.generation.backend"
+RL_NUM_ROLLOUTS = "rl.num_rollouts"
 
 # ------------------------------------------------------------------ #
 # Gym (gym.*)

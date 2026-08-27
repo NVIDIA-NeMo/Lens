@@ -55,6 +55,7 @@ logged and swallowed so instrumentation cannot take down a training loop.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import weakref
 from collections.abc import Iterable, Mapping
@@ -123,6 +124,30 @@ class _Group:
 _REGISTRY: dict[str, _Group] = {}
 _REGISTRY_LOCK = threading.Lock()
 
+# Dedup keys for warnings already emitted, so a misconfigured call in a hot loop
+# logs once rather than on every step. Each key is a tuple whose second element
+# is the group name (see _warn_once call sites), which lets (re)registration
+# clear a group's warnings. Guarded by its own short-held lock, independent of
+# _REGISTRY_LOCK.
+_WARNED: set[tuple] = set()
+_WARN_LOCK = threading.Lock()
+
+
+def _warn_once(dedup_key: tuple, msg: str, *args: object, exc_info: bool = False) -> None:
+    """Emit ``msg`` at most once per ``dedup_key`` for the process lifetime."""
+    with _WARN_LOCK:
+        if dedup_key in _WARNED:
+            return
+        _WARNED.add(dedup_key)
+    _logger.warning(msg, *args, exc_info=exc_info)
+
+
+def _clear_group_warnings(group: str) -> None:
+    """Forget a group's warnings so a redefinition warns afresh."""
+    with _WARN_LOCK:
+        stale = {k for k in _WARNED if len(k) >= 2 and k[1] == group}
+        _WARNED.difference_update(stale)
+
 
 def register_metric_group(
     group: str,
@@ -162,6 +187,8 @@ def register_metric_group(
                 "Pass allow_override=True to replace it."
             )
         _REGISTRY[group] = _Group(specs=by_key)
+    # A fresh definition should warn afresh (keys may have changed).
+    _clear_group_warnings(group)
 
 
 def unregister_metric_group(group: str) -> None:
@@ -196,8 +223,11 @@ def _instruments_for(meter: metrics.Meter, group: str, entry: _Group) -> dict[st
                     description=spec.description,
                 )
         except Exception:
-            _logger.warning(
-                "Failed to create instruments for metric group %r", group, exc_info=True
+            _warn_once(
+                ("create", group),
+                "Failed to create instruments for metric group %r",
+                group,
+                exc_info=True,
             )
             return None
         entry.instruments[meter] = instruments
@@ -208,6 +238,7 @@ def record_metrics(
     meter: metrics.Meter,
     group: str,
     values: Mapping[str, float] | None = None,
+    /,
     *,
     attributes: Mapping[str, object] | None = None,
     **kwargs: float | None,
@@ -220,6 +251,12 @@ def record_metrics(
 
     Unknown groups and unknown keys are logged and skipped rather than raised:
     this is an instrumentation path and must never break the caller.
+
+    ``meter``, ``group`` and ``values`` are positional-only so a consumer is free
+    to declare metric keys named ``meter``, ``group`` or ``values`` and pass them
+    as keyword arguments without colliding with these parameters. ``attributes``
+    is the one reserved keyword; a consumer whose metric key is literally
+    ``attributes`` must pass it through the ``values`` mapping instead.
 
     Args:
         meter: The meter to create/emit instruments on (e.g. ``handle.meter``).
@@ -238,7 +275,8 @@ def record_metrics(
     with _REGISTRY_LOCK:
         entry = _REGISTRY.get(group)
     if entry is None:
-        _logger.warning(
+        _warn_once(
+            ("unregistered", group),
             "record_metrics called for unregistered group %r; call register_metric_group first.",
             group,
         )
@@ -254,10 +292,57 @@ def record_metrics(
             continue
         spec = entry.specs.get(key)
         if spec is None:
-            _logger.warning("Unknown metric key %r for group %r; skipping.", key, group)
+            _warn_once(
+                ("unknown_key", group, key),
+                "Unknown metric key %r for group %r; skipping.",
+                key,
+                group,
+            )
             continue
         _, emit = _KIND_METHODS[spec.kind]
         try:
             getattr(instruments[key], emit)(value, attributes=attrs)
         except Exception:
-            _logger.warning("Failed to record metric %r in group %r", key, group, exc_info=True)
+            _warn_once(
+                ("record", group, key),
+                "Failed to record metric %r in group %r",
+                key,
+                group,
+                exc_info=True,
+            )
+
+
+# --------------------------------------------------------------------------- #
+# Fork safety
+# --------------------------------------------------------------------------- #
+# A threading.Lock held at os.fork() is copied into the child in a locked state
+# with no thread left to release it, so the next acquire in the child deadlocks.
+# Guard both module locks the way CPython's logging module guards its own: hold
+# them across the fork (so the child inherits a consistent registry) and replace
+# them with fresh, unlocked Locks in the child. Registered once at import.
+
+
+def _acquire_locks_before_fork() -> None:
+    _REGISTRY_LOCK.acquire()
+    _WARN_LOCK.acquire()
+
+
+def _release_locks_after_fork_in_parent() -> None:
+    _WARN_LOCK.release()
+    _REGISTRY_LOCK.release()
+
+
+def _reinit_locks_after_fork_in_child() -> None:
+    # The inherited locks are locked and unowned; discard them for fresh ones.
+    # Registry contents carried over from the parent are intentionally kept.
+    global _REGISTRY_LOCK, _WARN_LOCK
+    _REGISTRY_LOCK = threading.Lock()
+    _WARN_LOCK = threading.Lock()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(
+        before=_acquire_locks_before_fork,
+        after_in_parent=_release_locks_after_fork_in_parent,
+        after_in_child=_reinit_locks_after_fork_in_child,
+    )

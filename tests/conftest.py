@@ -101,11 +101,20 @@ def reset_metric_registry():
     Groups are process-global once registered, so a test that registers one must
     not leak it into the next.
     """
-    from nemo.lens.instruments.registry import _REGISTRY, _REGISTRY_LOCK
+    from nemo.lens.instruments.registry import (
+        _REGISTRY,
+        _REGISTRY_LOCK,
+        _WARN_LOCK,
+        _WARNED,
+    )
 
     with _REGISTRY_LOCK:
         snapshot = dict(_REGISTRY)
+    with _WARN_LOCK:
+        _WARNED.clear()
     yield
     with _REGISTRY_LOCK:
         _REGISTRY.clear()
         _REGISTRY.update(snapshot)
+    with _WARN_LOCK:
+        _WARNED.clear()

@@ -15,6 +15,8 @@
 
 """Unit tests for metric instruments."""
 
+import os
+
 import pytest
 from opentelemetry import metrics
 from opentelemetry.sdk.metrics import MeterProvider
@@ -188,6 +190,30 @@ class TestMetricRegistry:
         assert points["misc.events"].value == 3
         assert points["misc.inflight"].value == -1
 
+    def test_keys_colliding_with_param_names_are_safe(self, meter_and_reader):
+        """A consumer key named meter/group/values must not collide with the params.
+
+        These three are positional-only, so passing them as kwargs records the
+        metric instead of raising ``TypeError`` into the caller.
+        """
+        meter, reader = meter_and_reader
+        register_metric_group(
+            "edge",
+            [
+                MetricSpec("meter", "edge.meter", "gauge"),
+                MetricSpec("group", "edge.group", "gauge"),
+                MetricSpec("values", "edge.values", "gauge"),
+            ],
+        )
+        record_metrics(meter, "edge", meter=1.0, group=2.0, values=3.0)
+        points = {
+            m.name: list(m.data.data_points)[-1].value
+            for rm in reader.get_metrics_data().resource_metrics
+            for sm in rm.scope_metrics
+            for m in sm.metrics
+        }
+        assert points == {"edge.meter": 1.0, "edge.group": 2.0, "edge.values": 3.0}
+
     def test_attributes_are_attached(self, meter_and_reader):
         """The `attributes=` mapping lands on every emitted data point."""
         meter, reader = meter_and_reader
@@ -214,6 +240,18 @@ class TestMetricRegistry:
         ]
         assert "rl.reward.mean" in metric_names
         assert "rl.kl_divergence" not in metric_names
+
+    def test_unknown_key_warns_once_not_per_call(self, meter_and_reader, caplog):
+        """A misconfigured key in a hot loop logs once, not on every call."""
+        import logging
+
+        meter, reader = meter_and_reader
+        register_metric_group("rl", _rl_group_specs())
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.instruments.registry"):
+            for _ in range(5):
+                record_metrics(meter, "rl", not_a_metric=1.0)
+        unknown_key_warnings = [r for r in caplog.records if "Unknown metric key" in r.message]
+        assert len(unknown_key_warnings) == 1
 
     def test_unregistered_group_is_noop(self, meter_and_reader):
         """Recording against an unknown group is swallowed, never raised."""
@@ -301,6 +339,55 @@ class TestMetricRegistry:
             for m in sm.metrics
         }
         assert {s.name for s in specs} <= emitted
+
+
+class TestForkSafety:
+    def test_child_reinit_replaces_held_locks(self):
+        """The child-side fork handler swaps a lock held at fork for a fresh one.
+
+        A ``threading.Lock`` inherited locked with no owner would deadlock the
+        child on the next acquire; the handler must hand back an unlocked lock.
+        """
+        import nemo.lens.instruments.registry as reg
+
+        old_registry_lock, old_warn_lock = reg._REGISTRY_LOCK, reg._WARN_LOCK
+        old_registry_lock.acquire()
+        old_warn_lock.acquire()
+        try:
+            reg._reinit_locks_after_fork_in_child()
+            assert reg._REGISTRY_LOCK is not old_registry_lock
+            assert reg._WARN_LOCK is not old_warn_lock
+            assert reg._REGISTRY_LOCK.acquire(blocking=False)
+            reg._REGISTRY_LOCK.release()
+            assert reg._WARN_LOCK.acquire(blocking=False)
+            reg._WARN_LOCK.release()
+        finally:
+            old_registry_lock.release()
+            old_warn_lock.release()
+
+    @pytest.mark.skipif(not hasattr(os, "fork"), reason="requires os.fork")
+    def test_forked_child_can_use_registry_without_deadlock(self):
+        """End-to-end: fork, then use lock-guarded registry calls in the child.
+
+        Exercises the registered before / after_in_parent / after_in_child
+        handlers together. A regression (e.g. dropping after_in_child) leaves the
+        inherited locks held, so the child deadlocks — the alarm turns that into a
+        fast non-zero exit instead of a hung suite.
+        """
+        import signal
+
+        register_metric_group("rl", _rl_group_specs(), allow_override=True)
+        pid = os.fork()
+        if pid == 0:  # child
+            signal.alarm(10)
+            try:
+                register_metric_group("child", [MetricSpec("x", "child.x")], allow_override=True)
+                assert "child" in registered_metric_groups()
+                os._exit(0)
+            except BaseException:
+                os._exit(1)
+        _, status = os.waitpid(pid, 0)
+        assert os.waitstatus_to_exitcode(status) == 0
 
 
 class TestRecordGymMetrics:
