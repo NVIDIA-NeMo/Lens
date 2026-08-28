@@ -26,6 +26,9 @@ import os
 from collections.abc import Mapping
 from urllib.parse import quote
 
+# The same tuple safe_set_span_attributes accepts. Shared rather than
+# redefined so the two channels cannot drift on what counts as a scalar.
+from nemo.lens.helpers import _SCALAR_TYPES
 from nemo.lens.resources.kubernetes import detect_kubernetes
 from nemo.lens.resources.local import detect_local
 from nemo.lens.resources.slurm import detect_slurm
@@ -44,14 +47,10 @@ def detect_resource() -> dict:
     return attrs
 
 
+_LOG = logging.getLogger(__name__)
+
 #: The OTel env var carrying resource attributes into a process.
 OTEL_RESOURCE_ATTRIBUTES = "OTEL_RESOURCE_ATTRIBUTES"
-
-#: Value types that survive the round trip. The SDK stores an attribute from this
-#: channel as a string, so anything whose ``str()`` is not its own value arrives
-#: corrupted -- ``bytes`` as its Python repr, a list as ``"[1, 2]"``, a dict as a
-#: repr the SDK would have rejected outright through ``resource_attributes=``.
-_SCALARS = (str, bool, int, float)
 
 
 def _as_text(value: object) -> str:
@@ -72,9 +71,11 @@ def _as_text(value: object) -> str:
     ``IntEnum`` overrides that). Normalising through the base type is what makes
     the check mean what it says.
 
-    ``bool`` is handled before ``int`` because it is a subclass of it, and is
-    rendered as ``"True"``/``"False"`` to match what ``resource_attributes=``
-    produces for the same value.
+    ``bool`` is handled before ``int`` because it is a subclass of it, and renders
+    as ``"True"``/``"False"``. That does *not* match ``resource_attributes=``,
+    which preserves a real ``bool`` -- nothing can, since this channel is
+    string-only. It matches ``str(True)``, which is the least surprising rendering
+    for a reader of the env var.
     """
     if isinstance(value, str):
         # quote() reads the underlying character data, so a str subclass encodes
@@ -135,8 +136,12 @@ def encode_resource_attributes(
 
     Args:
         attributes: Attributes to add. ``None`` values are dropped rather than
-            written as ``"None"``. An empty mapping is allowed and simply
-            returns *inherited*.
+            written as ``"None"``. An empty mapping is allowed, and returns
+            *inherited* with any segment the SDK would reject removed -- so the
+            result may differ from *inherited* verbatim, and from what the
+            ``fallbacks.py`` no-op returns for the same input. Both decode
+            identically; the no-op does no work because with lens absent there is
+            nothing downstream to decode them.
         inherited: Existing value to extend. Defaults to the live
             ``OTEL_RESOURCE_ATTRIBUTES``. Any key in *attributes* replaces an
             earlier occurrence of that key in the inherited value, so calling
@@ -148,7 +153,6 @@ def encode_resource_attributes(
         A value for ``OTEL_RESOURCE_ATTRIBUTES``. Does not mutate the
         environment -- the caller decides where it goes.
     """
-    log = logging.getLogger(__name__)
     # Read live, not from an import-time snapshot. A snapshot cannot see anything
     # written after this module was imported -- which is the normal order, since a
     # trainer imports lens at module load and only learns its rank later. Under
@@ -157,13 +161,17 @@ def encode_resource_attributes(
     # function out of step with its own no-op in fallbacks.py, which reads live.
     base = os.environ.get(OTEL_RESOURCE_ATTRIBUTES, "") if inherited is None else inherited
 
-    encoded: list[str] = []
-    superseded: set[str] = set()
+    if not isinstance(attributes, Mapping):
+        raise TypeError(
+            f"attributes must be a mapping of name -> value, got {type(attributes).__name__}."
+        )
+
+    encoded: dict[str, str] = {}
     for key, value in attributes.items():
         if value is None:
             continue
         if not isinstance(key, str):
-            log.warning(
+            _LOG.warning(
                 "Resource attribute key %r is not a string and was dropped; "
                 "str() would ship %r as the literal attribute name.",
                 key,
@@ -175,15 +183,15 @@ def encode_resource_attributes(
             # Unrepresentable: the SDK splits on these before it decodes anything,
             # so there is no escaping that survives. Dropping it loudly beats
             # shipping a mangled attribute name the consumer then hunts for.
-            log.warning(
+            _LOG.warning(
                 "Resource attribute key %r cannot be carried in %s and was dropped; "
                 "',' and '=' have no encoding in this format.",
                 key,
                 OTEL_RESOURCE_ATTRIBUTES,
             )
             continue
-        if not isinstance(value, _SCALARS):
-            log.warning(
+        if not isinstance(value, _SCALAR_TYPES):
+            _LOG.warning(
                 "Resource attribute %r has value type %s, which cannot survive %s "
                 "and was dropped; only str, bool, int and float round-trip.",
                 name,
@@ -191,24 +199,45 @@ def encode_resource_attributes(
                 OTEL_RESOURCE_ATTRIBUTES,
             )
             continue
-        superseded.add(name)
-        encoded.append(f"{name}={quote(_as_text(value), safe='')}")
+        try:
+            escaped = quote(_as_text(value), safe="")
+        except UnicodeEncodeError:
+            # A lone surrogate: os.environ, argv and filenames are decoded with
+            # surrogateescape on POSIX, so any value sourced from one on a
+            # non-UTF-8 system carries them. quote() cannot encode them, and an
+            # exception out of a telemetry helper at spawn time would take the
+            # caller's job down over an attribute. Drop it, like every other
+            # value this function cannot represent.
+            _LOG.warning(
+                "Resource attribute %r has a value that is not valid UTF-8 and was "
+                "dropped; %s cannot carry unpaired surrogates.",
+                name,
+                OTEL_RESOURCE_ATTRIBUTES,
+            )
+            continue
+        # Keyed by name so a repeated key replaces its earlier entry instead of
+        # emitting both: `{"a": 1, " a ": 2}` trims to one name, and shipping
+        # `a=1,a=2` would contradict the documented replace-not-append contract
+        # (the SDK resolves it last-wins, so only the second survived anyway).
+        encoded[name] = f"{name}={escaped}"
 
     # Inherited segments pass through byte-for-byte -- re-encoding them would
     # round-trip a launcher's bytes through our parser and mangle anything it
-    # escaped differently. Only two are dropped: empties (a stray comma or a bare
-    # space makes the SDK log "invalid key value resource attribute pair"), and
+    # escaped differently. Two kinds are dropped. First, anything the SDK would
+    # reject: an empty segment (a stray comma or a bare space) and a segment with
+    # no "=" both make it log "invalid key value resource attribute pair" and
+    # discard the entry, so passing either through only produces noise. Second,
     # keys this call replaces, which would otherwise accumulate one dead copy per
     # call for a caller that feeds its own output back through os.environ.
     kept = []
     for segment in base.split(","):
-        if not segment.strip():
+        if not segment.strip() or "=" not in segment:
             continue
-        if segment.split("=", 1)[0].strip() in superseded:
+        if segment.split("=", 1)[0].strip() in encoded:
             continue
         kept.append(segment)
 
-    return ",".join(kept + encoded)
+    return ",".join(kept + list(encoded.values()))
 
 
 __all__ = [

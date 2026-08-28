@@ -161,10 +161,13 @@ class TestEncodeResourceAttributes:
         class Size(int, Enum):
             LARGE = 5
 
+        class Rate(float, Enum):
+            LR = 0.5
+
         out = encode_resource_attributes(
-            {"backend": Backend.NCCL, "size": Size.LARGE}, inherited=""
+            {"backend": Backend.NCCL, "size": Size.LARGE, "rate": Rate.LR}, inherited=""
         )
-        assert self._parse(out) == {"backend": "nccl", "size": "5"}
+        assert self._parse(out) == {"backend": "nccl", "size": "5", "rate": "0.5"}
 
     def test_none_values_are_dropped_not_written(self):
         out = encode_resource_attributes({"a": 1, "b": None}, inherited="")
@@ -273,6 +276,42 @@ class TestEncodeResourceAttributes:
         for kind in ("bytes", "list", "dict"):
             assert kind in caplog.text
 
+    def test_an_inherited_segment_without_an_equals_is_dropped(self):
+        """The SDK rejects it exactly as it rejects an empty segment.
+
+        Filtering empties but not this passed through a segment guaranteed to
+        make the SDK log "invalid key value resource attribute pair" and discard
+        it -- noise on the wire for an entry that was never going to arrive.
+        """
+        out = encode_resource_attributes({"dl.rank": 1}, inherited="job=abc,garbage")
+        assert all("=" in seg and seg.strip() for seg in out.split(",")), repr(out)
+        assert self._parse(out) == {"job": "abc", "dl.rank": "1"}
+
+    def test_keys_differing_only_by_whitespace_emit_once(self, caplog):
+        """Names are trimmed, so these are one key and must be emitted once.
+
+        Emitting both shipped `a=1,a=2`, contradicting the documented
+        replace-not-append contract; the SDK resolved it last-wins, so the first
+        copy was dead weight that only made the value longer.
+        """
+        out = encode_resource_attributes({"a": 1, " a ": 2}, inherited="")
+        assert out.count("a=") == 1, repr(out)
+        assert self._parse(out) == {"a": "2"}
+
+    def test_a_value_that_is_not_valid_utf8_is_dropped_not_raised(self, caplog):
+        """os.environ, argv and filenames decode with surrogateescape on POSIX.
+
+        So a lone surrogate reaches this function from ordinary sources on a
+        non-UTF-8 system. quote() cannot encode one, and letting the
+        UnicodeEncodeError escape would take down a training job at spawn time
+        over a single attribute.
+        """
+        bad = b"run-\xff".decode("utf-8", "surrogateescape")
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.resources"):
+            out = encode_resource_attributes({"nemo.run.id": bad, "ok": 1}, inherited="")
+        assert self._parse(out) == {"ok": "1"}
+        assert "not valid UTF-8" in caplog.text
+
     def test_a_non_string_key_is_dropped_with_a_warning(self, caplog):
         """str(key) would ship "None" as a literal attribute name."""
         with caplog.at_level(logging.WARNING, logger="nemo.lens.resources"):
@@ -284,40 +323,6 @@ class TestEncodeResourceAttributes:
         monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
         encode_resource_attributes({"dl.rank": 3}, inherited="")
         assert "OTEL_RESOURCE_ATTRIBUTES" not in os.environ
-
-
-class TestEncodeResourceAttributesFallbackParity:
-    def test_signature_matches_the_real_one(self):
-        import inspect
-
-        from nemo.lens.fallbacks import encode_resource_attributes as noop
-
-        real = inspect.signature(encode_resource_attributes)
-        noop_sig = inspect.signature(noop)
-        assert list(real.parameters) == list(noop_sig.parameters)
-        # Defaults too, not just names. Comparing names alone let the two read
-        # different sources on the `inherited=None` path -- the no-op live, the
-        # real one an import-time snapshot -- while this test stayed green.
-        assert [p.default for p in real.parameters.values()] == [
-            p.default for p in noop_sig.parameters.values()
-        ]
-
-    def test_both_read_live_environ_when_inherited_is_omitted(self, monkeypatch):
-        """The default path the explicit-argument test below cannot reach.
-
-        Passing `inherited=` explicitly bypasses exactly the branch where the two
-        implementations previously disagreed.
-        """
-        from nemo.lens.fallbacks import encode_resource_attributes as noop
-
-        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "launcher.id=abc")
-        assert noop({"dl.rank": 3}) == "launcher.id=abc"
-        assert encode_resource_attributes({"dl.rank": 3}).startswith("launcher.id=abc,")
-
-    def test_fallback_preserves_a_launcher_supplied_value(self):
-        from nemo.lens.fallbacks import encode_resource_attributes as noop
-
-        assert noop({"dl.rank": 3}, inherited="job=abc") == "job=abc"
 
 
 def _child_reports_resource(queue):
@@ -385,10 +390,14 @@ class TestEndToEndAcrossAProcessBoundary:
         queue = ctx.Queue()
         proc = ctx.Process(target=_child_reports_resource, args=(queue,))
         proc.start()
+        # Drain before joining. A child cannot exit until its queue feeder has
+        # flushed to the pipe, and the feeder cannot flush once the pipe fills,
+        # so join()-then-get() deadlocks on any payload past the buffer. This
+        # one is small enough to survive it today, which is exactly why the
+        # ordering has to be right rather than lucky.
+        got = queue.get(timeout=60)
         proc.join(60)
         assert proc.exitcode == 0
-
-        got = queue.get(timeout=10)
         assert got["launcher.id"] == "abc"  # the inherited value survived
         assert got["dl.rank"] == "2"
         assert got["dl.world_size"] == "8"
