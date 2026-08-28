@@ -15,6 +15,7 @@
 
 """Unit tests for metric instruments."""
 
+import logging
 import os
 
 import pytest
@@ -228,6 +229,63 @@ class TestMetricRegistry:
         )
         assert point.attributes["rl.algorithm"] == "grpo"
 
+    def test_non_mapping_values_is_logged_not_raised(self, meter_and_reader, caplog):
+        """A `values` argument that is not a mapping is skipped, never raised."""
+        meter, _ = meter_and_reader
+        register_metric_group("rl", _rl_group_specs())
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.instruments.registry"):
+            for _ in range(3):
+                record_metrics(meter, "rl", 0.5)
+        warnings = [r for r in caplog.records if "`values` argument of type" in r.message]
+        assert len(warnings) == 1
+
+    def test_metric_key_named_attributes_is_logged_not_raised(self, meter_and_reader, caplog):
+        """`attributes` is reserved, so a metric key of that name cannot be a kwarg.
+
+        Passing it anyway must warn and drop it while still recording the rest of
+        the call, rather than raising ``TypeError`` from ``dict(attributes)``.
+        """
+        meter, reader = meter_and_reader
+        register_metric_group(
+            "edge",
+            [MetricSpec("x", "edge.x"), MetricSpec("attributes", "edge.attributes")],
+        )
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.instruments.registry"):
+            record_metrics(meter, "edge", x=1.0, attributes=0.5)
+        assert any("`attributes` argument of type" in r.message for r in caplog.records)
+        names = [
+            m.name
+            for rm in reader.get_metrics_data().resource_metrics
+            for sm in rm.scope_metrics
+            for m in sm.metrics
+        ]
+        assert "edge.x" in names
+        assert "edge.attributes" not in names
+
+    def test_key_named_attributes_records_through_values_mapping(self, meter_and_reader):
+        """The documented escape hatch for a key named `attributes`."""
+        meter, reader = meter_and_reader
+        register_metric_group("edge", [MetricSpec("attributes", "edge.attributes")])
+        record_metrics(meter, "edge", {"attributes": 7.0})
+        points = {
+            m.name: list(m.data.data_points)[-1].value
+            for rm in reader.get_metrics_data().resource_metrics
+            for sm in rm.scope_metrics
+            for m in sm.metrics
+        }
+        assert points == {"edge.attributes": 7.0}
+
+    def test_unusable_meter_is_logged_not_raised(self, caplog):
+        """A meter that cannot be weak-referenced (``None``) must not raise.
+
+        The instrument cache is a WeakKeyDictionary, so the lookup itself throws
+        for such a meter — it has to be caught before it reaches the caller.
+        """
+        register_metric_group("rl", _rl_group_specs())
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.instruments.registry"):
+            record_metrics(None, "rl", reward_mean=0.5)
+        assert any("Failed to resolve instruments" in r.message for r in caplog.records)
+
     def test_none_and_unknown_keys_are_skipped(self, meter_and_reader):
         meter, reader = meter_and_reader
         register_metric_group("rl", _rl_group_specs())
@@ -243,8 +301,6 @@ class TestMetricRegistry:
 
     def test_unknown_key_warns_once_not_per_call(self, meter_and_reader, caplog):
         """A misconfigured key in a hot loop logs once, not on every call."""
-        import logging
-
         meter, reader = meter_and_reader
         register_metric_group("rl", _rl_group_specs())
         with caplog.at_level(logging.WARNING, logger="nemo.lens.instruments.registry"):

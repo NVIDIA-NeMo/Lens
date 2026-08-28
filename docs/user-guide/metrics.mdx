@@ -95,11 +95,24 @@ record_metrics(
 ```
 
 Instruments are created lazily on first record against a meter and cached per
-meter, exactly like the shipped modules. `record_metrics` never raises into the
-caller: an unregistered group, an unknown key, a `None` value, or a failed
-instrument creation is logged and skipped. Register each group once;
+meter, exactly like the shipped modules. Register each group once;
 `register_metric_group` rejects a duplicate name unless you pass
 `allow_override=True`.
+
+`record_metrics` never raises into the caller. An unregistered group, an unknown
+key, a `None` value, an unusable `meter`, a malformed `values` or `attributes`
+argument, and a failed instrument creation or emit are each logged once and
+skipped. Warnings are deduplicated per group (and per key where it applies), so a
+misconfigured call in a per-step loop does not flood the log.
+
+`meter`, `group`, and `values` are positional-only, so you may declare metric
+keys with those names and pass them as keyword arguments freely. `attributes` is
+the one reserved keyword — if one of your series is genuinely called
+`attributes`, record it through the `values` mapping:
+
+```python
+record_metrics(handle.meter, "mygroup", {"attributes": 7.0})
+```
 
 ## NeMo Gym with `instruments/gym.py`
 

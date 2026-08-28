@@ -210,10 +210,15 @@ def registered_metric_groups() -> dict[str, tuple[MetricSpec, ...]]:
 
 
 def _instruments_for(meter: metrics.Meter, group: str, entry: _Group) -> dict[str, object] | None:
-    """Return this group's instruments for ``meter``, creating them once."""
-    instruments = entry.instruments.get(meter)
-    if instruments is None:
-        try:
+    """Return this group's instruments for ``meter``, creating them once.
+
+    The cache read and write are inside the guard because it is keyed by a weak
+    reference: a caller passing something not weak-referenceable (``None`` being
+    the likely slip) would otherwise raise into the training loop.
+    """
+    try:
+        instruments = entry.instruments.get(meter)
+        if instruments is None:
             instruments = {}
             for key, spec in entry.specs.items():
                 factory, _ = _KIND_METHODS[spec.kind]
@@ -222,15 +227,16 @@ def _instruments_for(meter: metrics.Meter, group: str, entry: _Group) -> dict[st
                     unit=spec.unit,
                     description=spec.description,
                 )
-        except Exception:
-            _warn_once(
-                ("create", group),
-                "Failed to create instruments for metric group %r",
-                group,
-                exc_info=True,
-            )
-            return None
-        entry.instruments[meter] = instruments
+            entry.instruments[meter] = instruments
+    except Exception:
+        _warn_once(
+            ("create", group),
+            "Failed to resolve instruments for metric group %r with a meter of type %s",
+            group,
+            type(meter).__name__,
+            exc_info=True,
+        )
+        return None
     return instruments
 
 
@@ -249,14 +255,17 @@ def record_metrics(
     both (keywords win on conflict). Keys must be group ``MetricSpec`` keys;
     ``None`` values are skipped, so a caller records only the series it has.
 
-    Unknown groups and unknown keys are logged and skipped rather than raised:
-    this is an instrumentation path and must never break the caller.
+    Nothing here raises into the caller: an unknown group, an unknown key, a
+    malformed ``values`` or ``attributes`` argument, an unusable ``meter``, and a
+    failed instrument create or emit are all logged once and skipped. This is an
+    instrumentation path and must never break the caller.
 
     ``meter``, ``group`` and ``values`` are positional-only so a consumer is free
     to declare metric keys named ``meter``, ``group`` or ``values`` and pass them
     as keyword arguments without colliding with these parameters. ``attributes``
-    is the one reserved keyword; a consumer whose metric key is literally
-    ``attributes`` must pass it through the ``values`` mapping instead.
+    is the one reserved keyword: a consumer whose metric key is literally
+    ``attributes`` has to pass it inside the ``values`` mapping, and passing it as
+    a keyword instead is logged and dropped rather than raised.
 
     Args:
         meter: The meter to create/emit instruments on (e.g. ``handle.meter``).
@@ -265,10 +274,36 @@ def record_metrics(
         attributes: Optional attributes attached to every emitted point.
         **kwargs: ``key=value`` pairs, merged over ``values``.
     """
-    merged: dict[str, float | None] = {}
-    if values:
-        merged.update(values)
-    merged.update(kwargs)
+    try:
+        merged: dict[str, float | None] = {}
+        if values:
+            merged.update(values)
+        merged.update(kwargs)
+    except (TypeError, ValueError):
+        _warn_once(
+            ("bad_values", group),
+            "record_metrics got a `values` argument of type %s for group %r; it must be "
+            "a mapping. Skipping.",
+            type(values).__name__,
+            group,
+        )
+        return
+
+    attrs: dict[str, object] | None = None
+    if attributes is not None:
+        try:
+            attrs = dict(attributes) or None
+        except (TypeError, ValueError):
+            _warn_once(
+                ("bad_attributes", group),
+                "record_metrics got an `attributes` argument of type %s for group %r; it "
+                "must be a mapping, so this call records without attributes. Note that "
+                "`attributes` is reserved: a metric key of that name has to be passed "
+                "inside the `values` mapping.",
+                type(attributes).__name__,
+                group,
+            )
+
     if not merged:
         return
 
@@ -286,7 +321,6 @@ def record_metrics(
     if instruments is None:
         return
 
-    attrs = dict(attributes) if attributes else None
     for key, value in merged.items():
         if value is None:
             continue
