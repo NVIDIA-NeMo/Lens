@@ -58,23 +58,21 @@ Register your groups under the conventional preset names (`default`, `per_step`)
 
 ## Choose a Namespace
 
-One namespace per library — `"megatron"`, `"nemo_rl"`, `"nemo_gym"`. It is the key for `SpanRegistry.unregister`, it appears in collision errors and in the late-registration warning, and it is what lets two libraries coexist in one process.
+One namespace per library — `"megatron"`, `"nemo_rl"`, `"nemo_gym"`. It is the key for `SpanRegistry.unregister`, it appears in the collision and late-registration warnings, and it is what lets two libraries coexist in one process.
 
-Group *names* are flat and shared across namespaces, so two libraries cannot claim the same name without `allow_override=True`. Pick names unlikely to collide.
+Group *names* are flat and shared across namespaces. If two libraries claim the same name, they share it: enabling that name turns on both libraries' spans, and both get a warning. `allow_override=True` silences the warning. Pick names that are unlikely to clash, but do not rely on it — your library has no way to know what else is loaded.
 
 ## Reference a Dependency's Groups
 
 If your library sits on top of another and wants that library's groups in your presets, import it first and name them directly:
 
 ```python
-import megatron.core.telemetry     # registers "step"
-
 SpanRegistry.register(
     "nemo_rl", groups={"rollout"}, presets={"default": {"rollout", "step"}}
 )
 ```
 
-Naming a group whose owner has not been imported raises at registration.
+Import order does not matter. If nothing has registered `step` yet, the member is kept but ignored, and it starts working once Megatron registers. This means you can name a group from an *optional* dependency: your library still imports when that dependency is missing. It does log a warning, because a typo produces exactly the same situation.
 
 ## Naming Conventions
 
@@ -104,7 +102,7 @@ except ImportError:
     from nemo.lens.fallbacks import SpanRegistry
 ```
 
-If you change the signature of a `SpanRegistry` method in NeMo Lens, the no-op must match. `tests/test_fallbacks.py` enforces this.
+If you change the signature of a `SpanRegistry` method in NeMo Lens, the no-op must match, including default values and not just parameter names. `tests/test_fallbacks.py` enforces this.
 
 ## Testing
 

@@ -37,9 +37,9 @@ SpanRegistry.register(
 | `namespace` | The owning library. Also the key for `SpanRegistry.unregister`. |
 | `groups` | Every group name this library emits. Lowercase `snake_case`. |
 | `presets` | Optional named subsets. A member may be any group already in the registry, not only the ones this call declares — see [Reference Another Library's Groups](#reference-another-librarys-groups). |
-| `allow_override` | Permit re-registering the namespace, or claiming a group name another namespace already registered. |
+| `allow_override` | Permit re-registering the namespace, and silence the warning when a group name is already registered by another namespace. |
 
-Group names share one flat namespace across libraries, which keeps instrumentation call sites terse. Two libraries claiming the same name is an error unless you pass `allow_override=True`.
+Group names share one flat namespace across libraries, which keeps instrumentation call sites terse. If two libraries claim the same name, they share it: the name maps to a single gate, and enabling it turns on both libraries' spans. This logs a warning rather than raising, because it happens inside library code during import and neither library knows it is second. Pass `allow_override=True` when you mean it.
 
 ## Presets Union Across Libraries
 
@@ -109,8 +109,6 @@ Registering *after* `setup_telemetry` still takes effect — NeMo Lens retains t
 A preset may name any group already in the registry, not only the ones the same call declares. That is how a library layers on one it depends on:
 
 ```python
-import megatron.core.telemetry     # must come first — it registers "step"
-
 SpanRegistry.register(
     "nemo_rl",
     groups={"rollout"},
@@ -118,7 +116,9 @@ SpanRegistry.register(
 )
 ```
 
-Referencing a name whose owner has not been imported raises at registration, so the import-order requirement enforces itself rather than failing silently later. Referencing a group does not transfer ownership: if Megatron unregisters, `step` leaves the registry, and any preset that borrowed it drops it too — a preset can never name a group that is no longer registered.
+Import order does not matter, and Megatron does not have to be present at all. Each read compares a preset against the groups currently registered, so a member no one owns is ignored, and it starts working if its owner is imported later. A library can therefore name a group from an **optional** dependency without breaking its own import when that dependency is missing. It logs a warning, because a typo produces exactly the same situation.
+
+Referencing a group does not transfer ownership: if Megatron unregisters, `step` leaves the registry, and any preset that borrowed it drops it too — a preset can never name a group outside `all`. If that leaves the preset your spec named empty, NeMo Lens warns that the spec resolved to nothing. `pending_span_groups()` is empty in this case, so without that warning there would be nothing to go on.
 
 ## Inspect What Resolved
 

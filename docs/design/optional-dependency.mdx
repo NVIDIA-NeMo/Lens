@@ -81,7 +81,7 @@ Shipping canonical no-ops in `nemo.lens.fallbacks` eliminates the drift: consume
 
 ## Signature Compatibility
 
-The fallback signatures must match the real API exactly. If `managed_span` adds a new keyword argument, or a `SpanRegistry` method changes shape, `fallbacks.py` must match (ignoring the value is fine, because it is a no-op). Tests catch this; `lens/tests/test_fallbacks.py` exercises every fallback to verify signature compatibility.
+The fallback signatures must match the real API exactly: the parameter names, whether each parameter is positional or keyword-only, and its default value. It is fine for a no-op to ignore the value it is given. It is not fine for the default to differ, because then leaving the argument out means one thing with NeMo Lens installed and something else without it — and only consumers running without it are affected, so nobody notices. `lens/tests/test_fallbacks.py` compares all three for every fallback symbol and every `SpanRegistry` method.
 
 ## What Consumers Can Use without ImportError Fallbacks
 

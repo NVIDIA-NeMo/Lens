@@ -113,7 +113,12 @@ Watch for two regressions specifically:
   out of registration and onto the gating path. The gate must stay one
   `frozenset` membership test.
 - Resolution made strict again (raising on an unknown spec entry), or any new
-  raise on the `setup_telemetry` path. A registry is per process while the spec
+  raise on the `setup_telemetry` path or in `SpanRegistry.register()` for a
+  *cross-library* condition — a group name another namespace claimed, or a preset
+  member no one has registered. Both happen while a consuming library is being
+  imported, so there is no caller to catch them, and neither library can prevent
+  it. The no-op registry never raises, so a raise there would mean installing lens
+  breaks a job that worked without it. Warnings, not exceptions. A registry is per process while the spec
   is job-wide, so an unresolvable name is as likely to be another process's
   vocabulary as a typo — and a raise after `build_providers` strands live
   exporters with no handle to close them. Warnings plus `pending_span_groups()`
@@ -123,10 +128,15 @@ Watch for two regressions specifically:
   state → registry; inverting it deadlocks, and splitting the resolve lets a
   stale enabled set stick for the life of the process. Both entry points carry
   the pattern — `set_span_group_spec` and `refresh_enabled_span_groups` — and
-  `tests/test_state.py::TestResolutionIsAtomic` covers each. Registry *reads*
-  are the same rule: `_snapshot()` returns presets and groups from one hold and
-  `_resolve_snapshot()` adds the registry-empty flag, so a caller cannot mix
-  generations by asking twice.
+  `tests/test_state.py::TestResolutionIsAtomic` covers each, but it hangs rather
+  than fails, so in CI you see a timeout. `_LOCK` is a plain `threading.Lock`, so
+  reproduce the deadlock single-threaded; no concurrency is needed. Registry
+  *reads* follow the same rule: `_snapshot()` returns presets, groups and
+  namespaces from one hold, and `_resolve_snapshot()` returns those with the
+  resolution as a `_Resolution`, so a caller cannot mix generations by asking
+  twice. This applies to diagnostics as well: `state._report` runs after
+  releasing its lock and must build its message from the `_Resolution`, not from
+  a fresh query.
 
 ### 6. Naming
 

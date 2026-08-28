@@ -27,10 +27,13 @@ that with the ``<PREFIX>_SPAN_GROUPS`` spec string::
 
 Two libraries can register at once -- an RL job driving Megatron has both in one
 process -- which is why this is a registry rather than the subclass hook it
-replaces. Group names share one flat namespace; ``allow_override`` guards
-collisions. Presets **union** across namespaces, so ``SPAN_GROUPS=default``
-means every registered library's idea of default, rather than whichever one
-registered last.
+replaces. Group names share one flat namespace, which keeps instrumentation call
+sites terse. Two libraries claiming one name share it, and both get a
+``WARNING``. This cannot be an error: neither library knows it is second, and the
+check runs while a module is being imported, where there is no caller to catch
+it. Presets **union** across
+namespaces, so ``SPAN_GROUPS=default`` means every registered library's idea of
+default, rather than whichever one registered last.
 
 **Register before calling** :func:`~nemo.lens.handle.setup_telemetry`. Each
 library owns its own telemetry, so importing a library is what registers its
@@ -46,11 +49,14 @@ it. A process that wants its own vocabulary gives itself its own env prefix::
 
     NemoLensConfig.from_env(prefix="NVRX_OTEL", fallback_prefix="NEMO_LENS")
 
-A preset may name any group already in the registry, not just the ones this call
-declares. That is how a library layers on one it depends on -- import Megatron,
-then put its ``step`` in your own ``default``. Referencing a name without
-importing its owner is an error at registration, which keeps the import-order
-requirement self-enforcing rather than silent.
+A preset may name any group, not just the ones this call declares. That is how a
+library layers on one it depends on -- put Megatron's ``step`` in your own
+``default``. A member no one has registered is kept but ignored, because every
+read compares presets against the groups currently registered; it starts working
+if its owner is imported later. Import order therefore does not matter, and a
+library can name a group from an *optional* dependency without the process dying
+when that dependency is absent. It warns, because a typo produces the same
+situation.
 
 Registering *after* ``setup_telemetry`` still works -- the spec is re-resolved --
 but it logs a warning, because it means the library's telemetry module was
@@ -62,10 +68,30 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Iterable, Mapping
+from typing import NamedTuple
 
 #: Built-in preset meaning "every group currently registered". This is a
 #: wildcard over the registry, not a hard-coded list -- lens names no groups.
 ALL = "all"
+
+_LOG = logging.getLogger(__name__)
+
+
+class _Resolution(NamedTuple):
+    """A resolution, plus the registry contents it was computed from.
+
+    ``state`` logs its report after releasing its lock, so the values the message
+    needs have to be carried alongside the resolution rather than looked up
+    again. When the message was built from a second query, it could contradict
+    itself: calling a group unregistered while also listing it as registered.
+    """
+
+    enabled: frozenset[str]
+    pending: frozenset[str]
+    registry_empty: bool
+    groups: frozenset[str]
+    presets: frozenset[str]
+    namespaces: tuple[str, ...]
 
 
 class SpanRegistry:
@@ -95,16 +121,21 @@ class SpanRegistry:
                 ones this call declares -- that is how a library layers a preset
                 onto a group it depends on. Presets union across namespaces.
                 ``"all"`` is reserved.
-            allow_override: Permit re-registering *namespace*, or claiming a
-                group name another namespace already registered. Re-registering
-                **replaces** the namespace wholesale: omit ``presets`` and its
-                previous presets are dropped, not merged. Pass the full set every
-                time.
+            allow_override: Permit re-registering *namespace*, and silence the
+                warning for claiming a group name another namespace already
+                registered. Re-registering **replaces** the namespace wholesale:
+                omit ``presets`` and its previous presets are dropped, not
+                merged. Pass the full set every time.
 
         Raises:
             ValueError: Empty namespace, empty group name, a group or preset
-                named ``"all"``, a preset naming a group no namespace has
-                registered, or a collision without ``allow_override=True``.
+                named ``"all"``, or re-registering a namespace without
+                ``allow_override=True``.
+
+        Two conditions that used to raise are now warnings: claiming a group
+        name another namespace already registered, and naming a group nothing has
+        registered yet. No single library can prevent either one, and both happen
+        during import, where there is no caller to catch them.
         """
         if not namespace:
             raise ValueError("Namespace must be a non-empty string.")
@@ -120,17 +151,18 @@ class SpanRegistry:
                 f"Namespace {namespace!r} must pick another name."
             )
 
-        # Everything that touches the registry -- both collision checks, preset
-        # validation, and the commit -- happens under one lock hold, so a
-        # concurrent register/unregister cannot slip between validating a preset
-        # reference and storing it. Nothing in here calls into nemo.lens.state;
-        # see the lock-ordering note on _notify.
+        # Everything that touches the registry -- the collision scan, preset
+        # normalisation, and the commit -- happens under one lock hold, so a
+        # concurrent register/unregister cannot slip between resolving a preset
+        # member and storing it. Nothing in here calls into nemo.lens.state, and
+        # nothing in here logs. See the lock-ordering note on _notify.
         with cls._LOCK:
             if namespace in cls._GROUPS and not allow_override:
                 raise ValueError(
                     f"Namespace {namespace!r} is already registered. "
                     "Pass allow_override=True to replace it."
                 )
+            collisions: list[tuple[str, list[str]]] = []
             if not allow_override:
                 # `namespace` itself cannot be in _GROUPS here -- the check above
                 # already raised for that -- so every entry belongs to some other
@@ -138,25 +170,46 @@ class SpanRegistry:
                 for other, owned in cls._GROUPS.items():
                     clash = owned & resolved_groups
                     if clash:
-                        raise ValueError(
-                            f"Group(s) {sorted(clash)} are already registered by "
-                            f"namespace {other!r}. Pass allow_override=True to share them."
-                        )
+                        collisions.append((other, sorted(clash)))
 
             # A preset may reference groups another namespace already registered,
-            # so a dependent library can layer on one it imports. A name whose
-            # owner has not been imported yet fails here rather than silently
-            # resolving to nothing later. This namespace's *previous* groups are
-            # excluded: re-registering with allow_override replaces them, so a
-            # preset must not lean on one this call is dropping.
+            # so a dependent library can layer on one it imports. A member that
+            # is not referenceable yet is kept anyway and reported below -- see
+            # _normalise_presets. This namespace's *previous* groups are excluded:
+            # re-registering with allow_override replaces them, so a member that
+            # depends on one this call is dropping is reported like any other.
             others = frozenset(
                 group for ns, owned in cls._GROUPS.items() if ns != namespace for group in owned
             )
-            resolved_presets = cls._normalise_presets(namespace, presets, resolved_groups | others)
+            resolved_presets, deferred = cls._normalise_presets(
+                namespace, presets, resolved_groups | others
+            )
 
             cls._GROUPS[namespace] = resolved_groups
             cls._PRESETS[namespace] = resolved_presets
 
+        # Logged after the lock, like _notify: a logging handler is arbitrary
+        # user code and must not run with the registry held.
+        for other, clash in collisions:
+            _LOG.warning(
+                "Namespace %r registers span group(s) %s that namespace %r already "
+                "registered. Group names are one flat namespace, so both libraries' "
+                "spans are now behind that one gate: enabling the name enables both. "
+                "Pass allow_override=True if that is intended, or rename.",
+                namespace,
+                clash,
+                other,
+            )
+        for preset_name, unresolved in deferred:
+            _LOG.warning(
+                "Preset %r in namespace %r names span group(s) %s that nothing has "
+                "registered. They are ignored for now and take effect if the library "
+                "that owns them is imported later; if a name is a typo, the preset "
+                "will quietly select less than you expect.",
+                preset_name,
+                namespace,
+                unresolved,
+            )
         cls._warn_if_late(namespace)
         cls._notify()
 
@@ -165,14 +218,21 @@ class SpanRegistry:
         namespace: str,
         presets: Mapping[str, Iterable[str]] | None,
         referenceable: frozenset[str],
-    ) -> dict[str, frozenset[str]]:
-        """Lower-case and validate preset members against *referenceable*.
+    ) -> tuple[dict[str, frozenset[str]], list[tuple[str, list[str]]]]:
+        """Lower-case presets, and report members *referenceable* does not cover.
+
+        Returns the normalised presets plus ``(preset, unresolved members)`` pairs
+        for the caller to log once it has released the lock. Unresolved members
+        are kept rather than dropped, because layering a preset onto an optional
+        dependency is a reasonable thing to do, and refusing it here used to kill
+        the importing process.
 
         Pure string work -- touches no shared state and takes no lock -- so it is
-        safe to call with ``_LOCK`` held, which is the point: validation and
-        commit have to see one registry snapshot.
+        safe to call with ``_LOCK`` held. That matters, because normalisation and
+        commit have to see the same registry snapshot.
         """
         resolved: dict[str, frozenset[str]] = {}
+        deferred: list[tuple[str, list[str]]] = []
         for name, members in (presets or {}).items():
             key = name.strip().lower()
             if key == ALL:
@@ -180,14 +240,13 @@ class SpanRegistry:
             member_set = frozenset(m.strip().lower() for m in members)
             unknown = member_set - referenceable
             if unknown:
-                raise ValueError(
-                    f"Preset {name!r} in namespace {namespace!r} names {sorted(unknown)}, "
-                    "which this call does not register and no other namespace has "
-                    "registered either. Import the library that owns the group before "
-                    "referencing it."
-                )
+                deferred.append((key, sorted(unknown)))
+            # Stored raw, unresolved members included. _snapshot() compares every
+            # read against the groups currently registered, so a member no one
+            # owns is ignored now and starts working once its owner registers.
+            # This is why import order does not matter.
             resolved[key] = member_set
-        return resolved
+        return resolved, deferred
 
     @classmethod
     def unregister(cls, namespace: str) -> None:
@@ -229,11 +288,15 @@ class SpanRegistry:
             return sorted(cls._GROUPS)
 
     @classmethod
-    def _snapshot(cls) -> tuple[dict[str, frozenset[str]], frozenset[str]]:
-        """``(presets, groups)`` from a single ``_LOCK`` hold.
+    def _snapshot(
+        cls,
+    ) -> tuple[dict[str, frozenset[str]], frozenset[str], tuple[str, ...]]:
+        """``(presets, groups, namespaces)`` from a single ``_LOCK`` hold.
 
-        One hold, so the two cannot come from different registry generations.
-        Everything after the ``with`` is pure string work on local copies.
+        One hold, so they cannot come from different registry generations. That
+        includes ``namespaces``, which only the diagnostic needs: a warning built
+        from a second hold could name a group as unregistered while listing it as
+        registered. Everything after the ``with`` is pure work on local copies.
         """
         with cls._LOCK:
             merged: dict[str, set[str]] = {}
@@ -241,16 +304,19 @@ class SpanRegistry:
                 for name, members in by_name.items():
                     merged.setdefault(name, set()).update(members)
             everything = cls._groups_locked()
+            namespaces = tuple(sorted(cls._GROUPS))
 
         # Intersected with the live group set, so a preset can never name a group
         # that is no longer registered. unregister() and register(allow_override=True)
         # both drop a namespace's groups while another namespace's preset may still
         # reference them -- without this, `default` could enable a group absent from
-        # `all`, which contradicts both the definition of `all` and the check in
-        # _normalise_presets that refuses such a preset at registration time.
+        # `all`, which contradicts the definition of `all`. It is also what lets
+        # registration accept a member no one owns yet: a member that was never
+        # registered and one whose group was unregistered later are the same
+        # state, and both are handled here.
         result = {name: frozenset(members) & everything for name, members in merged.items()}
         result[ALL] = everything
-        return result, everything
+        return result, everything, namespaces
 
     @classmethod
     def presets(cls) -> dict[str, frozenset[str]]:
@@ -276,19 +342,19 @@ class SpanRegistry:
             ``(enabled, pending)`` -- the groups that resolved, and the spec
             entries that matched nothing yet.
         """
-        enabled, pending, _ = cls._resolve_snapshot(spec)
-        return enabled, pending
+        resolution = cls._resolve_snapshot(spec)
+        return resolution.enabled, resolution.pending
 
     @classmethod
-    def _resolve_snapshot(cls, spec: str) -> tuple[frozenset[str], frozenset[str], bool]:
-        """:meth:`resolve`, plus whether the registry was empty in the same hold.
+    def _resolve_snapshot(cls, spec: str) -> _Resolution:
+        """:meth:`resolve`, plus everything the caller's diagnostic needs.
 
-        ``nemo.lens.state`` needs all three to describe one registry generation.
-        Asking the registry separately -- ``resolve()`` then ``groups()`` -- let a
+        ``nemo.lens.state`` needs all of it to describe one registry generation.
+        Asking the registry separately -- ``resolve()`` then ``groups()`` -- lets a
         concurrent registration land between them, so the enabled set and the
-        diagnostic could disagree about what was registered.
+        warning built from it disagree about what was registered.
         """
-        presets, known = cls._snapshot()
+        presets, known, namespaces = cls._snapshot()
 
         enabled: set[str] = set()
         pending: set[str] = set()
@@ -299,7 +365,14 @@ class SpanRegistry:
                 enabled.add(part)
             else:
                 pending.add(part)
-        return frozenset(enabled), frozenset(pending), not known
+        return _Resolution(
+            enabled=frozenset(enabled),
+            pending=frozenset(pending),
+            registry_empty=not known,
+            groups=known,
+            presets=frozenset(presets),
+            namespaces=namespaces,
+        )
 
     @staticmethod
     def _warn_if_late(namespace: str) -> None:
@@ -313,7 +386,7 @@ class SpanRegistry:
         from nemo.lens import handle
 
         if handle._INITIALIZED:
-            logging.getLogger(__name__).warning(
+            _LOG.warning(
                 "Span groups for namespace %r were registered after setup_telemetry(); "
                 "they were not selectable when the span-group spec was validated. "
                 "Import this library's telemetry module before calling setup_telemetry().",

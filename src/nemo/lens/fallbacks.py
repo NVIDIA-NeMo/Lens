@@ -26,9 +26,6 @@ Consumer libraries should use these as their ImportError fallback::
         from nemo.lens.state import is_span_group_enabled
     except ImportError:
         from nemo.lens.fallbacks import SpanRegistry, managed_span, is_span_group_enabled
-
-``SpanRegistry`` is here because a consuming library registers the groups it
-emits at import time, which has to keep working when lens is absent.
 """
 
 from contextlib import contextmanager

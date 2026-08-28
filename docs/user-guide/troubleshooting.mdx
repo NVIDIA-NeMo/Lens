@@ -148,6 +148,15 @@ If you instead see a `WARNING` about groups "registered after
 `setup_telemetry()`", that is an import-order problem caught from the other side:
 the groups do work, but they were not selectable when your spec was resolved.
 
+### Your Spec Resolved, But to Nothing
+
+`pending_span_groups()` is empty and you still get no spans. Every name in your
+spec matched a preset, but that preset is currently empty. The usual cause is
+that the library owning the groups the preset borrowed is not registered, so
+those members are pruned away. NeMo Lens warns that the spec "resolved to no span
+groups at all" and lists what *is* registered. Either import the missing library,
+or name a group directly instead of going through the preset.
+
 A `WARNING` that no library registered any span groups means nothing
 group-gated will be emitted at all — the library you expected to instrument was
 never imported.

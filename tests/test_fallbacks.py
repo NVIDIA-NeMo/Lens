@@ -15,6 +15,10 @@
 
 """Unit tests for nemo.lens.fallbacks — canonical no-op implementations."""
 
+import inspect
+
+import pytest
+
 from nemo.lens.fallbacks import (
     SpanRegistry,
     is_span_group_enabled,
@@ -109,21 +113,59 @@ class TestFallbackSpanRegistry:
         assert enabled == frozenset()
         assert pending == frozenset({"default", "step"})
 
-    def test_signature_parity_with_the_real_registry(self):
-        """Invariant 3: the no-op surface must match the real API."""
-        import inspect
 
+class TestSignatureParity:
+    """Invariant 3: the no-op surface must match the real API, defaults included.
+
+    Parameter names alone are not the signature. AGENTS.md says defaults must
+    resolve to the same source, because a no-op whose default differs changes
+    behaviour for consumers running without lens installed, and only for them --
+    which is the kind of divergence this file exists to catch. Comparing names
+    alone cannot see that, nor a parameter promoted to keyword-only.
+    """
+
+    #: Parameters whose no-op default deliberately differs, and why. Each consumer
+    #: hand-writes inline copies of these no-ops in its own `_fallbacks.py` for the
+    #: case where lens is absent. A default that points at a lens constant has to
+    #: be reinvented in every one of those copies, which spreads the divergence
+    #: rather than fixing it. The no-op body here is `pass`, so the value is never
+    #: read. Name and kind are still compared; only the default is exempt.
+    _EXEMPT_DEFAULTS = {"safe_set_span_attributes": {"redact_keys"}}
+
+    @classmethod
+    def _shape(cls, fn, symbol):
+        # Annotations are excluded deliberately: the no-ops are unannotated on
+        # purpose, so comparing them would fail on every symbol.
+        exempt = cls._EXEMPT_DEFAULTS.get(symbol, frozenset())
+        return [
+            (p.name, p.kind, "<exempt>" if p.name in exempt else p.default)
+            for p in inspect.signature(fn).parameters.values()
+        ]
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "trace_fn",
+            "managed_span",
+            "span_cm",
+            "is_span_group_enabled",
+            "safe_set_span_attributes",
+        ],
+    )
+    def test_module_level_symbol(self, name):
+        import nemo.lens
+        import nemo.lens.fallbacks
+
+        real = getattr(nemo.lens, name)
+        noop = getattr(nemo.lens.fallbacks, name)
+        assert self._shape(real, name) == self._shape(noop, name), name
+
+    @pytest.mark.parametrize(
+        "name", ["register", "unregister", "clear", "groups", "namespaces", "presets", "resolve"]
+    )
+    def test_span_registry_method(self, name):
         from nemo.lens.groups import SpanRegistry as Real
 
-        for name in (
-            "register",
-            "unregister",
-            "clear",
-            "groups",
-            "namespaces",
-            "presets",
-            "resolve",
-        ):
-            real = inspect.signature(getattr(Real, name))
-            noop = inspect.signature(getattr(SpanRegistry, name))
-            assert list(real.parameters) == list(noop.parameters), name
+        assert self._shape(getattr(Real, name), name) == self._shape(
+            getattr(SpanRegistry, name), name
+        ), name

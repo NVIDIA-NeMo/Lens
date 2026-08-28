@@ -137,13 +137,23 @@ SpanRegistry.register(
 ```
 
 Group names are one flat namespace across libraries (so call sites stay terse);
-two namespaces claiming one name is an error without `allow_override=True`.
-Presets **union** across namespaces — `default` means every registered library's
-default, which is the fix for the old subclass scheme where `_PRESETS` was
-overridden wholesale. A preset may reference any group already registered, which
-is how a library layers on one it imports; referencing a name whose owner has not
-been imported raises at registration; a preset member that stops being registered
-is pruned, so a preset can never name a group outside `all`. `all` is built in,
+two namespaces claiming one name **share** it and get a `WARNING`, which
+`allow_override=True` silences. Presets **union** across namespaces — `default`
+means every registered library's default, which is the fix for the old subclass
+scheme where `_PRESETS` was overridden wholesale. A preset may reference any
+group, which is how a library layers on one it imports. A member no one has
+registered is kept and warned about, and is ignored until its owner registers. A
+member whose group is unregistered later is pruned the same way, so a preset can
+never name a group outside `all`.
+
+**`register()` must not raise for either of those.** Both happen while a
+consuming library is being imported, before `setup_telemetry` and with no caller
+in a position to catch them. Neither library can prevent it either: in an RL job
+driving Megatron, both emit a `step`, and neither knows it is second. The no-op
+`SpanRegistry` never raises, so raising here would mean installing lens breaks a
+job that worked without it. `register()` does still raise for mistakes a single
+author can fix: an empty namespace or group name, `all` on either side, and
+re-registering a namespace without `allow_override=True`. `all` is built in,
 means "everything registered", and is reserved as **both** a preset and a group
 name — `resolve()` checks presets first, so a group called `all` would be
 permanently unselectable.
@@ -175,13 +185,24 @@ disabled process stays disabled when a library registers afterwards.
 `state` calls into `SpanRegistry` while holding its own lock. `SpanRegistry`'s
 mutators therefore notify `state` only *after* releasing `_LOCK` — every one of
 them puts `cls._notify()` below its `with cls._LOCK` block. Move a `_notify()`
-inside that block and the cycle closes on the first concurrent registration.
-Likewise, `register()` validates presets and commits under one hold: splitting
+inside that block and the next registration hangs: `_LOCK` is a plain
+`threading.Lock`, so the same thread tries to take it twice and deadlocks. No
+second thread is involved, so reproduce it single-threaded rather than hunting
+for a race. It hangs the suite instead of failing it, so what you see in CI is a
+job timeout.
+
+Likewise, `register()` normalises presets and commits under one hold: splitting
 them lets a concurrent `unregister` land between, and the preset commits a
-reference to a group that no longer exists. Reads are the same rule:
-`SpanRegistry._snapshot()` returns presets and groups from one hold, and
-`_resolve_snapshot()` adds the registry-empty flag, so `state` describes one
-registry generation instead of asking three times and getting three answers.
+reference to a group that no longer exists. Warnings work the other way round —
+collect them under the lock, log them after releasing it, because a logging
+handler is arbitrary user code. Reads follow the same rule:
+`SpanRegistry._snapshot()` returns presets, groups and namespaces from one hold,
+and `_resolve_snapshot()` returns those together with the resolution and the
+registry-empty flag as a `_Resolution`, so `state` sees one registry generation
+instead of asking again. `_report` depends on this. It runs after `state._LOCK`
+is released, and when it built its message from a fresh query the result could
+contradict itself, calling a group unresolved while also listing it as
+registered.
 
 Adding to `default` raises always-on overhead for every user of every library in
 the process, not just yours. Procedure: `docs/developer/new-span-group.mdx`.

@@ -16,6 +16,8 @@
 
 """Unit tests for SpanRegistry."""
 
+import logging
+
 import pytest
 
 from nemo.lens.groups import ALL, SpanRegistry
@@ -70,9 +72,13 @@ class TestRegister:
         with pytest.raises(ValueError, match="empty group name"):
             SpanRegistry.register("mega", {"step", "  "})
 
-    def test_preset_naming_an_unregistered_group_raises(self):
-        with pytest.raises(ValueError, match="no other namespace has registered"):
+    def test_preset_naming_an_unregistered_group_warns_and_keeps_going(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.groups"):
             SpanRegistry.register("mega", {"step"}, {"default": {"step", "typo"}})
+        assert "typo" in caplog.text
+        # The registration stands and the unresolved member simply contributes
+        # nothing -- it does not take the importing process down with it.
+        assert SpanRegistry.presets()["default"] == frozenset({"step"})
 
     def test_all_is_a_reserved_preset_name(self):
         with pytest.raises(ValueError, match="reserved"):
@@ -113,13 +119,15 @@ class TestCollisions:
         SpanRegistry.register("mega", {"layer"}, allow_override=True)
         assert SpanRegistry.groups() == frozenset({"layer"})
 
-    def test_an_override_cannot_reference_the_groups_it_is_dropping(self):
+    def test_an_override_does_not_keep_the_groups_it_is_dropping(self, caplog):
         """Its own previous groups are not referenceable: this call replaces them."""
         SpanRegistry.register("mega", {"step", "layer"})
-        with pytest.raises(ValueError, match="no other namespace has registered"):
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.groups"):
             SpanRegistry.register(
                 "mega", {"layer"}, {"default": {"layer", "step"}}, allow_override=True
             )
+        assert "step" in caplog.text
+        assert SpanRegistry.presets()["default"] == frozenset({"layer"})
 
     def test_an_override_may_still_reference_another_namespace_s_groups(self):
         SpanRegistry.register("mega", {"step"})
@@ -129,14 +137,42 @@ class TestCollisions:
         )
         assert SpanRegistry.resolve("default")[0] == frozenset({"rollout", "step"})
 
-    def test_two_namespaces_claiming_one_group_raises(self):
-        SpanRegistry.register("mega", {"step"})
-        with pytest.raises(ValueError, match="already registered by namespace 'mega'"):
-            SpanRegistry.register("rl", {"step"})
+    def test_two_namespaces_claiming_one_group_warns_and_shares_it(self, caplog):
+        """Neither library knows it is second, so this cannot be an error.
 
-    def test_two_namespaces_may_share_a_group_with_override(self):
+        It happens while a module is being imported, where there is no caller to
+        catch it. The no-op registry never raises either, so raising here would
+        mean installing lens breaks a job that worked without it.
+        """
         SpanRegistry.register("mega", {"step"})
-        SpanRegistry.register("rl", {"step"}, allow_override=True)
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.groups"):
+            SpanRegistry.register("rl", {"step", "rollout"})
+        assert "step" in caplog.text and "mega" in caplog.text
+        assert SpanRegistry.resolve("step")[0] == frozenset({"step"})
+        assert SpanRegistry.groups() == frozenset({"step", "rollout"})
+
+    def test_the_collision_warning_is_symmetric_in_import_order(self, caplog):
+        """Whichever imports second warns; the end state is the same either way."""
+        for first, second in (("mega", "rl"), ("rl", "mega")):
+            SpanRegistry.clear()
+            caplog.clear()
+            SpanRegistry.register(first, {"step"})
+            with caplog.at_level(logging.WARNING, logger="nemo.lens.groups"):
+                SpanRegistry.register(second, {"step"})
+            assert "step" in caplog.text, f"{second} after {first}"
+            assert SpanRegistry.groups() == frozenset({"step"})
+
+    def test_a_shared_group_outlives_one_of_its_owners(self):
+        SpanRegistry.register("mega", {"step", "layer"})
+        SpanRegistry.register("rl", {"step", "rollout"})
+        SpanRegistry.unregister("rl")
+        assert "step" in SpanRegistry.groups()
+
+    def test_allow_override_silences_the_collision_warning(self, caplog):
+        SpanRegistry.register("mega", {"step"})
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.groups"):
+            SpanRegistry.register("rl", {"step"}, allow_override=True)
+        assert caplog.text == ""
         assert SpanRegistry.resolve("step")[0] == frozenset({"step"})
 
 
@@ -194,10 +230,25 @@ class TestCrossNamespacePresets:
         SpanRegistry.register("rl", {"rollout"}, {"default": {"rollout", "step"}})
         assert SpanRegistry.resolve("default")[0] == frozenset({"rollout", "step"})
 
-    def test_referencing_a_group_whose_owner_is_not_imported_raises(self):
-        """Makes the import-order requirement self-enforcing instead of silent."""
-        with pytest.raises(ValueError, match="Import the library that owns the group"):
+    def test_referencing_a_group_whose_owner_is_not_imported_warns(self, caplog):
+        """A missing optional dependency should not stop the library importing."""
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.groups"):
             SpanRegistry.register("rl", {"rollout"}, {"default": {"rollout", "step"}})
+        assert "step" in caplog.text
+        assert SpanRegistry.presets()["default"] == frozenset({"rollout"})
+
+    def test_a_late_owner_makes_the_borrowed_group_start_counting(self):
+        """Import order does not matter: the member starts working when its owner registers.
+
+        The borrowing library may well be imported first, since it is the one that
+        depends on the other, so this is the ordinary case rather than a recovery
+        path.
+        """
+        SpanRegistry.register("rl", {"rollout"}, {"default": {"rollout", "step"}})
+        assert SpanRegistry.resolve("default")[0] == frozenset({"rollout"})
+
+        SpanRegistry.register("mega", {"step"})
+        assert SpanRegistry.resolve("default")[0] == frozenset({"rollout", "step"})
 
     def test_the_reference_does_not_transfer_ownership(self):
         SpanRegistry.register("mega", {"step"})
@@ -209,9 +260,9 @@ class TestCrossNamespacePresets:
         """A borrowed group must not outlive its owner's registration.
 
         Left dangling, `default` enabled a group absent from `all` -- and spans
-        were actually emitted for a group no namespace owned. It also contradicts
-        _normalise_presets, which refuses to accept such a preset in the first
-        place.
+        were actually emitted for a group no namespace owned. Pruning on every
+        read is also what lets registration keep an unresolved member instead of
+        refusing it: the member is ignored until someone owns it.
         """
         SpanRegistry.register("mega", {"step"})
         SpanRegistry.register("rl", {"rollout"}, {"default": {"rollout", "step"}})

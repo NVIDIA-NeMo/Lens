@@ -15,6 +15,7 @@
 
 """Unit tests for span group state management."""
 
+import logging
 import threading
 
 from nemo.lens.groups import SpanRegistry
@@ -166,6 +167,105 @@ class TestSpecDrivenState:
         SpanRegistry.register("mega", {"job", "step"})
         set_span_group_spec("all")
         assert enabled_span_groups() == frozenset({"job", "step"})
+
+
+class TestTheDiagnosticDescribesOneRegistryGeneration:
+    """`_report` runs after the lock, so it must report what the resolution saw.
+
+    Building the message from a fresh query let a registration land in between,
+    producing a warning that called a group unresolved and also listed it as
+    registered.
+    """
+
+    def test_the_warning_is_built_without_asking_the_registry_again(self, monkeypatch, caplog):
+        SpanRegistry.register("mega", {"step"})
+
+        def boom(*_args, **_kwargs):
+            raise AssertionError("_report queried the registry a second time")
+
+        for name in ("groups", "presets", "namespaces"):
+            monkeypatch.setattr(SpanRegistry, name, classmethod(boom))
+
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.state"):
+            set_span_group_spec("typo")
+
+        # Rendered, and rendered from the same generation the resolution saw.
+        assert "typo" in caplog.text
+        assert "'step'" in caplog.text
+        assert "'mega'" in caplog.text
+
+    def test_a_concurrent_registration_cannot_contradict_the_message(self, monkeypatch, caplog):
+        """The group named unresolved must not also appear as registered."""
+        SpanRegistry.register("base", {"other"})
+        real_snapshot = SpanRegistry._snapshot.__func__
+
+        def snapshot_then_register(cls):
+            result = real_snapshot(cls)
+            # Lands between the resolution and the report -- the window the old
+            # code re-queried in.
+            if "owner" not in cls._GROUPS:
+                cls._GROUPS["owner"] = frozenset({"step"})
+            return result
+
+        monkeypatch.setattr(SpanRegistry, "_snapshot", classmethod(snapshot_then_register))
+
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.state"):
+            set_span_group_spec("step")
+
+        assert "step" in caplog.text
+        assert "'owner'" not in caplog.text, f"self-contradictory warning: {caplog.text}"
+
+
+class TestASpecThatSelectsNothingIsReported:
+    """Silence has two causes, and only one of them used to be reported.
+
+    A preset that borrowed groups from a namespace that has gone away is pruned
+    to empty. Nothing is unresolved, so `pending_span_groups()` -- the diagnostic
+    the troubleshooting guide points at -- is empty as well, leaving the user with
+    no telemetry and nothing to look at.
+    """
+
+    def test_a_preset_pruned_to_empty_warns(self, caplog):
+        SpanRegistry.register("mega", {"step"})
+        SpanRegistry.register("rl", {"rollout"}, {"prod": {"step"}})
+        set_span_group_spec("prod")
+        assert enabled_span_groups() == frozenset({"step"})
+
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.state"):
+            SpanRegistry.unregister("mega")
+
+        assert enabled_span_groups() == frozenset()
+        assert pending_span_groups() == frozenset()
+        assert "resolved to no span groups" in caplog.text
+
+    def test_a_spec_that_selects_something_stays_quiet(self, caplog):
+        SpanRegistry.register("mega", {"step"})
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.state"):
+            set_span_group_spec("step")
+        assert caplog.text == ""
+
+    def test_going_empty_twice_warns_twice(self, caplog):
+        """The suppression key must include whether the spec selected anything.
+
+        A spec that resolved fine and then went empty has the same unresolved set
+        as when it was working. Without that flag in the key, the second drop
+        looks like a repeat of a report that was never made.
+        """
+        SpanRegistry.register("rl", {"rollout"}, {"prod": {"step"}})
+        SpanRegistry.register("mega", {"step"})
+        set_span_group_spec("prod")
+        assert enabled_span_groups() == frozenset({"step"})
+
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.state"):
+            SpanRegistry.unregister("mega")
+            assert caplog.text.count("resolved to no span groups") == 1
+
+            SpanRegistry.register("mega", {"step"})
+            assert enabled_span_groups() == frozenset({"step"})
+
+            SpanRegistry.unregister("mega")
+            assert enabled_span_groups() == frozenset()
+        assert caplog.text.count("resolved to no span groups") == 2
 
 
 class TestSpanGroupPublicAPI:
