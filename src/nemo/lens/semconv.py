@@ -31,7 +31,7 @@ SEMCONV_VERSION = "1.29.0"
 """OTel semantic conventions version these constants are aligned with.
 
 Standard namespaces (gen_ai.*, k8s.*) follow the upstream spec at this
-version. Custom namespaces (dl.*, rl.*, gym.*, slurm.*, nemo.*, wandb.*)
+version. Custom namespaces (nv.dl.*, dl.*, rl.*, gym.*, slurm.*, nemo.*, wandb.*)
 are NeMo-specific extensions that do not exist upstream.
 """
 
@@ -40,6 +40,7 @@ are NeMo-specific extensions that do not exist upstream.
 # ------------------------------------------------------------------ #
 # gen_ai.*  — Experimental (upstream, stabilising in semconv 1.30+)
 # k8s.*     — Stable (upstream)
+# nv.dl.*   — NeMo custom (stable within NeMo ecosystem)
 # dl.*      — NeMo custom (stable within NeMo ecosystem)
 # rl.*      — NeMo custom (stable within NeMo ecosystem)
 # gym.*     — NeMo custom (stable within NeMo ecosystem)
@@ -112,12 +113,36 @@ GYM_VERIFY_SUCCESS_RATE = "gym.verify.success_rate"
 # ------------------------------------------------------------------ #
 
 SLURM_JOB_ID = "slurm.job.id"
+SLURM_JOB_ID_RAW = "slurm.job.id.raw"
+SLURM_ARRAY_JOB_ID = "slurm.array.job_id"
+SLURM_ARRAY_TASK_ID = "slurm.array.task_id"
+SLURM_ARRAY_COUNT = "slurm.array.count"
+SLURM_SLUID = "slurm.sluid"
+SLURM_ARRAY_SLUID = "slurm.array.sluid"
 SLURM_JOB_NAME = "slurm.job.name"
-SLURM_NODELIST = "slurm.nodelist"
+SLURM_CLUSTER_NAME = "slurm.cluster.name"
+SLURM_PARTITION = "slurm.partition"
+SLURM_HEAD_NODE_NAME = "slurm.head_node.name"
 SLURM_NNODES = "slurm.nnodes"
 SLURM_NTASKS = "slurm.ntasks"
-SLURM_PARTITION = "slurm.partition"
-SLURM_CLUSTER_NAME = "slurm.cluster.name"
+SLURM_RESTART_COUNT = "slurm.restart_count"
+SLURM_JOB_USER = "slurm.job.user"
+SLURM_JOB_ACCOUNT = "slurm.job.account"
+SLURM_JOB_QOS = "slurm.job.qos"
+SLURM_JOB_RESERVATION = "slurm.job.reservation"
+SLURM_SEGMENT = "slurm.segment"
+SLURM_TOPOLOGY_ADDR = "slurm.topology.addr"
+SLURM_TOPOLOGY_ADDR_PATTERN = "slurm.topology.addr_pattern"
+SLURM_NODELIST = "slurm.nodelist"
+SLURM_CLUSTER = "slurm.cluster"
+SLURM_TORCHELASTIC_RESTART_COUNT = "slurm.torchelastic.restart_count"
+
+# ------------------------------------------------------------------ #
+# Distributed learning identity (nv.dl.*)
+# ------------------------------------------------------------------ #
+
+NV_DL_JOB_UUID = "nv.dl.job.uuid"
+NV_DL_RUN_UUID = "nv.dl.run.uuid"
 
 # ------------------------------------------------------------------ #
 # Run identification (nemo.*)

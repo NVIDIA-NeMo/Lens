@@ -33,4 +33,9 @@ def detect_resource() -> dict:
     return attrs
 
 
-__all__ = ["detect_resource", "detect_slurm", "detect_kubernetes", "detect_local"]
+__all__ = [
+    "detect_resource",
+    "detect_slurm",
+    "detect_kubernetes",
+    "detect_local",
+]

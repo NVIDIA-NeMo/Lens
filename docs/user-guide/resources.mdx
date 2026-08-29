@@ -34,17 +34,40 @@ The `nemo.lens.resources.detect_resource()` function merges attributes from thre
 
 ### Slurm Environment Attributes with `detect_slurm()`
 
-These attributes are active when `SLURM_JOB_ID` is set. This helper maps the following variables:
+When `SLURM_JOB_ID` is set, this helper derives Slurm resource attributes from
+the local environment. It also preserves selected Slurm and run identity values
+from launch-provided `OTEL_RESOURCE_ATTRIBUTES`; those launch values take
+precedence over caller-provided `resource_attributes` defaults and locally
+derived fallback values.
 
 | Attribute | Source env var |
 |---|---|
 | `slurm.job.id` | `SLURM_JOB_ID` |
+| `slurm.job.id.raw` | Raw `SLURM_JOB_ID` |
+| `slurm.array.job_id` | `SLURM_ARRAY_JOB_ID`, or `SLURM_JOB_ID` for non-array jobs |
+| `slurm.array.task_id` | `SLURM_ARRAY_TASK_ID`, or `"0"` for non-array jobs |
+| `slurm.array.count` | `SLURM_ARRAY_TASK_COUNT`, or `1` when unset |
+| `slurm.sluid` | `LENS_SLURM_SLUID` or `NV_LAUNCH_SLUID` |
+| `slurm.array.sluid` | `LENS_SLURM_ARRAY_SLUID` or `NV_LAUNCH_ARRAY_SLUID` |
 | `slurm.job.name` | `SLURM_JOB_NAME` |
-| `slurm.nodelist` | `SLURM_NODELIST` |
-| `slurm.nnodes` | `SLURM_NNODES` |
-| `slurm.ntasks` | `SLURM_NTASKS` |
-| `slurm.partition` | `SLURM_PARTITION` |
 | `slurm.cluster.name` | `SLURM_CLUSTER_NAME` |
+| `slurm.partition` | `SLURM_JOB_PARTITION` or `SLURM_PARTITION` |
+| `slurm.head_node.name` | `SLURMD_NODENAME` outside a Slurm step, or inherited from launch attributes |
+| `slurm.nnodes` | `SLURM_JOB_NUM_NODES` or `SLURM_NNODES` |
+| `slurm.ntasks` | `SLURM_NTASKS` |
+| `slurm.restart_count` | `SLURM_RESTART_COUNT`, or `0` when unset |
+| `slurm.job.user` | `SLURM_JOB_USER` |
+| `slurm.job.account` | `SLURM_JOB_ACCOUNT` |
+| `slurm.job.qos` | `SLURM_JOB_QOS` |
+| `slurm.job.reservation` | `SLURM_JOB_RESERVATION` |
+| `slurm.segment` | `SLURM_SEGMENT` |
+| `slurm.topology.addr` | `SLURM_TOPOLOGY_ADDR` |
+| `slurm.topology.addr_pattern` | `SLURM_TOPOLOGY_ADDR_PATTERN` |
+| `nv.dl.job.uuid` | Derived from Slurm cluster and submitted job ID, or inherited from launch attributes |
+| `nv.dl.run.uuid` | Inherited from launch attributes |
+
+Retired keys such as `slurm.nodelist`, `slurm.cluster`, and
+`slurm.torchelastic.restart_count` are not emitted for new telemetry.
 
 ### Kubernetes Environment Attributes with `detect_kubernetes()`
 
@@ -81,6 +104,10 @@ handle = setup_telemetry(
 ```
 
 These attributes merge with the auto-detected set. In Jaeger, they appear as **Process** tags and are filterable across every span in the run.
+
+For selected Slurm and run identity keys, launch-provided
+`OTEL_RESOURCE_ATTRIBUTES` values are authoritative. Treat `resource_attributes`
+as consumer defaults for those keys.
 
 ## Use Cases
 

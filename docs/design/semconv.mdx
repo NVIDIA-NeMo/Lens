@@ -6,7 +6,7 @@ position: 4
 `nemo.lens.semconv` centralizes every attribute name constant NeMo Lens emits. Two categories of attributes coexist:
 
 1. **Standard OTel semconv**: `gen_ai.*` and `k8s.*`. These track upstream OTel specs. (Resource attributes like `service.*` and `host.*` are also standard OTel names but are set as literals in `providers.py` and `resources/local.py` rather than mirrored as `semconv.py` constants.)
-2. **NeMo custom namespaces**: `dl.*` (distributed learning), `rl.*`, `gym.*`, `slurm.*`, `nemo.*`, `wandb.*`. These are NeMo-specific extensions that do not exist upstream.
+2. **NeMo custom namespaces**: `nv.dl.*` / `dl.*` (distributed learning), `rl.*`, `gym.*`, `slurm.*`, `nemo.*`, `wandb.*`. These are NeMo-specific extensions that do not exist upstream.
 
 ## Why Constants Instead of Strings
 
@@ -40,6 +40,7 @@ From `semconv.py`:
 ```
 # gen_ai.*  — Experimental (upstream, stabilising in semconv 1.30+)
 # k8s.*     — Stable (upstream)
+# nv.dl.*   — NeMo custom (stable within NeMo ecosystem)
 # dl.*      — NeMo custom (stable within NeMo ecosystem)
 # rl.*      — NeMo custom (stable within NeMo ecosystem)
 # gym.*     — NeMo custom (stable within NeMo ecosystem)
@@ -60,11 +61,13 @@ NeMo Lens organizes attributes into standard upstream namespaces and NeMo-specif
 
 Follow upstream OTel spec exactly. Do not redefine, and do not rename. If upstream says `gen_ai.request.model`, NeMo Lens uses `gen_ai.request.model`.
 
-### `dl.*` Distributed Learning
+### `nv.dl.*` / `dl.*` Distributed Learning
 
 Shared across Megatron-LM, NeMo RL, NeMo Gym. Anything a distributed training job needs:
 
 ```
+nv.dl.job.uuid               — stable submitted-job identifier
+nv.dl.run.uuid               — stable run-attempt identifier
 dl.rank                      — global rank
 dl.world_size                — total ranks
 dl.local_rank                — rank on this node

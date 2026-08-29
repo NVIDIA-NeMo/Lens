@@ -35,7 +35,7 @@ from nemo.lens.providers import (
     build_noop_providers,
     build_providers,
 )
-from nemo.lens.semconv import NEMO_SPAN_TRUNCATED
+from nemo.lens.semconv import NEMO_SPAN_TRUNCATED, SLURM_JOB_ID
 
 
 class TestBuildNoopProviders:
@@ -70,6 +70,30 @@ class TestBuildProviders:
         # Should not raise
         tracer = trace.get_tracer("test")
         assert tracer is not None
+
+    def test_launch_resource_attributes_override_caller_defaults(self, monkeypatch):
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+        monkeypatch.setenv("SLURM_JOB_ID", "12345")
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", f"{SLURM_JOB_ID}=launch")
+
+        custom_exporter = InMemorySpanExporter()
+        cfg = NemoLensConfig(enabled=True, exporter="console")
+        build_providers(
+            cfg,
+            rank=0,
+            world_size=1,
+            resource_attributes={SLURM_JOB_ID: "default"},
+            span_exporter=custom_exporter,
+        )
+
+        tracer = trace.get_tracer("test")
+        with tracer.start_as_current_span("resource-check"):
+            pass
+        trace.get_tracer_provider().force_flush()
+
+        spans = custom_exporter.get_finished_spans()
+        assert spans[0].resource.attributes[SLURM_JOB_ID] == "launch"
 
     def test_traces_disabled(self):
         cfg = NemoLensConfig(enabled=True, exporter="console", traces_enabled=False)
