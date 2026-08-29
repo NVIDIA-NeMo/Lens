@@ -7,6 +7,44 @@ NeMo Lens installs a `nemo-lens` command for launch scripts and other process
 boundaries that need to emit telemetry outside a normal Python application
 lifecycle.
 
+## `set-slurm-resource-attrs`
+
+`set-slurm-resource-attrs` prints a shell export that appends Lens-derived Slurm
+resource attributes to `OTEL_RESOURCE_ATTRIBUTES`.
+
+Use it with `eval` at Slurm launch boundaries:
+
+```bash
+eval "$(nemo-lens set-slurm-resource-attrs --stage sbatch)"
+```
+
+Run the task-stage form inside each `srun` task:
+
+```bash
+eval "$(nemo-lens set-slurm-resource-attrs \
+  --stage task \
+  --container-image "$CONTAINER_IMAGE")"
+```
+
+`--stage` selects one launch boundary per invocation. A Slurm launch can run the
+command once in the sbatch script context and again inside each task. The sbatch
+stage captures job/scheduler attributes and `slurm.head_node.name` when Slurm
+exposes it. The task stage captures task-local attributes such as `host.name`,
+`nv.dl.launch.container.image`, and `slurm.topology.*`.
+
+The command prints exactly one shell assignment:
+
+```bash
+export OTEL_RESOURCE_ATTRIBUTES=...
+```
+
+Each invocation appends only missing derived attributes. Existing
+`OTEL_RESOURCE_ATTRIBUTES` values are preserved and take precedence over locally
+derived fallbacks.
+
+`--container-image` records the launcher/container image identity as
+`nv.dl.launch.container.image`. It is valid only with `--stage task`.
+
 ## `emit-spans`
 
 `emit-spans` emits completed spans from explicit Unix epoch-second intervals.
