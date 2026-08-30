@@ -13,10 +13,10 @@ position: 4
 Using constants instead of raw strings provides three key benefits:
 
 1. **Grep-ability**: renaming an attribute across the codebase means changing one constant, not every call site.
-2. **Type safety** (weak but real): `DL_RANK` is an exported name; typos become `ImportError`s. `"dl.rank"` typos become silent data loss.
+2. **Type safety** (weak but real): `NV_DL_RANK` is an exported name; typos become `ImportError`s. `"nv.dl.rank"` typos become silent data loss.
 3. **Central registry**: one file lists every attribute NeMo Lens might emit. Easy to review, easy to document.
 
-Callers who want the string can use `DL_RANK` directly; Python strings-as-constants have no boxing cost.
+Callers who want the string can use `NV_DL_RANK` directly; Python strings-as-constants have no boxing cost.
 
 ## Version Tracking
 
@@ -68,9 +68,9 @@ Shared across Megatron-LM, NeMo RL, NeMo Gym. Anything a distributed training jo
 ```
 nv.dl.job.uuid               — stable submitted-job identifier
 nv.dl.run.uuid               — stable run-attempt identifier
-dl.rank                      — global rank
-dl.world_size                — total ranks
-dl.local_rank                — rank on this node
+nv.dl.rank                   — global rank resource attribute
+nv.dl.world_size             — total ranks resource attribute
+nv.dl.local_rank             — rank on this node resource attribute
 dl.tensor_parallel.{rank,size}
 dl.pipeline_parallel.{rank,size}
 dl.data_parallel.{rank,size}

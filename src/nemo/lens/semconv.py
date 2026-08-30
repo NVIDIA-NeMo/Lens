@@ -49,12 +49,16 @@ are NeMo-specific extensions that do not exist upstream.
 # wandb.*   — NeMo custom (stable within NeMo ecosystem)
 
 # ------------------------------------------------------------------ #
-# Distributed learning (dl.*)
+# Distributed learning participant resources (nv.dl.*)
 # ------------------------------------------------------------------ #
 
-DL_RANK = "dl.rank"
-DL_WORLD_SIZE = "dl.world_size"
-DL_LOCAL_RANK = "dl.local_rank"
+NV_DL_RANK = "nv.dl.rank"
+NV_DL_WORLD_SIZE = "nv.dl.world_size"
+NV_DL_LOCAL_RANK = "nv.dl.local_rank"
+
+# ------------------------------------------------------------------ #
+# Distributed learning attributes (dl.*)
+# ------------------------------------------------------------------ #
 DL_DATA_PARALLEL_RANK = "dl.data_parallel.rank"
 DL_DATA_PARALLEL_SIZE = "dl.data_parallel.size"
 DL_TENSOR_PARALLEL_RANK = "dl.tensor_parallel.rank"

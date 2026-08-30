@@ -28,7 +28,7 @@ import random
 import threading
 from typing import TYPE_CHECKING
 
-from nemo.lens.semconv import NEMO_SPAN_TRUNCATED
+from nemo.lens.semconv import NEMO_SPAN_TRUNCATED, NV_DL_RANK, NV_DL_WORLD_SIZE
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
@@ -257,8 +257,8 @@ def build_providers(
     attrs = {
         "service.name": config.service_name,
         "service.version": __version__,
-        "dl.rank": rank,
-        "dl.world_size": world_size,
+        NV_DL_RANK: rank,
+        NV_DL_WORLD_SIZE: world_size,
     }
     # Run identification — shared across all ranks in a job.
     if config.run_id:
