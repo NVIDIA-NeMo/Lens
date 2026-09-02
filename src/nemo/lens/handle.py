@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from opentelemetry import metrics, trace
@@ -28,6 +29,20 @@ if TYPE_CHECKING:
 
 _INSTRUMENTATION_SCOPE = "nemo.lens"
 _INITIALIZED = False
+
+
+def ensure_run_id(
+    config: NemoLensConfig,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    """Return the configured run id, generating it once when absent."""
+    if config.run_id:
+        return config.run_id
+
+    env = os.environ if environ is None else environ
+    slurm_id = env.get("SLURM_JOB_ID", "")
+    config.run_id = slurm_id if slurm_id else uuid.uuid4().hex[:12]
+    return config.run_id
 
 
 class TelemetryHandle:
@@ -132,10 +147,7 @@ def setup_telemetry(
     from nemo.lens.providers import build_noop_providers, build_providers
     from nemo.lens.state import set_enabled_span_groups, set_span_group_spec
 
-    # Auto-generate run_id if not explicitly set.
-    if not config.run_id:
-        slurm_id = os.environ.get("SLURM_JOB_ID", "")
-        config.run_id = slurm_id if slurm_id else uuid.uuid4().hex[:12]
+    ensure_run_id(config)
 
     if config.enabled:
         build_providers(

@@ -19,7 +19,7 @@ import pytest
 
 from nemo.lens.config import NemoLensConfig
 from nemo.lens.groups import SpanRegistry
-from nemo.lens.handle import TelemetryHandle, setup_telemetry
+from nemo.lens.handle import TelemetryHandle, ensure_run_id, setup_telemetry
 from nemo.lens.state import is_span_group_enabled
 
 
@@ -57,6 +57,26 @@ class TestSetupTelemetryDisabled:
 
 
 class TestSetupTelemetryEnabled:
+    def test_ensure_run_id_preserves_explicit_value(self):
+        cfg = NemoLensConfig(run_id="explicit-run")
+
+        assert ensure_run_id(cfg, {}) == "explicit-run"
+        assert cfg.run_id == "explicit-run"
+
+    def test_ensure_run_id_uses_slurm_job_id(self):
+        cfg = NemoLensConfig()
+
+        assert ensure_run_id(cfg, {"SLURM_JOB_ID": "12345"}) == "12345"
+        assert cfg.run_id == "12345"
+
+    def test_ensure_run_id_generates_local_value(self):
+        cfg = NemoLensConfig()
+
+        run_id = ensure_run_id(cfg, {})
+
+        assert len(run_id) == 12
+        assert cfg.run_id == run_id
+
     def test_enabled_is_exporting(self):
         cfg = NemoLensConfig(enabled=True, exporter="console")
         handle = setup_telemetry(cfg)

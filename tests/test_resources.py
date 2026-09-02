@@ -284,6 +284,27 @@ class TestDetectSlurm:
         assert derive_nv_dl_run_uuid(restarted_env) == str(restarted)
         assert derive_nv_dl_run_uuid(restarted_env) != derive_nv_dl_run_uuid(env)
 
+    def test_derive_nv_dl_run_uuid_omits_local_constant_without_run_id(self):
+        assert derive_nv_dl_run_uuid({}) is None
+
+    def test_derive_nv_dl_run_uuid_uses_local_run_id(self):
+        first = derive_nv_dl_run_uuid({}, run_id="local-1")
+        second = derive_nv_dl_run_uuid({}, run_id="local-2")
+        restarted = derive_nv_dl_run_uuid(
+            {"TORCHELASTIC_RESTART_COUNT": "1"},
+            run_id="local-1",
+        )
+
+        expected = uuid.uuid5(uuid.NAMESPACE_URL, "nemo.lens.run/local/local-1/te0")
+        restarted_expected = uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            "nemo.lens.run/local/local-1/te1",
+        )
+
+        assert first == str(expected)
+        assert second != first
+        assert restarted == str(restarted_expected)
+
     def test_uuid_derivation_ignores_exported_array_task_id_for_plain_job(self):
         env = {
             "SLURM_CLUSTER_NAME": "cluster-a",

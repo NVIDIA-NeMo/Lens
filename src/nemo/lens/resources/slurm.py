@@ -166,9 +166,26 @@ def derive_nv_dl_job_uuid(environ: Mapping[str, str] | None = None) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"nemo.lens.job/{cluster}/{job_key}"))
 
 
-def derive_nv_dl_run_uuid(environ: Mapping[str, str] | None = None) -> str:
-    """Derive the run-attempt UUID from raw SLURM and torchelastic environment variables."""
+def derive_nv_dl_run_uuid(
+    environ: Mapping[str, str] | None = None,
+    *,
+    run_id: str | None = None,
+) -> str | None:
+    """Derive the run-attempt UUID from scheduler or Lens run identity."""
     env = os.environ if environ is None else environ
+
+    if not (env.get("SLURM_JOB_ID") or env.get("SLURM_ARRAY_JOB_ID")):
+        local_run_id = run_id or env.get("TORCHELASTIC_RUN_ID")
+        if not local_run_id:
+            return None
+        restart_count = env.get("TORCHELASTIC_RESTART_COUNT") or "0"
+        return str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"nemo.lens.run/local/{local_run_id}/te{restart_count}",
+            )
+        )
+
     cluster = env.get("SLURM_CLUSTER_NAME") or "nocluster"
     run_parts = [cluster, _slurm_identity_job_key(env)]
 
