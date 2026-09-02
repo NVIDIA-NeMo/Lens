@@ -17,11 +17,13 @@
 
 import logging
 import os
+import sys
 import uuid
 
 import pytest
 
 from nemo.lens.resources import (
+    detect_gpu,
     detect_resource,
     extend_otel_resource_attributes,
     publish_otel_resource_attributes,
@@ -624,6 +626,52 @@ class TestDetectLocal:
         monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
         result = detect_local()
         assert result.get("host.gpu.count") == 0
+
+
+class TestDetectGpu:
+    def test_detects_worker_gpu_identity(self, monkeypatch):
+        class FakePciInfo:
+            busId = b"00000000:81:00.0"
+
+        class FakeMemoryInfo:
+            total = 80_000_000_000
+
+        fake_pynvml = type(
+            "FakePynvml",
+            (),
+            {
+                "nvmlInit": staticmethod(lambda: None),
+                "nvmlShutdown": staticmethod(lambda: None),
+                "nvmlDeviceGetHandleByIndex": staticmethod(lambda index: f"gpu-{index}"),
+                "nvmlDeviceGetName": staticmethod(lambda handle: b"NVIDIA H100"),
+                "nvmlDeviceGetUUID": staticmethod(lambda handle: b"GPU-123"),
+                "nvmlDeviceGetSerial": staticmethod(lambda handle: b"serial-123"),
+                "nvmlDeviceGetPciInfo": staticmethod(lambda handle: FakePciInfo()),
+                "nvmlDeviceGetCudaComputeCapability": staticmethod(lambda handle: (9, 0)),
+                "nvmlDeviceGetMemoryInfo": staticmethod(lambda handle: FakeMemoryInfo()),
+                "nvmlSystemGetDriverVersion": staticmethod(lambda: b"550.54.15"),
+            },
+        )
+        monkeypatch.setitem(sys.modules, "pynvml", fake_pynvml)
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "4,5")
+
+        result = detect_gpu(local_rank=1)
+
+        assert result == {
+            "nv.gpu.index": 5,
+            "nv.gpu.model": "NVIDIA H100",
+            "nv.gpu.uuid": "GPU-123",
+            "nv.gpu.serial": "serial-123",
+            "nv.gpu.pci_bus_id": "00000000:81:00.0",
+            "nv.gpu.compute_capability": "9.0",
+            "nv.gpu.memory_total": 80_000_000_000,
+            "nv.gpu.driver_version": "550.54.15",
+        }
+
+    def test_non_numeric_visible_device_is_not_guessed(self, monkeypatch):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-123")
+
+        assert detect_gpu(local_rank=0) == {}
 
 
 class TestDetectResource:
