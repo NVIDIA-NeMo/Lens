@@ -24,6 +24,7 @@ Public API
         NemoLensConfig,
         SpanRegistry,
         TelemetryHandle,
+        ensure_run_id,
         setup_telemetry,
         span_cm,
         managed_span,
@@ -64,7 +65,7 @@ from opentelemetry import trace as _trace_mod
 from nemo.lens.config import NemoLensConfig
 from nemo.lens.distributed import broadcast_trace_context, create_linked_span
 from nemo.lens.groups import SpanRegistry
-from nemo.lens.handle import TelemetryHandle, setup_telemetry
+from nemo.lens.handle import TelemetryHandle, ensure_run_id, setup_telemetry
 from nemo.lens.helpers import (
     DEFAULT_REDACT_KEYS,
     managed_span,
@@ -112,6 +113,7 @@ __all__ = [
     "NemoLensConfig",
     "SpanRegistry",
     "TelemetryHandle",
+    "ensure_run_id",
     "setup_telemetry",
     "span_cm",
     "managed_span",
