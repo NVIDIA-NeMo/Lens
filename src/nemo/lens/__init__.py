@@ -33,6 +33,7 @@ Public API
         DEFAULT_REDACT_KEYS,
         inject_context,
         extract_context,
+        encode_resource_attributes,
         broadcast_trace_context,
         create_linked_span,
         get_tracer,
@@ -83,6 +84,7 @@ from nemo.lens.package_info import (
     __version__,
 )
 from nemo.lens.propagation import extract_context, inject_context
+from nemo.lens.resources import encode_resource_attributes
 from nemo.lens.state import is_span_group_enabled, set_enabled_span_groups
 from nemo.lens.strategies import (
     ExportStrategy,
@@ -122,6 +124,7 @@ __all__ = [
     "DEFAULT_REDACT_KEYS",
     "inject_context",
     "extract_context",
+    "encode_resource_attributes",
     "get_tracer",
     "get_meter",
     "is_span_group_enabled",
