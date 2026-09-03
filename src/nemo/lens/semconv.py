@@ -82,20 +82,16 @@ GENAI_TOKEN_TYPE = "gen_ai.token.type"
 # ------------------------------------------------------------------ #
 # Reinforcement learning (rl.*)
 # ------------------------------------------------------------------ #
+# Span-attribute names only. RL *metric* series (rl.reward.mean, rl.kl_divergence,
+# rl.policy_loss, rl.value_loss, rl.entropy, rl.response_length.mean, rl.grad_norm,
+# rl.learning_rate, rl.throughput.tokens_per_sec) are owned by the NeMo-RL
+# consumer and declared through the metric registry (register_metric_group) in
+# its own tree — deliberately not defined here. See docs/design/semconv.mdx.
 
 RL_ALGORITHM = "rl.algorithm"
 RL_REWARD = "rl.reward"
-RL_REWARD_MEAN = "rl.reward.mean"
-RL_KL_DIVERGENCE = "rl.kl_divergence"
-RL_POLICY_LOSS = "rl.policy_loss"
-RL_VALUE_LOSS = "rl.value_loss"
-RL_ENTROPY = "rl.entropy"
 RL_GENERATION_BACKEND = "rl.generation.backend"
 RL_NUM_ROLLOUTS = "rl.num_rollouts"
-RL_RESPONSE_LENGTH_MEAN = "rl.response_length.mean"
-RL_GRAD_NORM = "rl.grad_norm"
-RL_LEARNING_RATE = "rl.learning_rate"
-RL_THROUGHPUT_TOKENS_PER_SEC = "rl.throughput.tokens_per_sec"
 
 # ------------------------------------------------------------------ #
 # Gym (gym.*)

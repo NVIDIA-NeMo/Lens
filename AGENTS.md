@@ -35,7 +35,7 @@ dependency by Megatron-LM, NeMo-RL, and NeMo-Gym — those repos live elsewhere
 and are not part of this checkout. Everything here is the library, its tests,
 its docs, and a local observability stack for manual verification.
 
-- Package: `nemo-lens`, importable as `nemo.lens` · Python ≥ 3.12
+- Package: `nemo-lens`, importable as `nemo.lens` · Python ≥ 3.10
 - Docs: <https://docs.nvidia.com/nemo/lens> · Source: `docs/` (Fern)
 - `src/nemo/__init__.py` is a **PEP 420 namespace package** so `nemo.lens` can
   coexist with the upstream NeMo Framework's `nemo` package. Never add code to it.
@@ -60,7 +60,7 @@ src/nemo/lens/
 ├── semconv.py         attribute-name constants (single source)
 ├── package_info.py    version (bumped by release automation, not by hand)
 ├── instruments/       metric instruments: inference, rl, gym
-├── resources/         auto-detection: slurm, kubernetes, local
+├── resources/         detection (slurm, k8s, local) + encode_resource_attributes
 └── contrib/           fastapi, aiohttp, ray, nccl integration helpers
 ```
 
@@ -102,14 +102,19 @@ Passing an already-materialized value as a kwarg is fine; *building* one is not.
 
 ### 3. `fallbacks.py` signatures match the real API exactly
 
-Consumers import from `nemo.lens.fallbacks` when lens is absent. Six symbols
+Consumers import from `nemo.lens.fallbacks` when lens is absent. Seven symbols
 form that surface: `trace_fn`, `managed_span`, `span_cm`,
-`is_span_group_enabled`, `safe_set_span_attributes`, and `SpanRegistry` — the
-last because consumers call `SpanRegistry.register()` at import time, which has
-to work with lens absent. Add a parameter to a real implementation and you must
-add it to the no-op too (it may ignore it).
-`tests/test_fallbacks.py` is the enforcement. See
+`is_span_group_enabled`, `safe_set_span_attributes`, `SpanRegistry`, and
+`encode_resource_attributes`. `SpanRegistry` is there because consumers call
+`SpanRegistry.register()` at import time, which has to work with lens absent.
+Add a parameter to a real implementation and you must add it to the no-op too
+(it may ignore it). `tests/test_fallbacks.py` is the enforcement. See
 `docs/design/optional-dependency.mdx` for why this exists.
+
+Signatures are the floor, not the ceiling: **defaults must resolve to the same
+source**. `encode_resource_attributes(attrs)` with `inherited` omitted has to
+read the same place in both, or the no-op preserves a launcher's value where the
+real one drops it — a divergence a name-only parameter comparison cannot see.
 
 ## Instrumentation primitives
 
@@ -254,9 +259,10 @@ Everything `OTEL_EXPORTER_OTLP_*` is the SDK's business — don't reimplement it
 `pytest` from the repo root. The suite runs in seconds, so always run all of it
 rather than a subset. Its defining constraint is that
 OTel providers, the span registry, and lens's enabled-group set are
-**process-global**, so `conftest.py` has three `autouse` fixtures that reset them
+**process-global**, so `conftest.py` has four `autouse` fixtures that reset them
 around every test: providers + `_INITIALIZED`, the `SpanRegistry` + span-group
-set + PP carrier, and the export strategy registry. Consequences:
+set + PP carrier, the export strategy registry, and the metric-group registry.
+Consequences:
 
 - Lens ships no groups, so a test that needs one must register it. The
   `demo_groups` fixture does that; `set_enabled_span_groups()` pins a set
@@ -314,10 +320,15 @@ and CI gates: `docs/developer/building-docs.mdx`.
 
 ## Gotchas
 
-- **`instruments/__init__.py` re-exports only `record_inference_metrics`.**
-  `record_rl_metrics` and `record_gym_metrics` are reachable only through their
-  submodules. Intentional today; don't "fix" it silently, and match the existing
-  pattern when adding one.
+- **`instruments/__init__.py` re-exports `record_inference_metrics` plus the
+  metric registry** (`MetricSpec`, `register_metric_group`, `record_metrics`,
+  `unregister_metric_group`, `registered_metric_groups`). `record_gym_metrics`
+  is still reachable only through its submodule. There is no `rl.py`: RL metric
+  series are consumer-owned and declared through the registry
+  (`register_metric_group`), so their metric names live in the consumer (NeMo-RL),
+  not in `semconv` (the `rl.*` span-attribute names stay in `semconv`). Ship a
+  dedicated module only when a series needs per-point logic the registry cannot
+  express (e.g. inference token usage); otherwise use the registry.
 - **`SeedIndependentIdGenerator` exists for a real bug.** Training frameworks
   call `random.seed()` identically across data-parallel ranks, which made OTel's
   default generator emit colliding span/trace IDs. It uses a private `Random`
@@ -347,6 +358,7 @@ and CI gates: `docs/developer/building-docs.mdx`.
 | Change docs, add a page | `docs/developer/building-docs.mdx` |
 | Understand the fallback design | `docs/design/optional-dependency.mdx` |
 | Understand module boundaries | `docs/design/architecture.mdx` |
+| Pass attributes to a child process | `docs/user-guide/resources.mdx` |
 | Run the observability stack | `docs/observability/stack.mdx` |
 | Ship to a hosted backend | `docs/observability/backends.mdx` |
 | Pre-PR gate | `skills/lens-pre-pr-check/` |
