@@ -244,10 +244,15 @@ and CI gates: `docs/developer/building-docs.mdx`.
 
 ## Gotchas
 
-- **`instruments/__init__.py` re-exports only `record_inference_metrics`.**
-  `record_rl_metrics` and `record_gym_metrics` are reachable only through their
-  submodules. Intentional today; don't "fix" it silently, and match the existing
-  pattern when adding one.
+- **`instruments/__init__.py` re-exports `record_inference_metrics` plus the
+  metric registry** (`MetricSpec`, `register_metric_group`, `record_metrics`,
+  `unregister_metric_group`, `registered_metric_groups`). `record_gym_metrics`
+  is still reachable only through its submodule. There is no `rl.py`: RL metric
+  series are consumer-owned and declared through the registry
+  (`register_metric_group`), so their metric names live in the consumer (NeMo-RL),
+  not in `semconv` (the `rl.*` span-attribute names stay in `semconv`). Ship a
+  dedicated module only when a series needs per-point logic the registry cannot
+  express (e.g. inference token usage); otherwise use the registry.
 - **`SeedIndependentIdGenerator` exists for a real bug.** Training frameworks
   call `random.seed()` identically across data-parallel ranks, which made OTel's
   default generator emit colliding span/trace IDs. It uses a private `Random`
