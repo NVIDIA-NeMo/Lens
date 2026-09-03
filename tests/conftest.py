@@ -97,3 +97,29 @@ def isolate_otel_resource_env(monkeypatch):
     trusting the environment to be empty.
     """
     monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def reset_metric_registry():
+    """Snapshot the metric-group registry before each test, restore after.
+
+    Groups are process-global once registered, so a test that registers one must
+    not leak it into the next.
+    """
+    from nemo.lens.instruments.registry import (
+        _REGISTRY,
+        _REGISTRY_LOCK,
+        _WARN_LOCK,
+        _WARNED,
+    )
+
+    with _REGISTRY_LOCK:
+        snapshot = dict(_REGISTRY)
+    with _WARN_LOCK:
+        _WARNED.clear()
+    yield
+    with _REGISTRY_LOCK:
+        _REGISTRY.clear()
+        _REGISTRY.update(snapshot)
+    with _WARN_LOCK:
+        _WARNED.clear()

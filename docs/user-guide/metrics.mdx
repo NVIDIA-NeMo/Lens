@@ -3,9 +3,9 @@ title: "Metrics"
 description: ""
 position: 4
 ---
-NeMo Lens ships opinionated metric instruments under `nemo.lens.instruments` for common observability needs: GenAI inference, RL training, and Gym servers. Training-specific metrics (e.g., `megatron.training.loss`) live in the consumer project; they are not generic.
+NeMo Lens ships opinionated metric instruments under `nemo.lens.instruments` for observability needs whose *names it owns*: GenAI inference (`gen_ai.*`) and Gym servers (`gym.*`). Metric families whose names belong to a consuming framework — RL training series in NeMo-RL, training-specific metrics such as `megatron.training.loss` — are **declared by that consumer** through the metric registry, not shipped as a module here.
 
-Import each record function from its submodule, e.g., `from nemo.lens.instruments.rl import record_rl_metrics`. Only `record_inference_metrics` is re-exported at the package level (`from nemo.lens.instruments import record_inference_metrics`); the RL and Gym functions are available only through their submodules.
+`record_inference_metrics` and the registry API (`MetricSpec`, `register_metric_group`, `record_metrics`, `unregister_metric_group`, `registered_metric_groups`) are re-exported at the package level (`from nemo.lens.instruments import ...`). The Gym record function is available only through its submodule (`from nemo.lens.instruments.gym import record_gym_metrics`).
 
 The `meter` argument is the OTel `Meter` to record on. You can use `handle.meter` from `setup_telemetry()`, or grab one directly with `get_meter(name="nemo.lens")` (`from nemo.lens import get_meter`).
 
@@ -17,11 +17,11 @@ Each module under `instruments/` follows the same pattern:
 - A `_get_*_instruments(meter)` helper creates (and caches) all instruments for a meter on first call.
 - A `record_*_metrics(meter, ...)` function takes a required `meter` plus optional per-metric arguments (best passed by keyword) and records only the ones that are not `None`.
 
-Callers can record partial data without conditional logic:
+The shipped record functions (and `record_metrics`) let callers record partial data without conditional logic — arguments left out (or passed `None`) are skipped:
 
 ```python
-record_rl_metrics(handle.meter, reward_mean=r, policy_loss=p)   # only these two
-record_rl_metrics(handle.meter, kl_divergence=kl)                # just one
+record_metrics(handle.meter, "rl", reward_mean=r, policy_loss=p)   # only these two
+record_metrics(handle.meter, "rl", kl_divergence=kl)               # just one
 ```
 
 ## Inference with `instruments/inference.py`
@@ -49,42 +49,70 @@ Token usage is labeled with `gen_ai.token.type` (`"input"` or `"output"`); filte
 
 All data points carry `gen_ai.operation.name = "text_completion"` and `gen_ai.provider.name = "nemo"` by default; override through the `operation_name=` or `provider_name=` args.
 
-## NeMo RL with `instruments/rl.py`
+## Consumer-owned metrics with the registry
 
-This module emits NeMo RL-specific gauges and histograms in the `rl.*` namespace.
+Metric families whose names belong to a consuming framework are declared by that
+framework, not by lens. NeMo-RL, for example, owns the `rl.*` series: it
+registers them once at startup and then records against the group, so lens never
+has to carry — and NeMo-RL never has to import, extend, or override — a
+per-consumer `rl.py`.
+
+A `MetricSpec` declares one series: the `key` the caller records under, the
+`name` actually emitted, the `kind` (`gauge`, `histogram`, `counter`, or
+`up_down_counter`), and an optional `unit` and `description`. The consumer owns
+its own names; keep them in one module in the consumer's tree (as NeMo-RL does
+for `rl.*`) rather than scattering literals.
 
 ```python
-from nemo.lens.instruments.rl import record_rl_metrics
+from nemo.lens.instruments import MetricSpec, record_metrics, register_metric_group
 
-record_rl_metrics(
+# Once, at startup (in the consumer, e.g. NeMo-RL):
+register_metric_group(
+    "rl",
+    [
+        MetricSpec("reward_mean", "rl.reward.mean", "gauge"),
+        MetricSpec("kl_divergence", "rl.kl_divergence", "gauge"),
+        MetricSpec("policy_loss", "rl.policy_loss", "gauge"),
+        MetricSpec(
+            "throughput_tokens_per_sec",
+            "rl.throughput.tokens_per_sec",
+            "gauge",
+            unit="{token}/s",
+        ),
+        MetricSpec("generation_duration_ms", "rl.generation.duration_ms", "histogram", unit="ms"),
+    ],
+)
+
+# Per step, wherever the values are available:
+record_metrics(
     handle.meter,
+    "rl",
     reward_mean=0.75,
     kl_divergence=0.01,
-    policy_loss=0.3,
-    value_loss=0.5,
-    entropy=2.1,
-    response_length_mean=128.0,
-    grad_norm=1.7,
-    learning_rate=3e-6,
     throughput_tokens_per_sec=18500.0,
     generation_duration_ms=450.0,
-    rollout_duration_ms=2300.0,
 )
 ```
 
-| Metric | Type | Description |
-|---|---|---|
-| `rl.reward.mean` | Gauge | Mean reward across rollout batch |
-| `rl.kl_divergence` | Gauge | KL divergence between policy and reference |
-| `rl.policy_loss` | Gauge | Policy gradient loss |
-| `rl.value_loss` | Gauge | Value function loss |
-| `rl.entropy` | Gauge | Policy entropy |
-| `rl.response_length.mean` | Gauge | Mean generated response length (tokens) |
-| `rl.grad_norm` | Gauge | Gradient norm of the policy update |
-| `rl.learning_rate` | Gauge | Current optimizer learning rate |
-| `rl.throughput.tokens_per_sec` | Gauge (`{token}/s`) | Training throughput (tokens/sec) |
-| `rl.generation.duration_ms` | Histogram (ms) | Text generation duration |
-| `rl.rollout.duration_ms` | Histogram (ms) | Rollout collection duration |
+Instruments are created lazily on first record against a meter and cached per
+meter, exactly like the shipped modules. Register each group once;
+`register_metric_group` rejects a duplicate name unless you pass
+`allow_override=True`.
+
+`record_metrics` never raises into the caller. An unregistered group, an unknown
+key, a `None` value, an unusable `meter`, a malformed `values` or `attributes`
+argument, and a failed instrument creation or emit are each logged once and
+skipped. Warnings are deduplicated per group (and per key where it applies), so a
+misconfigured call in a per-step loop does not flood the log.
+
+`meter`, `group`, and `values` are positional-only, so you may declare metric
+keys with those names and pass them as keyword arguments freely. `attributes` is
+the one reserved keyword — if one of your series is genuinely called
+`attributes`, record it through the `values` mapping:
+
+```python
+record_metrics(handle.meter, "mygroup", {"attributes": 7.0})
+```
 
 ## NeMo Gym with `instruments/gym.py`
 
@@ -112,33 +140,23 @@ record_gym_metrics(
 
 ## Write Custom Instruments
 
-The same `WeakKeyDictionary` pattern works for project-specific metrics. Megatron's `instruments/training.py` (shipped in the Megatron repository, not NeMo Lens) emits `megatron.training.*` metrics the same way.
-
-If your project has a recurring metric shape, add a module under `nemo.lens.instruments.&lt;domain&gt;` with:
+For project-specific metrics, prefer the registry: declare the series as `MetricSpec`s and register them under a group name in your own code. Megatron's `megatron.training.*` and NeMo-RL's `rl.*` series both live this way — in the consumer, registered against lens, never shipped here.
 
 ```python
-import weakref
-from opentelemetry import metrics
+from nemo.lens.instruments import MetricSpec, record_metrics, register_metric_group
 
-_INSTRUMENTS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+register_metric_group(
+    "myproject",
+    [
+        MetricSpec("latency_ms", "my.op.latency_ms", "histogram", unit="ms"),
+        MetricSpec("queue_depth", "my.queue.depth", "gauge"),
+    ],
+)
 
-def _get_instruments(meter: metrics.Meter) -> dict:
-    instruments = _INSTRUMENTS.get(meter)
-    if instruments is None:
-        instruments = {
-            "latency": meter.create_histogram("my.op.latency_ms", unit="ms"),
-            "queue_depth": meter.create_gauge("my.queue.depth"),
-        }
-        _INSTRUMENTS[meter] = instruments
-    return instruments
-
-def record_my_metrics(meter, latency_ms=None, queue_depth=None):
-    i = _get_instruments(meter)
-    if latency_ms is not None:
-        i["latency"].record(latency_ms)
-    if queue_depth is not None:
-        i["queue_depth"].set(queue_depth)
+record_metrics(handle.meter, "myproject", latency_ms=12.0, queue_depth=3)
 ```
+
+Reach for a dedicated module (the `WeakKeyDictionary` pattern the shipped `inference.py` uses) only when a series needs per-point logic the registry does not express — for example inference token usage, which fans one call out into `input`/`output` points carrying `gen_ai.token.type`.
 
 ## Choose Between Gauges and Histograms
 

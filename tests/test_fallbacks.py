@@ -16,6 +16,9 @@
 """Unit tests for nemo.lens.fallbacks — canonical no-op implementations."""
 
 from nemo.lens.fallbacks import (
+    encode_resource_attributes as noop_encode_resource_attributes,
+)
+from nemo.lens.fallbacks import (
     is_span_group_enabled,
     managed_span,
     safe_set_span_attributes,
@@ -81,3 +84,40 @@ class TestFallbackSafeSetSpanAttributes:
 
     def test_noop_with_empty_dict(self):
         safe_set_span_attributes(None, {})
+
+
+class TestFallbackEncodeResourceAttributes:
+    """Parity lives here because AGENTS.md invariant 3 and contributing.mdx both
+    name this file as the enforcement point for the fallback surface."""
+
+    def test_signature_matches_the_real_one(self):
+        import inspect
+
+        from nemo.lens.resources import encode_resource_attributes as real
+
+        real_sig = inspect.signature(real)
+        noop_sig = inspect.signature(noop_encode_resource_attributes)
+        assert list(real_sig.parameters) == list(noop_sig.parameters)
+        # Defaults too, not just names. Comparing names alone let the two read
+        # different sources on the `inherited=None` path -- the no-op live, the
+        # real one an import-time snapshot -- while this test stayed green.
+        assert [p.default for p in real_sig.parameters.values()] == [
+            p.default for p in noop_sig.parameters.values()
+        ]
+
+    def test_both_read_live_environ_when_inherited_is_omitted(self, monkeypatch):
+        """The default path an explicit `inherited=` argument cannot reach.
+
+        Passing it explicitly bypasses exactly the branch where the two
+        implementations previously disagreed.
+        """
+        from nemo.lens.resources import encode_resource_attributes as real
+
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "launcher.id=abc")
+        assert noop_encode_resource_attributes({"dl.rank": 3}) == "launcher.id=abc"
+        assert real({"dl.rank": 3}).startswith("launcher.id=abc,")
+
+    def test_preserves_a_launcher_supplied_value(self):
+        """Deliberately not `""` — a launcher-set value must still reach a child
+        that does have lens installed."""
+        assert noop_encode_resource_attributes({"dl.rank": 3}, inherited="job=abc") == "job=abc"
