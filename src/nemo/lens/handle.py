@@ -108,12 +108,6 @@ def setup_telemetry(
     Everything after ``config`` is keyword-only, deliberately. The removed
     signature was ``(config, rank, world_size, resource_attributes, ...)``, so a
     stale ``setup_telemetry(cfg, 0, 8)`` would otherwise rebind ``0`` to
-    ``resource_attributes`` and ``8`` to ``span_exporter``. Keyword-only turns
-    every such call site into an immediate ``TypeError``.
-
-    Everything after ``config`` is keyword-only, deliberately. The removed
-    signature was ``(config, rank, world_size, resource_attributes, ...)``, so a
-    stale ``setup_telemetry(cfg, 0, 8)`` would otherwise rebind ``0`` to
     ``resource_attributes`` and ``8`` to ``span_exporter`` -- yielding a handle
     that reports ``is_exporting=True``, exports nothing, and still exits zero.
     Keyword-only turns every such call site into an immediate ``TypeError``.
