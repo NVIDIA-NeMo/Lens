@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
+import shlex
+import socket
 import sys
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TextIO
 
@@ -29,7 +32,25 @@ from opentelemetry import trace
 from opentelemetry.context import Context
 
 from nemo.lens.providers import _build_span_emitter_provider
+from nemo.lens.resources.attributes import (
+    OTEL_RESOURCE_ATTRIBUTES_ENV,
+    set_otel_resource_attributes,
+)
+from nemo.lens.resources.slurm import derive_slurm_resource_attributes
+from nemo.lens.semconv import (
+    HOST_NAME,
+    NV_DL_LAUNCH_CONTAINER_IMAGE,
+    SLURM_TOPOLOGY_ADDR,
+    SLURM_TOPOLOGY_ADDR_PATTERN,
+)
 from nemo.lens.span_utilities import emit_span
+
+_TASK_LOCAL_SLURM_RESOURCE_KEYS = frozenset(
+    {
+        SLURM_TOPOLOGY_ADDR,
+        SLURM_TOPOLOGY_ADDR_PATTERN,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +74,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "emit-spans":
         return _run_emit_spans(args)
+    if args.command == "set-slurm-resource-attrs":
+        return _run_set_slurm_resource_attrs(args)
 
     parser.error("missing command")
     return 2
@@ -75,6 +98,25 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="NAME,START,END[,PARENT]",
         help="Span name, start epoch seconds, end epoch seconds, and optional parent name.",
+    )
+
+    set_slurm_attrs = subparsers.add_parser(
+        "set-slurm-resource-attrs",
+        description=(
+            "Print a shell export that appends canonical SLURM resource attributes to "
+            "OTEL_RESOURCE_ATTRIBUTES."
+        ),
+        help="print shell export for SLURM resource attributes",
+    )
+    set_slurm_attrs.add_argument(
+        "--stage",
+        required=True,
+        choices=("sbatch", "task"),
+        help="Launch stage where the command runs.",
+    )
+    set_slurm_attrs.add_argument(
+        "--container-image",
+        help=f"Container image path/name to add as {NV_DL_LAUNCH_CONTAINER_IMAGE}.",
     )
     return parser
 
@@ -132,6 +174,36 @@ def _run_emit_spans(
             f"{'' if spec.parent is None else '  -> ' + spec.parent}",
             file=stderr,
         )
+    return 0
+
+
+def _run_set_slurm_resource_attrs(
+    args: argparse.Namespace,
+    *,
+    environ: Mapping[str, str] | None = None,
+    stdout: TextIO | None = None,
+    stderr: TextIO | None = None,
+) -> int:
+    stdout = stdout or sys.stdout
+    stderr = stderr or sys.stderr
+    if args.container_image and args.stage != "task":
+        print("error: --container-image requires --stage task", file=stderr)
+        return 2
+
+    env = dict(os.environ if environ is None else environ)
+    additions = derive_slurm_resource_attributes(env)
+
+    if args.stage == "sbatch":
+        for key in _TASK_LOCAL_SLURM_RESOURCE_KEYS:
+            additions.pop(key, None)
+
+    if args.stage == "task":
+        additions[HOST_NAME] = socket.gethostname()
+        if args.container_image:
+            additions[NV_DL_LAUNCH_CONTAINER_IMAGE] = args.container_image
+
+    value = set_otel_resource_attributes(additions, environ=env, overwrite=False)
+    print(f"export {OTEL_RESOURCE_ATTRIBUTES_ENV}={shlex.quote(value)}", file=stdout)
     return 0
 
 

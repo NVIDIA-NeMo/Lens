@@ -30,7 +30,7 @@ Follows OTel semconv naming: ``<namespace>.<entity>.<attribute>``.
 SEMCONV_VERSION = "1.29.0"
 """OTel semantic conventions version these constants are aligned with.
 
-Standard namespaces (gen_ai.*, k8s.*) follow the upstream spec at this
+Standard namespaces (gen_ai.*, host.*, k8s.*) follow the upstream spec at this
 version. Custom namespaces (nv.dl.*, dl.*, rl.*, gym.*, slurm.*, nemo.*, wandb.*)
 are NeMo-specific extensions that do not exist upstream.
 """
@@ -39,6 +39,7 @@ are NeMo-specific extensions that do not exist upstream.
 # Stability markers
 # ------------------------------------------------------------------ #
 # gen_ai.*  — Experimental (upstream, stabilising in semconv 1.30+)
+# host.*    — Stable (upstream)
 # k8s.*     — Stable (upstream)
 # nv.dl.*   — NeMo custom (stable within NeMo ecosystem)
 # dl.*      — NeMo custom (stable within NeMo ecosystem)
@@ -49,12 +50,24 @@ are NeMo-specific extensions that do not exist upstream.
 # wandb.*   — NeMo custom (stable within NeMo ecosystem)
 
 # ------------------------------------------------------------------ #
+# Host resources (host.*) — standard OTel
+# ------------------------------------------------------------------ #
+
+HOST_NAME = "host.name"
+
+# ------------------------------------------------------------------ #
 # Distributed learning participant resources (nv.dl.*)
 # ------------------------------------------------------------------ #
 
 NV_DL_RANK = "nv.dl.rank"
 NV_DL_WORLD_SIZE = "nv.dl.world_size"
 NV_DL_LOCAL_RANK = "nv.dl.local_rank"
+
+# ------------------------------------------------------------------ #
+# Distributed learning launch resources (nv.dl.launch.*)
+# ------------------------------------------------------------------ #
+
+NV_DL_LAUNCH_CONTAINER_IMAGE = "nv.dl.launch.container.image"
 
 # ------------------------------------------------------------------ #
 # Distributed learning attributes (dl.*)

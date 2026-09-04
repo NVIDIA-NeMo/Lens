@@ -16,11 +16,24 @@
 """Unit tests for the nemo-lens command line interface."""
 
 import io
+import shlex
 
 import pytest
 from opentelemetry.sdk.trace.export import SpanExportResult
 
 from nemo.lens import cli, providers
+from nemo.lens.resources.attributes import parse_otel_resource_attributes
+from nemo.lens.semconv import (
+    HOST_NAME,
+    NV_DL_LAUNCH_CONTAINER_IMAGE,
+    SLURM_CLUSTER_NAME,
+    SLURM_HEAD_NODE_NAME,
+    SLURM_JOB_ID,
+    SLURM_JOB_ID_RAW,
+    SLURM_JOB_NAME,
+    SLURM_TOPOLOGY_ADDR,
+    SLURM_TOPOLOGY_ADDR_PATTERN,
+)
 from tests.conftest import InMemorySpanExporter
 
 
@@ -178,6 +191,103 @@ def test_main_emit_spans_returns_error_when_provider_setup_fails(monkeypatch):
 
     assert cli._run_emit_spans(args, stderr=stderr) == 2
     assert "error: missing OpenTelemetry SDK" in stderr.getvalue()
+
+
+def test_set_slurm_resource_attrs_task_prints_shell_export_and_preserves_inherited(
+    monkeypatch,
+):
+    stdout = io.StringIO()
+    monkeypatch.setattr(cli.socket, "gethostname", lambda: "compute-01")
+    env = {
+        "SLURM_JOB_ID": "12345",
+        "SLURM_JOB_NAME": "train,comma",
+        "SLURM_JOB_NUM_NODES": "4",
+        "SLURM_NTASKS": "16",
+        "SLURM_CLUSTER_NAME": "cluster-a",
+        "SLURM_JOB_PARTITION": "batch",
+        "SLURM_STEP_ID": "0",
+        "SLURM_TOPOLOGY_ADDR": "rack.switch.node",
+        "SLURM_TOPOLOGY_ADDR_PATTERN": "rack.switch.node",
+        "OTEL_RESOURCE_ATTRIBUTES": (
+            f"{SLURM_HEAD_NODE_NAME}=head-01,{SLURM_JOB_ID}=from-launch,custom.attr=kept"
+        ),
+    }
+    args = cli._build_parser().parse_args(
+        [
+            "set-slurm-resource-attrs",
+            "--stage",
+            "task",
+            "--container-image",
+            "image=name,tag",
+        ]
+    )
+
+    assert cli._run_set_slurm_resource_attrs(args, environ=env, stdout=stdout) == 0
+
+    command = shlex.split(stdout.getvalue().strip())
+    assert command[0] == "export"
+    env_assignment = command[1]
+    assert env_assignment.startswith("OTEL_RESOURCE_ATTRIBUTES=")
+    attrs = parse_otel_resource_attributes(env_assignment.partition("=")[2])
+    assert attrs[SLURM_HEAD_NODE_NAME] == "head-01"
+    assert attrs[SLURM_JOB_ID] == "from-launch"
+    assert attrs["custom.attr"] == "kept"
+    assert attrs[SLURM_JOB_ID_RAW] == "12345"
+    assert attrs[SLURM_JOB_NAME] == "train,comma"
+    assert attrs[SLURM_CLUSTER_NAME] == "cluster-a"
+    assert attrs[HOST_NAME] == "compute-01"
+    assert attrs[SLURM_TOPOLOGY_ADDR] == "rack.switch.node"
+    assert attrs[SLURM_TOPOLOGY_ADDR_PATTERN] == "rack.switch.node"
+    assert attrs[NV_DL_LAUNCH_CONTAINER_IMAGE] == "image=name,tag"
+
+
+def test_set_slurm_resource_attrs_sbatch_derives_head_node_without_task_topology():
+    stdout = io.StringIO()
+    env = {
+        "SLURM_JOB_ID": "12345",
+        "SLURM_CLUSTER_NAME": "cluster-a",
+        "SLURMD_NODENAME": "head-01",
+        "SLURM_TOPOLOGY_ADDR": "rack.switch.sbatch-node",
+        "SLURM_TOPOLOGY_ADDR_PATTERN": "rack.switch.node",
+    }
+    args = cli._build_parser().parse_args(["set-slurm-resource-attrs", "--stage", "sbatch"])
+
+    assert cli._run_set_slurm_resource_attrs(args, environ=env, stdout=stdout) == 0
+
+    command = shlex.split(stdout.getvalue().strip())
+    attrs = parse_otel_resource_attributes(command[1].partition("=")[2])
+    assert attrs[SLURM_HEAD_NODE_NAME] == "head-01"
+    assert attrs[SLURM_JOB_ID] == "12345"
+    assert HOST_NAME not in attrs
+    assert SLURM_TOPOLOGY_ADDR not in attrs
+    assert SLURM_TOPOLOGY_ADDR_PATTERN not in attrs
+
+
+def test_set_slurm_resource_attrs_rejects_container_image_for_sbatch():
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    env = {"SLURM_JOB_ID": "12345"}
+    args = cli._build_parser().parse_args(
+        [
+            "set-slurm-resource-attrs",
+            "--stage",
+            "sbatch",
+            "--container-image",
+            "image=name,tag",
+        ]
+    )
+
+    assert (
+        cli._run_set_slurm_resource_attrs(
+            args,
+            environ=env,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        == 2
+    )
+    assert stdout.getvalue() == ""
+    assert "error: --container-image requires --stage task" in stderr.getvalue()
 
 
 @pytest.mark.parametrize(
