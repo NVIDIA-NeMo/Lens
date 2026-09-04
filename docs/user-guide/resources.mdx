@@ -14,8 +14,8 @@ Every exporter-rank process emits these attributes (set in `providers.py:build_p
 | `service.name` | `config.service_name` (populated from `OTEL_SERVICE_NAME` through `NemoLensConfig.from_env()`, default `"nemo"`) | `"megatron-lm"` |
 | `service.version` | `nemo.lens.__version__` | `"0.1.0"`, `"0.1.0.post3+gabc1234"` |
 | `service.instance.id` | `"{run_id}-rank{rank}"` | `"abc123-rank0"` |
-| `dl.rank` | `rank` argument | `0` |
-| `dl.world_size` | `world_size` argument | `8` |
+| `nv.dl.rank` | `rank` argument | `0` |
+| `nv.dl.world_size` | `world_size` argument | `8` |
 | `nemo.run.id` | `config.run_id` (auto-generated if empty) | `"abc123"` |
 | `nemo.user.id` | `config.user` (if set) | `"my-team"` |
 | `deployment.environment` | `DEPLOYMENT_ENV` or `ENVIRONMENT` env var | `"production"` |
@@ -191,7 +191,7 @@ as consumer defaults for those keys.
 
 ### Filter by Global Rank
 
-In Jaeger, use: `dl.rank=0`
+In Jaeger, use: `nv.dl.rank=0`
 
 ### Compare Distinct Runs
 
@@ -206,7 +206,7 @@ Because these are resource attributes instead of span attributes, they apply to 
 ## Attribute Conventions
 
 - **Use standard names.** Apply standard OTel attribute names where they exist, such as `service.*`, `k8s.*`, and `host.*`.
-- **Use distributed learning prefix.** Apply the `dl.*` (distributed learning) prefix for training-specific attributes that are shared across consumers.
+- **Use distributed learning prefixes.** Apply the `nv.dl.*` prefix for participant resource attributes and the `dl.*` prefix for other training-specific attributes that are shared across consumers.
 - **Use project-specific prefixes.** Apply the `&lt;project&gt;.*` prefix for project-specific attributes, such as `megatron.*`, `rl.*`, and `gym.*`.
 
 See [semconv](../design/semconv.mdx) for the full attribute namespace conventions.
