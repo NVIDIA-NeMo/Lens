@@ -19,6 +19,8 @@ navigation:
         path: ../../user-guide/configuration.mdx
       - page: "Instrumentation Primitives"
         path: ../../user-guide/instrumentation.mdx
+      - page: "Command Line"
+        path: ../../user-guide/cli.mdx
       - page: "Span Groups"
         path: ../../user-guide/span-groups.mdx
       - page: "Metrics"

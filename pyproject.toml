@@ -23,6 +23,9 @@ dependencies = [
     "opentelemetry-api>=1.20.0",
 ]
 
+[project.scripts]
+nemo-lens = "nemo.lens.cli:main"
+
 [tool.setuptools.dynamic]
 version = { attr = "nemo.lens.package_info.__version__" }
 

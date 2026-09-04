@@ -158,6 +158,35 @@ class _OpenSpanCloser:
                 logging.getLogger(__name__).debug("Failed to end span on shutdown", exc_info=True)
 
 
+class _ExportResultTrackingSpanExporter:
+    """Delegate span export while retaining failures discarded by the batch processor."""
+
+    def __init__(self, exporter, success_result) -> None:
+        self._exporter = exporter
+        self._success_result = success_result
+        self._failed = threading.Event()
+
+    @property
+    def failed(self) -> bool:
+        return self._failed.is_set()
+
+    def export(self, spans):
+        try:
+            result = self._exporter.export(spans)
+        except Exception:
+            self._failed.set()
+            raise
+        if result != self._success_result:
+            self._failed.set()
+        return result
+
+    def shutdown(self) -> None:
+        self._exporter.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return self._exporter.force_flush(timeout_millis)
+
+
 class SeedIndependentIdGenerator:
     """OTel-compatible IdGenerator whose IDs survive a global ``random.seed()``.
 
@@ -325,6 +354,43 @@ def build_noop_providers() -> None:
 
     trace.set_tracer_provider(NoOpTracerProvider())
     metrics.set_meter_provider(NoOpMeterProvider())
+
+
+def _build_span_emitter_provider(service_name: str, span_exporter=None):
+    """Build the trace provider used by ``nemo-lens emit-spans``."""
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExportResult
+    except ImportError as exc:
+        raise ImportError(
+            "nemo-lens emit-spans requires OpenTelemetry SDK dependencies. "
+            "Install with: pip install 'nemo-lens[sdk]'"
+        ) from exc
+
+    if span_exporter is None:
+        from nemo.lens.config import NemoLensConfig
+
+        span_exporter = _build_span_exporter(NemoLensConfig.from_env())
+
+    tracked_exporter = _ExportResultTrackingSpanExporter(
+        span_exporter,
+        SpanExportResult.SUCCESS,
+    )
+
+    from nemo.lens.resources import detect_resource
+
+    resource_attributes = detect_resource()
+    resource_attributes["service.name"] = service_name
+
+    provider = TracerProvider(
+        resource=Resource.create(resource_attributes),
+        id_generator=SeedIndependentIdGenerator(),
+    )
+    provider.add_span_processor(BatchSpanProcessor(tracked_exporter))
+    trace.set_tracer_provider(provider)
+    return provider, tracked_exporter
 
 
 # ---------------------------------------------------------------------------
