@@ -22,7 +22,7 @@ Public API
 
     from nemo.lens import (
         NemoLensConfig,
-        SpanGroup,
+        SpanRegistry,
         TelemetryHandle,
         setup_telemetry,
         span_cm,
@@ -39,6 +39,8 @@ Public API
         get_meter,
         is_span_group_enabled,
         set_enabled_span_groups,
+        enabled_span_groups,
+        pending_span_groups,
         ExportStrategy,
         register_export_strategy,
         registered_strategies,
@@ -55,7 +57,8 @@ Quick start
    ``OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317``.
 2. Call ``setup_telemetry(NemoLensConfig.from_env(), rank, world_size)``
    once per process (raises ``RuntimeError`` on second call when enabled).
-3. Use ``managed_span``, ``trace_fn``, or ``span_cm`` at instrumentation sites.
+3. Register the groups your library emits with ``SpanRegistry.register()``.
+4. Use ``managed_span``, ``trace_fn``, or ``span_cm`` at instrumentation sites.
 """
 
 from opentelemetry import metrics as _metrics_mod
@@ -63,7 +66,7 @@ from opentelemetry import trace as _trace_mod
 
 from nemo.lens.config import NemoLensConfig
 from nemo.lens.distributed import broadcast_trace_context, create_linked_span
-from nemo.lens.groups import SpanGroup
+from nemo.lens.groups import SpanRegistry
 from nemo.lens.handle import TelemetryHandle, setup_telemetry
 from nemo.lens.helpers import (
     DEFAULT_REDACT_KEYS,
@@ -83,7 +86,12 @@ from nemo.lens.package_info import (
     __version__,
 )
 from nemo.lens.propagation import extract_context, inject_context
-from nemo.lens.state import is_span_group_enabled, set_enabled_span_groups
+from nemo.lens.state import (
+    enabled_span_groups,
+    is_span_group_enabled,
+    pending_span_groups,
+    set_enabled_span_groups,
+)
 from nemo.lens.strategies import (
     ExportStrategy,
     register_export_strategy,
@@ -111,7 +119,7 @@ __all__ = [
     "__repository_url__",
     "__download_url__",
     "NemoLensConfig",
-    "SpanGroup",
+    "SpanRegistry",
     "TelemetryHandle",
     "setup_telemetry",
     "span_cm",
@@ -126,6 +134,8 @@ __all__ = [
     "get_meter",
     "is_span_group_enabled",
     "set_enabled_span_groups",
+    "enabled_span_groups",
+    "pending_span_groups",
     "broadcast_trace_context",
     "create_linked_span",
     "ExportStrategy",

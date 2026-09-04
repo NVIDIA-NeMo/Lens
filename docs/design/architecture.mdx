@@ -30,7 +30,7 @@ NeMo Lens is intentionally small. Its architecture prioritizes three properties:
 │ State + config layer                                         │
 │ — config.py:  NemoLensConfig                                │
 │ — state.py:   enabled span groups, PP trace carrier         │
-│ — groups.py:  SpanGroup + presets                           │
+│ — groups.py:  SpanRegistry (consumer-declared groups)       │
 └─────────────────────────────────────────────────────────────┘
            │
            ▼
@@ -61,8 +61,8 @@ Each layer depends only on layers above it. No circular imports.
 |---|---|
 | `__init__.py` | Public API re-exports |
 | `config.py` | `NemoLensConfig` dataclass, env var parsing, validation |
-| `state.py` | Thread-safe global state: enabled span groups and PP trace carrier |
-| `groups.py` | `SpanGroup` base class, preset resolution |
+| `state.py` | Thread-safe global state: span-group spec, enabled set, PP trace carrier |
+| `groups.py` | `SpanRegistry`: consuming libraries declare the groups they emit |
 | `helpers.py` | `managed_span`, `trace_fn`, `span_cm`, attribute safety |
 | `handle.py` | `setup_telemetry` entry point, `TelemetryHandle`, export strategy |
 | `providers.py` | SDK provider construction (lazy imports) |
@@ -99,7 +99,9 @@ setup_telemetry(config, rank, world_size, resource_attributes)
   │         ├─ builds MeterProvider (with PeriodicExportingMetricReader)
   │         ├─ builds LoggerProvider (if config.logs_enabled)
   │         └─ sets W3C CompositePropagator
-  │     set_enabled_span_groups(config.resolved_span_groups)
+  │     set_span_group_spec(config.span_groups)
+  │         └─ resolved against SpanRegistry; re-resolved on every
+  │            later registration, so import order does not matter
   │
   └─ else:    # non-exporting rank
         build_noop_providers()
