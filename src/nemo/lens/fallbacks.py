@@ -27,7 +27,6 @@ Consumer libraries should use these as their ImportError fallback::
         from nemo.lens.fallbacks import managed_span, is_span_group_enabled
 """
 
-import os
 from contextlib import contextmanager
 
 
@@ -60,16 +59,3 @@ def is_span_group_enabled(group):
 def safe_set_span_attributes(span, attributes, redact_keys=None):
     """No-op."""
     pass
-
-
-def encode_resource_attributes(attributes, inherited=None):
-    """No-op — returns the inherited value unchanged.
-
-    Deliberately not ``""``. With lens absent the child has no lens either, so
-    the attributes are moot, but a launcher-set OTEL_RESOURCE_ATTRIBUTES must
-    still reach the child: clobbering it would break telemetry for anything
-    downstream that does have lens installed.
-    """
-    if inherited is not None:
-        return inherited
-    return os.environ.get("OTEL_RESOURCE_ATTRIBUTES", "")
