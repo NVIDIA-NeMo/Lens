@@ -205,9 +205,7 @@ class TestResourceIdentity:
     def test_explicit_instance_id_wins(self):
         """Callers could override this before the removal; they still can."""
         cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
-        build_providers(
-            cfg, resource_attributes={NV_DL_RANK: 3, "service.instance.id": "chosen"}
-        )
+        build_providers(cfg, resource_attributes={NV_DL_RANK: 3, "service.instance.id": "chosen"})
         assert self._resource_attrs()["service.instance.id"] == "chosen"
 
 
@@ -224,9 +222,7 @@ class TestEnvSuppliedIdentity:
         return dict(trace.get_tracer_provider().resource.attributes)
 
     def test_rank_from_the_env_channel_reaches_the_resource(self, monkeypatch):
-        monkeypatch.setenv(
-            "OTEL_RESOURCE_ATTRIBUTES", "nv.dl.rank=5,nv.dl.world_size=8"
-        )
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "nv.dl.rank=5,nv.dl.world_size=8")
         cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
         build_providers(cfg)
         attrs = self._attrs()

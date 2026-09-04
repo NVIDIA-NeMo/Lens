@@ -67,9 +67,9 @@ Also flag new work inside `is_span_group_enabled` itself — it is a single
 ### 3. Fallback parity
 
 If the diff touches `trace_fn`, `managed_span`, `span_cm`,
-`is_span_group_enabled`, or `safe_set_span_attributes` in `helpers.py` or
-`state.py`, the matching no-op in `fallbacks.py` must accept the same argument
-shape, and `tests/test_fallbacks.py` must cover it.
+`is_span_group_enabled`, `safe_set_span_attributes`, or `SpanRegistry`, the
+matching no-op in `fallbacks.py` must accept the same argument shape, and
+`tests/test_fallbacks.py` must cover it.
 
 Compare signatures directly rather than eyeballing:
 
@@ -80,10 +80,10 @@ grep -n "^def \|^@contextmanager" src/nemo/lens/helpers.py
 
 A new name in `nemo.lens.__all__` is not automatically part of the fallback
 surface — that surface is exactly those six symbols (`trace_fn`, `managed_span`,
-`span_cm`, `is_span_group_enabled`, `safe_set_span_attributes`, `SpanRegistry`).
-A seventh is a deliberate contract change and should be called out as one, since
-consumer repos mirror this file. A changed `SpanRegistry` method signature counts
-too — the no-op class must match.
+`span_cm`, `is_span_group_enabled`, `safe_set_span_attributes`, and
+`SpanRegistry`). Another addition is a deliberate contract change and should be
+called out as one, since consumer repos mirror this file. A changed `SpanRegistry`
+method signature counts too — the no-op class must match.
 
 ### 4. Public surface
 
@@ -141,8 +141,8 @@ Watch for two regressions specifically:
 ### 6. Naming
 
 - Attribute names: constants in `semconv.py`, not string literals at the use
-  site. Namespace must be `dl.*`, `rl.*`, `gym.*`, `nemo.*`, `slurm.*`,
-  `wandb.*`, or upstream (`k8s.*`, `gen_ai.*`). A new namespace is a design
+  site. Namespace must be `nv.dl.*`, `dl.*`, `rl.*`, `gym.*`, `nemo.*`,
+  `slurm.*`, `wandb.*`, or upstream (`k8s.*`, `gen_ai.*`). A new namespace is a design
   decision, not a detail — flag it as one.
 - Metric names: application scope (`rl.*`, `gym.*`, `gen_ai.*`), never `dl.*`.
   Unit and description set on the instrument.
