@@ -19,7 +19,6 @@ from opentelemetry import trace
 
 from nemo.lens import (
     NemoLensConfig,
-    SpanGroup,
     TelemetryHandle,
     extract_context,
     get_tracer,
@@ -30,7 +29,7 @@ from nemo.lens import (
 
 
 class TestE2EConsoleExporter:
-    def test_full_lifecycle(self):
+    def test_full_lifecycle(self, demo_groups):
         """Test complete setup -> use -> shutdown lifecycle."""
         cfg = NemoLensConfig(enabled=True, exporter="console", span_groups="all")
         handle = setup_telemetry(cfg, rank=0, world_size=1)
@@ -39,21 +38,21 @@ class TestE2EConsoleExporter:
         assert handle.is_exporting is True
 
         # Create spans
-        with managed_span(SpanGroup.JOB, "test.job", tracer=handle.tracer) as span:
+        with managed_span("job", "test.job", tracer=handle.tracer) as span:
             assert span is not None
-            with managed_span(SpanGroup.STEP, "test.step", tracer=handle.tracer) as step_span:
+            with managed_span("step", "test.step", tracer=handle.tracer) as step_span:
                 assert step_span is not None
 
         handle.shutdown(timeout_ms=100)
 
-    def test_disabled_zero_overhead(self):
+    def test_disabled_zero_overhead(self, demo_groups):
         """When disabled, no spans should be created."""
         cfg = NemoLensConfig(enabled=False, span_groups="all")
         handle = setup_telemetry(cfg, rank=0, world_size=1)
 
         assert handle.is_exporting is False
 
-        with managed_span(SpanGroup.JOB, "test.job") as span:
+        with managed_span("job", "test.job") as span:
             assert span is None
 
         handle.shutdown(timeout_ms=100)
@@ -90,18 +89,16 @@ class TestE2EExportStrategies:
 
 
 class TestE2ESpanHierarchy:
-    def test_nested_spans(self):
+    def test_nested_spans(self, demo_groups):
         cfg = NemoLensConfig(enabled=True, exporter="console", span_groups="all")
         handle = setup_telemetry(cfg, rank=0, world_size=1)
 
-        with managed_span(SpanGroup.JOB, "dl.train", tracer=handle.tracer) as job:
+        with managed_span("job", "dl.train", tracer=handle.tracer) as job:
             assert job is not None
-            with managed_span(
-                SpanGroup.STEP, "dl.train_step", tracer=handle.tracer, iteration=1
-            ) as step:
+            with managed_span("step", "dl.train_step", tracer=handle.tracer, iteration=1) as step:
                 assert step is not None
                 with managed_span(
-                    SpanGroup.FORWARD_BACKWARD, "dl.forward_backward", tracer=handle.tracer
+                    "forward_backward", "dl.forward_backward", tracer=handle.tracer
                 ) as fb:
                     assert fb is not None
 

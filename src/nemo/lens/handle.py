@@ -134,7 +134,7 @@ def setup_telemetry(
         )
 
     from nemo.lens.providers import build_noop_providers, build_providers
-    from nemo.lens.state import set_enabled_span_groups
+    from nemo.lens.state import set_enabled_span_groups, set_span_group_spec
 
     # Auto-generate run_id if not explicitly set.
     if not config.run_id:
@@ -156,7 +156,7 @@ def setup_telemetry(
             span_exporter=span_exporter,
             metric_reader=metric_reader,
         )
-        set_enabled_span_groups(config.resolved_span_groups)
+        set_span_group_spec(config.span_groups)
         _is_exporting = True
     else:
         build_noop_providers()

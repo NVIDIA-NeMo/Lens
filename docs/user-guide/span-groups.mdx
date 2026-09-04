@@ -5,124 +5,157 @@ position: 3
 ---
 Span groups are the NeMo Lens mechanism for controlling trace granularity at runtime without code changes. Every instrumentation site tags itself with a group name; at startup, only the enabled groups actually emit spans.
 
+NeMo Lens defines **no group names of its own**. Each consuming library declares what it emits by registering with `SpanRegistry`, and users select from the union of everything registered.
+
 ## Why Use Span Groups
 
 A training job can use different levels of tracing detail for different environments:
-- **Minimize production overhead.** Enable the `default` preset to emit only coarse spans (such as `job`, `checkpoint`, and `evaluate`) for the lowest performance cost.
-- **Add iteration boundaries.** Enable the `per_step` preset in staging to add per-iteration boundaries for a moderate performance cost.
-- **Diagnose performance hangs.** Enable the `all` preset during active debugging to instrument every site, including per-microbatch and per-layer spans, which carries the highest performance cost.
 
-The primary goal is to toggle granularity through a single env var without code changes, relying on a fast gating check when disabled.
+- **Minimize production overhead.** Enable a coarse preset to emit only job-level spans for the lowest performance cost.
+- **Add iteration boundaries.** Enable a per-step preset in staging to add per-iteration boundaries for a moderate performance cost.
+- **Diagnose performance hangs.** Enable `all` during active debugging to instrument every registered site, which carries the highest performance cost.
 
-## Base Span Groups
+The primary goal is to toggle granularity through a single env var without code changes, relying on a fast gating check when disabled: `is_span_group_enabled` is one `frozenset` membership test.
 
-The `SpanGroup` class ships with eight groups covering typical training workflows:
-
-### Coarse-Grained Groups in the `default` Preset
-
-| Group | Typical Spans | Frequency |
-|---|---|---|
-| `job` | Pretrain/train root spans | Once per job |
-| `checkpoint` | Checkpoint save | Every N iterations |
-| `evaluate` | Evaluation pass | Every N iterations |
-
-### Medium-Grained Groups in the `per_step` Preset
-
-| Group | Typical Spans | Frequency |
-|---|---|---|
-| `model_init` | Model construction | Once at startup |
-| `load_checkpoint` | Checkpoint load | Once at startup |
-| `step` | Training step boundary | Every iteration |
-| `forward_backward` | Forward and backward pass | Every iteration |
-| `optimizer` | Optimizer step | Every iteration |
-
-## Presets
-
-Presets bundle groups by use case:
-
-| Preset | Groups Included | Relative Cost | Use Case |
-|---|---|---|---|
-| `default` | `job`, `checkpoint`, and `evaluate` | Lowest | Safe for production |
-| `per_step` | `default` plus `model_init`, `load_checkpoint`, `step`, `forward_backward`, and `optimizer` | Moderate | Staging and profiling |
-| `all` | Every group in the class | Highest | Active debugging |
-
-Presets are specific to each subclass; for example, `MegatronSpanGroup.ALL_GROUPS` contains more groups than `SpanGroup.ALL_GROUPS`.
-
-## Specification String
-
-The `config.span_groups` field accepts a comma-separated specification string that mixes preset keywords and individual group names:
-
-```bash
-NEMO_LENS_SPAN_GROUPS=default                  # just default preset
-NEMO_LENS_SPAN_GROUPS=per_step                 # per_step preset
-NEMO_LENS_SPAN_GROUPS=default,step             # default + one extra group
-NEMO_LENS_SPAN_GROUPS=step,optimizer,checkpoint # individual groups only
-NEMO_LENS_SPAN_GROUPS=all                      # everything
-```
-
-Resolution occurs once at `setup_telemetry` through `config.resolved_span_groups`. The resulting `frozenset` is registered with the `state` module and consulted at every instrumentation site.
-
-Unknown keywords raise `ValueError` at resolution time with a list of valid options.
-
-## State Machinery
-
-Enabled groups live in a module-level `frozenset` in `nemo.lens.state`:
+## Register the Groups Your Library Emits
 
 ```python
-from nemo.lens.state import is_span_group_enabled, set_enabled_span_groups
+from nemo.lens import SpanRegistry
 
-is_span_group_enabled('step')        # returns bool; a frozenset lookup
-set_enabled_span_groups(frozenset(['job', 'step']))
-```
-
-The read path (`is_span_group_enabled`) is lock-free and safe to call from any thread. The write path (`set_enabled_span_groups`) is lock-protected and typically called once by `setup_telemetry`.
-
-`set_enabled_span_groups` is also a top-level public export (`from nemo.lens import set_enabled_span_groups`), allowing you to override the active groups at runtime without reaching into `nemo.lens.state`.
-
-## Extend with Library-Specific Subclasses
-
-Subclass `SpanGroup` to add domain-specific groups. For example, Megatron uses the following extension:
-
-```python
-from nemo.lens.groups import SpanGroup
-
-class MegatronSpanGroup(SpanGroup):
-    MICROBATCH = "microbatch"
-    COMMUNICATION = "communication"
-    ACTIVATION_OFFLOAD = "activation_offload"
-    DATA_LOADING = "data_loading"
-    INFERENCE = "inference"
-    LAYER = "layer"
-
-    ALL_GROUPS = frozenset([
-        *SpanGroup.ALL_GROUPS,
-        MICROBATCH, COMMUNICATION, ACTIVATION_OFFLOAD,
-        DATA_LOADING, INFERENCE, LAYER,
-    ])
-
-    _PRESETS = {
-        "default": frozenset([SpanGroup.JOB, SpanGroup.CHECKPOINT, SpanGroup.EVALUATE, INFERENCE]),
-        "per_step": frozenset([
-            *SpanGroup.ALL_GROUPS, COMMUNICATION, DATA_LOADING, INFERENCE,
-        ]),
-        "all": ALL_GROUPS,
-    }
-```
-
-Pass this subclass to `from_env`:
-
-```python
-cfg = NemoLensConfig.from_env(
-    prefix='MEGATRON_OTEL',
-    fallback_prefix='NEMO_LENS',
-    span_group_cls=MegatronSpanGroup,
+SpanRegistry.register(
+    "megatron",
+    groups={"step", "microbatch", "layer", "communication", "inference"},
+    presets={
+        "default": {"inference"},
+        "per_step": {"step", "microbatch"},
+    },
 )
 ```
 
-The `config.resolved_span_groups` field now resolves against `MegatronSpanGroup.ALL_GROUPS` and its custom `_PRESETS`.
+| Argument | Meaning |
+|---|---|
+| `namespace` | The owning library. Also the key for `SpanRegistry.unregister`. |
+| `groups` | Every group name this library emits. Lowercase `snake_case`. |
+| `presets` | Optional named subsets. A member may be any group already in the registry, not only the ones this call declares — see [Reference Another Library's Groups](#reference-another-librarys-groups). |
+| `allow_override` | Permit re-registering the namespace, and silence the warning when a group name is already registered by another namespace. |
 
-## Design Notes
+Group names share one flat namespace across libraries, which keeps instrumentation call sites terse. If two libraries claim the same name, they share it: the name maps to a single gate, and enabling it turns on both libraries' spans. This logs a warning rather than raising, because it happens inside library code during import and neither library knows it is second. Pass `allow_override=True` when you mean it.
 
-- **Configure groups at runtime.** Groups are runtime knobs rather than compile-time settings. Toggling an env var and restarting your application constitutes the entire configuration workflow, requiring no code changes.
-- **Ensure orthogonal controls.** Groups operate independently of rank sampling (`NEMO_LENS_SAMPLER_ENABLED` and `NEMO_LENS_EXPORT_SAMPLE_RATE`) and export strategy (`NEMO_LENS_EXPORT_STRATEGY`). You can combine these settings to enable `per_step` groups, sample 10% of ranks, and export from only a single rank.
-- **Filter at multiple granularities.** Groups act as coarse-grained filters. For fine-grained control, such as tracing only iterations where loss exceeds a specific threshold, add a runtime check inside your instrumented code, as `is_span_group_enabled` is only one signal.
+## Presets Union Across Libraries
+
+An RL job driving Megatron has both libraries registered in one process. Presets **merge** rather than compete:
+
+```python
+SpanRegistry.register("megatron", {"step"}, {"default": {"step"}})
+SpanRegistry.register("nemo_rl", {"rollout"}, {"default": {"rollout"}})
+
+SpanRegistry.resolve("default")   # -> ({"step", "rollout"}, frozenset())
+```
+
+This is why registration replaced the `SpanGroup` subclass hook it succeeds: a subclass could only ever describe one library, and a subclass that overrode `_PRESETS` silently discarded the base class's.
+
+`all` is built in and always means "every group currently registered". It is not a fixed list, and it cannot be used as a preset name.
+
+## Select Groups at Runtime
+
+```bash
+export NEMO_LENS_SPAN_GROUPS=default          # a preset
+export NEMO_LENS_SPAN_GROUPS=per_step,layer   # a preset plus one extra group
+export NEMO_LENS_SPAN_GROUPS=all              # everything registered
+```
+
+The spec is a comma-separated, case-insensitive mix of preset names and bare group names.
+
+## Register Before `setup_telemetry`
+
+Each library owns its own telemetry, so importing a library is what registers its groups. Do that before initializing telemetry — by then everything the process uses is known, and the spec can be validated against it:
+
+```python
+import megatron.core.telemetry     # registers "megatron"
+import nemo_rl.telemetry           # registers "nemo_rl"
+
+setup_telemetry(NemoLensConfig.from_env())   # validates NEMO_LENS_SPAN_GROUPS
+```
+
+A spec entry that names nothing registered in *this* process is reported as a warning naming what *is* available, and everything else in the spec still applies:
+
+```
+WARNING Span group spec 'per_stpe' names ['per_stpe'], which no library
+registered in this process provides; nothing will be emitted for those.
+Registered groups: ['layer', 'microbatch', 'step']. Presets: ['all', 'default',
+'per_step']. Namespaces: ['megatron']. ...
+```
+
+It is a warning and not an error on purpose. **A registry is per process; a spec is usually job-wide.** A launcher agent and a spawned checkpoint worker inherit one `NEMO_LENS_SPAN_GROUPS` from the trainer but import a different set of libraries, so a value that is perfectly valid in the trainer names nothing in them. That is not a typo, and telemetry setup must not take those processes down over it — nor leave them exporting with no handle to shut down.
+
+If a process needs its own vocabulary, give it its own env prefix rather than trying to find one spec that suits every process:
+
+```python
+NemoLensConfig.from_env(prefix="NVRX_OTEL", fallback_prefix="NEMO_LENS")
+```
+
+If your library's telemetry module is imported lazily at the instrumentation site rather than eagerly with the package, it will not have registered in time. Register it from the package's `__init__`.
+
+<Note>
+When **nothing** has registered, the warning says so specifically — that is a
+different root cause (no instrumented library was imported at all) from a name
+that does not resolve.
+</Note>
+
+Registering *after* `setup_telemetry` still takes effect — NeMo Lens retains the spec and re-resolves it — but it logs a warning, because the group was not selectable when the user's spec was validated. It is a consumer import-order bug, treated as loud rather than fatal: refusing the registration would drop spans silently, and raising would let a telemetry misconfiguration take down a training job.
+
+## Reference Another Library's Groups
+
+A preset may name any group already in the registry, not only the ones the same call declares. That is how a library layers on one it depends on:
+
+```python
+SpanRegistry.register(
+    "nemo_rl",
+    groups={"rollout"},
+    presets={"default": {"rollout", "step"}},   # "step" belongs to megatron
+)
+```
+
+Import order does not matter, and Megatron does not have to be present at all. Each read compares a preset against the groups currently registered, so a member no one owns is ignored, and it starts working if its owner is imported later. A library can therefore name a group from an **optional** dependency without breaking its own import when that dependency is missing. It logs a warning, because a typo produces exactly the same situation.
+
+Referencing a group does not transfer ownership: if Megatron unregisters, `step` leaves the registry, and any preset that borrowed it drops it too — a preset can never name a group outside `all`. If that leaves the preset your spec named empty, NeMo Lens warns that the spec resolved to nothing. `pending_span_groups()` is empty in this case, so without that warning there would be nothing to go on.
+
+## Inspect What Resolved
+
+```python
+from nemo.lens import enabled_span_groups
+from nemo.lens.groups import SpanRegistry
+
+enabled_span_groups()        # frozenset({'step', 'rollout'})
+SpanRegistry.namespaces()    # ['megatron', 'nemo_rl']
+SpanRegistry.groups()        # every group any library registered
+```
+
+## Use Groups at Instrumentation Sites
+
+Group names are plain strings; nothing needs importing from NeMo Lens:
+
+```python
+from nemo.lens import managed_span, trace_fn
+
+with managed_span("step", "train.step") as span:
+    if span:
+        span.set_attribute("dl.iteration", i)
+
+@trace_fn("forward_backward", "dl.forward_backward")
+def forward_backward(...):
+    ...
+```
+
+Keep attribute construction inside the `if span:` guard. Work done before the group check is paid by every user on every call, whether or not they enabled telemetry.
+
+## Naming Conventions
+
+- Lowercase, `snake_case`: `pipeline_parallel`, not `PipelineParallel`.
+- Concept-oriented, not verb-oriented: `checkpoint`, not `saving_checkpoint`.
+- Short: `evaluate`, not `evaluation_phase`.
+- Because the namespace is flat, prefer a name unlikely to collide with another NeMo library's.
+
+## Choose Preset Membership Carefully
+
+The convention for `default` is that it stays quiet enough for production. If a group fires more than a handful of times per iteration, it belongs in `per_step` or in no preset at all. Since presets union across libraries, adding a chatty group to your `default` raises the floor for every user who enables `default` — including users of a different library that happens to share the process.

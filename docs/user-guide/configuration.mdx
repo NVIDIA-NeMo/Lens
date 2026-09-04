@@ -23,7 +23,6 @@ Reads `NEMO_LENS_*` env vars. For library-specific prefixes, pass `prefix` and `
 cfg = NemoLensConfig.from_env(
     prefix='MEGATRON_OTEL',
     fallback_prefix='NEMO_LENS',
-    span_group_cls=MegatronSpanGroup,
 )
 ```
 
@@ -76,7 +75,7 @@ Controls which ranks send telemetry to the collector. Three strategies are avail
 
 | Field | Default | Description |
 |---|---|---|
-| `span_groups` | `"default"` | Comma-separated spec of preset keywords or group names. See [Span Groups](../user-guide/span-groups.mdx). |
+| `span_groups` | `"default"` | Comma-separated spec of preset keywords or group names, resolved against `SpanRegistry`. See [Span Groups](../user-guide/span-groups.mdx). |
 
 ### Backend
 
