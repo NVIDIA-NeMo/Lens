@@ -60,7 +60,7 @@ src/nemo/lens/
 ├── semconv.py         attribute-name constants (single source)
 ├── package_info.py    version (bumped by release automation, not by hand)
 ├── instruments/       metric instruments: inference, rl, gym
-├── resources/         detection (slurm, k8s, local) + encode_resource_attributes
+├── resources/         detection plus OTEL resource-attribute helpers
 └── contrib/           fastapi, aiohttp, ray, nccl integration helpers
 ```
 
@@ -102,17 +102,11 @@ Passing an already-materialized value as a kwarg is fine; *building* one is not.
 
 ### 3. `fallbacks.py` signatures match the real API exactly
 
-Consumers import from `nemo.lens.fallbacks` when lens is absent. Six symbols
+Consumers import from `nemo.lens.fallbacks` when lens is absent. Five symbols
 form that surface: `trace_fn`, `managed_span`, `span_cm`,
-`is_span_group_enabled`, `safe_set_span_attributes`,
-`encode_resource_attributes`. Add a parameter to a real implementation and you
+`is_span_group_enabled`, and `safe_set_span_attributes`. Add a parameter to a real implementation and you
 must add it to the no-op too (it may ignore it). `tests/test_fallbacks.py` is
 the enforcement. See `docs/design/optional-dependency.mdx` for why this exists.
-
-Signatures are the floor, not the ceiling: **defaults must resolve to the same
-source**. `encode_resource_attributes(attrs)` with `inherited` omitted has to
-read the same place in both, or the no-op preserves a launcher's value where the
-real one drops it — a divergence a name-only parameter comparison cannot see.
 
 ## Instrumentation primitives
 

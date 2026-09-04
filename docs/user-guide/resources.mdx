@@ -34,17 +34,54 @@ The `nemo.lens.resources.detect_resource()` function merges attributes from thre
 
 ### Slurm Environment Attributes with `detect_slurm()`
 
-These attributes are active when `SLURM_JOB_ID` is set. This helper maps the following variables:
+This helper returns attributes when `SLURM_JOB_ID` is set or when
+launch-provided `OTEL_RESOURCE_ATTRIBUTES` contains a selected Slurm or run
+identity value. With a local job ID, it derives Slurm resource attributes from
+the local environment. Inherited values can activate detection independently
+and take precedence over caller-provided `resource_attributes` defaults and
+locally derived fallback values. Empty inherited values are ignored.
 
 | Attribute | Source env var |
 |---|---|
 | `slurm.job.id` | `SLURM_JOB_ID` |
+| `slurm.job.id.raw` | Raw `SLURM_JOB_ID` |
+| `slurm.array.job_id` | `SLURM_ARRAY_JOB_ID`, or `SLURM_JOB_ID` for non-array jobs |
+| `slurm.array.task_id` | `SLURM_ARRAY_TASK_ID`, or `"0"` for non-array jobs |
+| `slurm.array.count` | `SLURM_ARRAY_TASK_COUNT`, or `1` when unset |
+| `slurm.sluid` | `LENS_SLURM_SLUID` or `NV_LAUNCH_SLUID` |
+| `slurm.array.sluid` | `LENS_SLURM_ARRAY_SLUID` or `NV_LAUNCH_ARRAY_SLUID` |
 | `slurm.job.name` | `SLURM_JOB_NAME` |
-| `slurm.nodelist` | `SLURM_NODELIST` |
-| `slurm.nnodes` | `SLURM_NNODES` |
-| `slurm.ntasks` | `SLURM_NTASKS` |
-| `slurm.partition` | `SLURM_PARTITION` |
 | `slurm.cluster.name` | `SLURM_CLUSTER_NAME` |
+| `slurm.partition` | `SLURM_JOB_PARTITION` or `SLURM_PARTITION` |
+| `slurm.head_node.name` | `SLURMD_NODENAME` outside a Slurm step, or inherited from launch attributes |
+| `slurm.nnodes` | `SLURM_JOB_NUM_NODES` or `SLURM_NNODES` |
+| `slurm.ntasks` | `SLURM_NTASKS` |
+| `slurm.restart_count` | `SLURM_RESTART_COUNT`, or `0` when unset |
+| `slurm.job.user` | `SLURM_JOB_USER` |
+| `slurm.job.account` | `SLURM_JOB_ACCOUNT` |
+| `slurm.job.qos` | `SLURM_JOB_QOS` |
+| `slurm.job.reservation` | `SLURM_JOB_RESERVATION` |
+| `slurm.segment` | `SLURM_SEGMENT` |
+| `slurm.topology.addr` | `SLURM_TOPOLOGY_ADDR` |
+| `slurm.topology.addr_pattern` | `SLURM_TOPOLOGY_ADDR_PATTERN` |
+| `nv.dl.job.uuid` | Derived from Slurm cluster and submitted job ID, or inherited from launch attributes |
+| `nv.dl.run.uuid` | Inherited from launch attributes |
+
+`detect_slurm()` returns `slurm.array.count`, `slurm.nnodes`, `slurm.ntasks`,
+and `slurm.restart_count` as integers whether they are derived locally or
+inherited through `OTEL_RESOURCE_ATTRIBUTES`. Other inherited values remain
+strings. An empty inherited value, or a non-integer value for one of those four
+attributes, is discarded so that a valid locally derived value can be used as
+the fallback. If no valid local value exists, the attribute is omitted.
+
+The table above is the complete allowlist of attributes that `detect_slurm()`
+reads from `OTEL_RESOURCE_ATTRIBUTES`; every accepted key has an explicit
+normalizer. Other resource attributes are ignored by this helper, but they
+remain in `OTEL_RESOURCE_ATTRIBUTES` and are still read independently by the
+OpenTelemetry SDK.
+
+Retired keys such as `slurm.nodelist`, `slurm.cluster`, and
+`slurm.torchelastic.restart_count` are not emitted for new telemetry.
 
 ### Kubernetes Environment Attributes with `detect_kubernetes()`
 
@@ -90,40 +127,53 @@ attributes through `OTEL_RESOURCE_ATTRIBUTES`. That is the only channel that
 survives the boundary: `multiprocessing.Process` has no `env` parameter at all,
 so mutating `os.environ` before `start()` is not one option among several.
 
-Use `encode_resource_attributes` to build the value rather than formatting it by
-hand:
+Use the helpers in `nemo.lens.resources.attributes` rather than formatting the
+value by hand:
 
 ```python
 import os
 import subprocess
 
-from nemo.lens import encode_resource_attributes
+from nemo.lens.resources import (
+    extend_otel_resource_attributes,
+    publish_otel_resource_attributes,
+)
 from nemo.lens.semconv import DL_RANK, DL_WORLD_SIZE
 
-# multiprocessing — set it before start()
-os.environ['OTEL_RESOURCE_ATTRIBUTES'] = encode_resource_attributes(
-    {DL_RANK: rank, DL_WORLD_SIZE: world_size}
-)
-ctx.Process(target=worker).start()
+# multiprocessing — publish while the child starts, then restore the environment
+with publish_otel_resource_attributes(
+    {DL_RANK: rank, DL_WORLD_SIZE: world_size},
+    overwrite=True,
+):
+    ctx.Process(target=worker).start()
 
 # subprocess — build the child's environment
-env = {**os.environ, 'OTEL_RESOURCE_ATTRIBUTES': encode_resource_attributes(
-    {DL_RANK: rank, DL_WORLD_SIZE: world_size}
-)}
+value = extend_otel_resource_attributes(
+    os.environ.get('OTEL_RESOURCE_ATTRIBUTES'),
+    {DL_RANK: rank, DL_WORLD_SIZE: world_size},
+    overwrite=True,
+)
+env = {**os.environ, 'OTEL_RESOURCE_ATTRIBUTES': value}
 subprocess.Popen(cmd, env=env)
 ```
 
-It returns the value and does not touch the environment; where it goes is yours
-to decide.
+Use `overwrite=True` when current child identity must replace stale inherited
+values. Use `overwrite=False` for additive launcher and Slurm behavior, where an
+existing value is authoritative. `extend_otel_resource_attributes()` is pure;
+`set_otel_resource_attributes()` updates an environment mapping permanently;
+`publish_otel_resource_attributes()` updates it only for the context lifetime.
+Publisher contexts may nest within one thread, but they must not overlap across
+threads because environment variables are process-global. Serialize publication
+when multiple threads can launch children.
 
 ### What It Handles
 
 | Concern | Behavior |
 |---|---|
 | Separators in values | Percent-encoded. Unencoded, a comma truncates its value *and* invents a key — a run id of `exp/2026-01,seed=7` arrives as `nemo.run.id="exp/2026-01"` plus a spurious `seed="7"`, with no error. |
-| Value types | `str`, `bool`, `int` and `float` are stringified. `None` is dropped rather than written as `"None"`, and anything else — `bytes`, a list, a dict — is dropped with a warning, because this channel is string-typed and a repr is not a round trip. |
-| An inherited value | Carried through byte-for-byte, never re-encoded, so a launcher's bytes survive untouched. A key you pass replaces an earlier occurrence of that key rather than shadowing it. |
-| Repeated calls | The default `inherited` reads the **live** `OTEL_RESOURCE_ATTRIBUTES`, so a value written after `import nemo.lens` is still seen — which matters under `fork`, where the child inherits the parent's already-imported modules. Because a key you pass replaces its earlier occurrence, feeding the result back through `os.environ` in a loop does not accumulate copies. Pass `inherited=""` to start clean. |
+| Value types | `str`, `bool`, `int` and `float` are stringified. During a merge, `None` and `""` mean absent and do not replace an inherited value, even with `overwrite=True`. Other values — `bytes`, a list, a dict — are dropped with a warning, because this channel is string-typed and a repr is not a round trip. |
+| An inherited value | Unchanged segments are carried through byte-for-byte, never re-encoded, so a launcher's bytes survive untouched. `overwrite` explicitly selects whether inherited or added values win for duplicate keys. |
+| Repeated calls | Replacing a key removes its inherited occurrence before appending the current value, so repeated publication does not accumulate stale copies. |
 | Non-string keys | Dropped with a warning. `str(key)` would ship `None` as the literal attribute name `"None"`. |
 | Separators in *keys* | Dropped with a warning. The SDK unquotes only the value half, so such a key has no representation; encoding it would ship the escape sequence as the attribute name. No semconv name contains `,` or `=`. |
 
@@ -133,6 +183,9 @@ Values arrive in the child as **strings** — the env format has no other type.
 `"3"`. A collector filtering on a numeric attribute should tolerate both.
 </Note>
 
+For selected Slurm and run identity keys, launch-provided
+`OTEL_RESOURCE_ATTRIBUTES` values are authoritative. Treat `resource_attributes`
+as consumer defaults for those keys.
 
 ## Use Cases
 

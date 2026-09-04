@@ -13,15 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Resource attributes in both directions.
+"""Resource detection for Slurm, Kubernetes, and local environments."""
 
-:func:`detect_resource` reads what this process can discover about itself.
-:func:`encode_resource_attributes` writes attributes out for a child process to
-pick up, which is the only way to reach one that has no ``setup_telemetry`` call
-site of its own.
-"""
-
-from nemo.lens.resources.encoding import encode_resource_attributes
+from nemo.lens.resources.attributes import (
+    extend_otel_resource_attributes,
+    publish_otel_resource_attributes,
+    set_otel_resource_attributes,
+)
 from nemo.lens.resources.kubernetes import detect_kubernetes
 from nemo.lens.resources.local import detect_local
 from nemo.lens.resources.slurm import detect_slurm
@@ -45,5 +43,7 @@ __all__ = [
     "detect_slurm",
     "detect_kubernetes",
     "detect_local",
-    "encode_resource_attributes",
+    "extend_otel_resource_attributes",
+    "set_otel_resource_attributes",
+    "publish_otel_resource_attributes",
 ]
