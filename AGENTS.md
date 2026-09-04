@@ -52,8 +52,6 @@ src/nemo/lens/
 ├── state.py           span-group spec + enabled frozenset; the hot-path gate
 ├── helpers.py         span_cm, managed_span, trace_fn, safe_set_span_attributes
 ├── fallbacks.py       canonical no-ops mirrored by consumer repos
-├── strategies.py      export-strategy registry (which ranks export)
-├── sampling.py        RankAwareSampler
 ├── distributed.py     broadcast_trace_context, create_linked_span
 ├── propagation.py     inject_context / extract_context (W3C)
 ├── logging_bridge.py  Python logging → OTel logs
@@ -74,8 +72,9 @@ Prometheus, Grafana, Jaeger, and Kibana configs for the compose stack.
 `import nemo.lens` must work with only `opentelemetry-api` installed (the API's
 default implementation is a no-op). `opentelemetry.sdk.*` appears **only** in
 `providers.py`, and even there inside function bodies. Two classes that would
-naturally subclass SDK types — `RankAwareSampler` and `SeedIndependentIdGenerator`
-— are duck-typed instead, deliberately, so their modules stay SDK-free.
+naturally subclass SDK types — `SeedIndependentIdGenerator` and `_OpenSpanCloser`
+— are duck-typed instead, deliberately, so the module stays importable without
+the SDK.
 
 There is no linter for this. Grep before you add an import:
 `grep -rn "opentelemetry.sdk" src/`.
@@ -224,6 +223,41 @@ Time-series numbers never go on spans. Attribute *names* come from `semconv.py`
 *names* use application scope (`rl.*`, `gym.*`, `gen_ai.*`); consumer-specific
 training metrics like `megatron.training.loss` live in the consumer, not here.
 
+## Lens does not know about ranks
+
+`setup_telemetry(config, resource_attributes=..., ...)` takes no `rank` or
+`world_size`, and there is no export-strategy registry. Every process where
+`config.enabled` is true exports; `handle.is_exporting` is just `config.enabled`.
+
+A distributed caller supplies its own position as resource attributes using the
+`NV_DL_RANK` / `NV_DL_WORLD_SIZE` constants from `semconv.py`, and decides which
+ranks report by setting `enabled` per rank (or by filtering on `nv.dl.rank` in
+the collector). `service.instance.id` is derived from `run_id` plus that supplied
+`nv.dl.rank`, resolved from **both** `resource_attributes=` and
+`OTEL_RESOURCE_ATTRIBUTES` (caller wins, matching the SDK). Two traps live here:
+
+- Derive from the resolved pair, not from the local `attrs` dict — env attributes
+  do not exist in it, and a spawned worker supplies its rank exactly that way.
+- Do not test "is `service.instance.id` already set?" against the built
+  `Resource`: the SDK auto-populates it with a per-process UUID, so the answer is
+  always yes and the derivation silently never runs.
+
+With no rank from either channel, Lens does not derive `service.instance.id`;
+`nemo.run.id` already carries the job-wide run id, and the SDK may supply a
+per-process default. `providers._warn_no_rank` logs a `WARNING` in that case —
+once, at startup, off any hot path. It drops to `DEBUG` when the caller supplied
+its own `service.instance.id`: the warning's stated harm does not apply to a
+process that named itself, and a launcher agent with no rank to claim is a
+correct configuration rather than one to nag per node per job.
+
+Do not reintroduce a rank parameter to make this convenient, and do not silence
+that warning by reading `RANK`/`WORLD_SIZE` from the environment: those are
+launcher conventions, inferring the rank is the behaviour this design removed, and
+it is wrong for any caller whose rank is not the process's global rank.
+`OTEL_RESOURCE_ATTRIBUTES` is a different thing and is fine to read — it is the
+standard resource channel carrying an attribute lens itself named in `semconv.py`,
+not a guess about the launcher.
+
 ## Configuration
 
 `NemoLensConfig.from_env(prefix="NEMO_LENS", fallback_prefix=...)`.
@@ -235,10 +269,6 @@ Consumers pass their own prefix (e.g. `MEGATRON_OTEL`) and fall back to
 | `ENABLED` | `enabled` | `false` — telemetry is opt-in |
 | `SPAN_GROUPS` | `span_groups` | `default` |
 | `EXPORTER` | `exporter` | `otlp` (or `console`) |
-| `EXPORT_STRATEGY` | `export_strategy` | `single_rank` |
-| `EXPORT_RANK` | `export_rank` | `-1` (last rank) |
-| `EXPORT_SAMPLE_RATE` | `export_sample_rate` | `1.0`, validated to `[0,1]` |
-| `SAMPLER_ENABLED` | `sampler_enabled` | `false` |
 | `TRACES_ENABLED` / `METRICS_ENABLED` | | `true` |
 | `LOGS_ENABLED` | `logs_enabled` | `false` |
 | `RUN_ID` | `run_id` | `SLURM_JOB_ID`, else a random hex |
@@ -246,25 +276,35 @@ Consumers pass their own prefix (e.g. `MEGATRON_OTEL`) and fall back to
 
 Read **without** a prefix: `OTEL_SERVICE_NAME`, `WANDB_ENTITY`,
 `WANDB_PROJECT`, `DEPLOYMENT_ENV`/`ENVIRONMENT`, `OTEL_METRIC_EXPORT_INTERVAL`,
-`LOCAL_RANK` (by `first_rank_per_node`), `SLURM_JOB_ID`, `NO_VCS_VERSION`.
+`SLURM_JOB_ID`, `NO_VCS_VERSION`.
 Everything `OTEL_EXPORTER_OTLP_*` is the SDK's business — don't reimplement it.
+
+`OTEL_RESOURCE_ATTRIBUTES` is the SDK's too, but `providers.py` reads it back via
+`OTELResourceDetector().detect()` before deriving `service.instance.id`. It is the
+only attribute channel that survives a `spawn`/`exec`, so a worker with no
+`setup_telemetry` call site supplies `nv.dl.rank` there. Deriving from the caller's
+dict alone made lens blind to it — see the rank section below.
 
 ## Testing
 
 `pytest` from the repo root. The suite runs in seconds, so always run all of it
 rather than a subset. Its defining constraint is that
-OTel providers, the span registry, and lens's enabled-group set are
-**process-global**, so `conftest.py` has three `autouse` fixtures that reset them
-around every test: providers + `_INITIALIZED`, the `SpanRegistry` + span-group
-set + PP carrier, and the export strategy registry. Consequences:
+OTel providers, the span registry, lens's enabled-group set, and
+`OTEL_RESOURCE_ATTRIBUTES` are **process-global**, so `conftest.py` has three
+`autouse` fixtures that reset them around every test: providers + `_INITIALIZED`,
+the `SpanRegistry` + span-group set + PP carrier, and
+`OTEL_RESOURCE_ATTRIBUTES`. Consequences:
 
 - Lens ships no groups, so a test that needs one must register it. The
   `demo_groups` fixture does that; `set_enabled_span_groups()` pins a set
   directly. Nothing carries over between tests.
 - Calling `setup_telemetry()` twice in one process raises. Tests that legitimately
-  need to (e.g. looping over ranks) pass `_allow_reinit=True`.
+  need to (e.g. re-initialising with a different config) pass `_allow_reinit=True`.
 - Assert on span content with `InMemorySpanExporter` from `conftest.py`, passed
   via `setup_telemetry(..., span_exporter=...)`.
+- `OTEL_RESOURCE_ATTRIBUTES` is cleared before every test. It is a real identity
+  channel for `build_providers`, so an inherited value from an instrumented CI
+  runner would otherwise silently supply `nv.dl.rank` and break the no-rank tests.
 
 Full conventions: `docs/developer/testing.mdx`.
 

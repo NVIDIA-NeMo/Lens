@@ -74,7 +74,7 @@ This context manager always creates a span with no group gating. Attributes are 
 
 ### No-Op Interaction
 
-When the global `TracerProvider` is a no-op instance (such as on a non-exporting rank or when telemetry is disabled), `start_as_current_span` is still called but behaves as a cheap no-op operation within the OTel API, resulting in no exporter round-trip and no attribute processing cost. This call does not bypass span object creation entirely the way `managed_span` does when its group is disabled, but the performance cost is negligible.
+When the global `TracerProvider` is a no-op instance (that is, when telemetry is disabled), `start_as_current_span` is still called but behaves as a cheap no-op operation within the OTel API, resulting in no exporter round-trip and no attribute processing cost. This call does not bypass span object creation entirely the way `managed_span` does when its group is disabled, but the performance cost is negligible.
 
 ## `safe_set_span_attributes`
 

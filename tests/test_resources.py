@@ -658,7 +658,7 @@ class TestEndToEndAcrossAProcessBoundary:
 
         value = extend_otel_resource_attributes(
             "",
-            {"dl.rank": 5, "dl.world_size": 8, "nemo.run.id": "exp,2026"},
+            {"nv.dl.rank": 5, "nv.dl.world_size": 8, "nemo.run.id": "exp,2026"},
             overwrite=True,
         )
         out = subprocess.run(
@@ -670,8 +670,8 @@ class TestEndToEndAcrossAProcessBoundary:
             cwd=tmp_path,
         )
         got = json.loads(out.stdout)
-        assert got["dl.rank"] == "5"
-        assert got["dl.world_size"] == "8"
+        assert got["nv.dl.rank"] == "5"
+        assert got["nv.dl.world_size"] == "8"
         assert got["nemo.run.id"] == "exp,2026"  # the comma survived the boundary
 
     @pytest.mark.parametrize("method", ["fork", "spawn"])
@@ -695,7 +695,7 @@ class TestEndToEndAcrossAProcessBoundary:
         ctx = mp.get_context(method)
         queue = ctx.Queue()
         proc = ctx.Process(target=_child_reports_resource, args=(queue,))
-        with publish_otel_resource_attributes({"dl.rank": 2, "dl.world_size": 8}):
+        with publish_otel_resource_attributes({"nv.dl.rank": 2, "nv.dl.world_size": 8}):
             proc.start()
         # Drain before joining. A child cannot exit until its queue feeder has
         # flushed to the pipe, and the feeder cannot flush once the pipe fills,
@@ -706,8 +706,8 @@ class TestEndToEndAcrossAProcessBoundary:
         proc.join(60)
         assert proc.exitcode == 0
         assert got["launcher.id"] == "abc"  # the inherited value survived
-        assert got["dl.rank"] == "2"
-        assert got["dl.world_size"] == "8"
+        assert got["nv.dl.rank"] == "2"
+        assert got["nv.dl.world_size"] == "8"
 
 
 class TestTheseTestsLeakNothing:

@@ -38,7 +38,6 @@ NeMo Lens is intentionally small. Its architecture prioritizes three properties:
 │ Lifecycle + providers                                        │
 │ — handle.py:     setup_telemetry, TelemetryHandle           │
 │ — providers.py:  build_providers, build_noop_providers      │
-│ — sampling.py:   RankAwareSampler                           │
 └─────────────────────────────────────────────────────────────┘
            │
            ▼
@@ -64,11 +63,10 @@ Each layer depends only on layers above it. No circular imports.
 | `state.py` | Thread-safe global state: span-group spec, enabled set, PP trace carrier |
 | `groups.py` | `SpanRegistry`: consuming libraries declare the groups they emit |
 | `helpers.py` | `managed_span`, `trace_fn`, `span_cm`, attribute safety |
-| `handle.py` | `setup_telemetry` entry point, `TelemetryHandle`, export strategy |
+| `handle.py` | `setup_telemetry` entry point, `TelemetryHandle` |
 | `providers.py` | SDK provider construction (lazy imports) |
 | `propagation.py` | W3C context inject/extract |
 | `distributed.py` | `broadcast_trace_context`, `create_linked_span` |
-| `sampling.py` | `RankAwareSampler` (OTel `Sampler` impl) |
 | `semconv.py` | Attribute name constants and version tracking |
 | `fallbacks.py` | Canonical no-op implementations for consumers |
 | `logging_bridge.py` | Python logging → OTel LoggerProvider bridge |
@@ -76,7 +74,7 @@ Each layer depends only on layers above it. No circular imports.
 ## Call Flow for `setup_telemetry`
 
 ```
-setup_telemetry(config, rank, world_size, resource_attributes)
+setup_telemetry(config, resource_attributes)
   │
   ├─ if _INITIALIZED and config.enabled and not _allow_reinit:
   │     raise RuntimeError          # [double-init guard]
@@ -84,18 +82,12 @@ setup_telemetry(config, rank, world_size, resource_attributes)
   ├─ if not config.run_id:
   │     config.run_id = SLURM_JOB_ID or uuid4()
   │
-  ├─ is_export_rank = _should_export(config, rank, world_size)
-  │     └─ branches on config.export_strategy
-  │
-  ├─ if not config.enabled:
-  │     build_noop_providers()
-  │     set_enabled_span_groups(frozenset())
-  │
-  ├─ elif is_export_rank:
-  │     build_providers(config, rank, world_size, resource_attributes, ...)
+  ├─ if config.enabled:
+  │     build_providers(config, resource_attributes, ...)
   │         ├─ imports SDK (primary SDK construction site)
   │         ├─ builds Resource with auto-detected + passed attributes
-  │         ├─ builds TracerProvider (with optional RankAwareSampler)
+  │         ├─ resolves service.instance.id from the caller's nv.dl.rank, if given
+  │         ├─ builds TracerProvider (SeedIndependentIdGenerator)
   │         ├─ builds MeterProvider (with PeriodicExportingMetricReader)
   │         ├─ builds LoggerProvider (if config.logs_enabled)
   │         └─ sets W3C CompositePropagator
@@ -103,7 +95,7 @@ setup_telemetry(config, rank, world_size, resource_attributes)
   │         └─ resolved against SpanRegistry; re-resolved on every
   │            later registration, so import order does not matter
   │
-  └─ else:    # non-exporting rank
+  └─ else:
         build_noop_providers()
         set_enabled_span_groups(frozenset())
 
@@ -145,7 +137,7 @@ The hot path when disabled is three Python statements: lookup, compare, yield `N
 
 **Config separated from providers**: `config.py` has no dependency on OTel SDK. A consumer can construct and validate `NemoLensConfig` in a process that does not have the SDK installed, then decide whether to initialize telemetry.
 
-**Lazy SDK imports**: `providers.py` is the primary home for `opentelemetry.sdk.*` construction (a few other modules, such as `sampling.py` and `logging_bridge.py`, import the SDK lazily inside function bodies). Non-exporting ranks never execute `build_providers`, so they never incur the SDK import cost. On a large-rank job where most ranks do not export, avoiding that import on every non-exporting rank adds up.
+**Lazy SDK imports**: `providers.py` is the primary home for `opentelemetry.sdk.*` construction (`logging_bridge.py` also imports the SDK lazily inside a function body). A process with telemetry disabled never executes `build_providers`, so it never incurs the SDK import cost. In a large job where most ranks leave `enabled` false, avoiding that import on every quiet rank adds up.
 
 **Public API minimal**: `__init__.py` exports only the documented public surface (the entries in `__all__`). Everything else is internal. Consumers can rely on the `__all__` list; internals can be refactored freely.
 

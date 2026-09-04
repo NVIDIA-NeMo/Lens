@@ -7,16 +7,33 @@ Transitioning from a local telemetry configuration to a deployment that spans an
 
 If any recommendations here conflict with your site's operational conventions, follow those guidelines.
 
-## Choose an Export Strategy
+## Decide Which Processes Export
 
-Use this decision flow to select your export strategy:
+NeMo Lens exports from every process that calls `setup_telemetry` with
+`enabled=True`. It has no rank-based export filtering, so on a large job this
+decision is yours to make and worth making deliberately: enabling telemetry
+everywhere multiplies span volume by the world size.
 
-- **Ensure simple setup.** When a single rank's view is representative and you require the simplest setup, use the `single_rank` strategy (which is the default).
-- **Attribute hangs per node.** When you require per-node visibility to attribute hangs or slow processes to specific machines on a medium-scale job (eight to 128 nodes), use the `first_rank_per_node` strategy. This configuration exports from one rank per machine and does not require manual `LOCAL_RANK=0` setup because launchers such as torchrun handle this automatically.
-- **Scale across fleets.** For fleet-scale jobs where you require the perspective of multiple ranks without full telemetry export, use the `sampled` strategy by setting the `export_strategy=sampled` or `NEMO_LENS_EXPORT_STRATEGY=sampled` environment variable with an `export_sample_rate` below `1.0`. This strategy is independent of the `sampler_enabled` setting; add SDK-level per-rank filtering only if you also require the second layer (see [Layer Your Sampling](#layer-your-sampling)).
-- **Investigate per-rank issues.** When you require fine-grained per-rank investigation (such as for hang debugging, `NaN` detection, or isolating suspected faulty nodes), use the `all_ranks` strategy for the duration of the investigation and then revert to your production default.
+Set `enabled` per rank in the caller:
 
-For a full discussion, see [Sampling](../user-guide/sampling.mdx). Do not leave this configuration simply because it is the default; instead, select the strategy that best fits the specific run.
+- **A single rank's view is representative.** The simplest and usual choice. Enable on one rank (commonly the last) and leave the rest off.
+- **Attribute hangs per node.** Enable where `LOCAL_RANK == 0` to get one exporting rank per machine. Launchers such as torchrun set `LOCAL_RANK` automatically.
+- **Scale across fleets.** Enable on a deterministic subset, for example `rank % 64 == 0`, when you want several vantage points without full export.
+- **Investigate per-rank issues.** Enable everywhere for the duration of a hang, `NaN`, or faulty-node investigation, then revert.
+
+```python
+from nemo.lens.semconv import NV_DL_RANK, NV_DL_WORLD_SIZE
+
+cfg = NemoLensConfig.from_env()
+cfg.enabled = cfg.enabled and rank == world_size - 1
+handle = setup_telemetry(
+    cfg,
+    resource_attributes={NV_DL_RANK: rank, NV_DL_WORLD_SIZE: world_size},
+)
+```
+
+If you would rather let every rank export and decide later, filter on the
+`nv.dl.rank` resource attribute in the collector instead.
 
 ## Choose a Span Group Preset
 
@@ -28,14 +45,13 @@ See [Span Groups](../user-guide/span-groups.mdx) for complete details.
 
 ## Layer Your Sampling
 
-You can configure sampling across four composable layers:
+You can configure sampling across three composable layers:
 
-1. **Export strategy.** Strategies such as `single_rank`, `all_ranks`, or `sampled` decide which ranks emit telemetry at all. Non-exporting ranks are fully set to no-op.
-2. **`RankAwareSampler`.** Enabled through `sampler_enabled=1`, this sampler makes an SDK-level per-rank decision on whether to keep spans on an exporting rank. This decision is driven by `export_sample_rate`. Because the default value of `1.0` keeps every span, you must set `export_sample_rate` below `1.0` for this layer to drop spans.
-3. **OTel SDK trace sampler.** Configured through `OTEL_TRACES_SAMPLER`, this sampler makes a per-trace decision on whether to record the trace.
-4. **Collector-side tail sampling.** This optional layer allows you to make routing decisions after traces are generated, such as keeping all error traces while sampling successful ones.
+1. **Which processes are enabled.** `config.enabled`, decided per rank by the caller, determines which ranks emit telemetry at all. Disabled ranks are fully set to no-op.
+2. **OTel SDK trace sampler.** Configured through `OTEL_TRACES_SAMPLER`, this sampler makes a per-trace decision on whether to record the trace.
+3. **Collector-side tail sampling.** This optional layer allows you to make routing decisions after traces are generated, such as keeping all error traces while sampling successful ones.
 
-Combine these layers. Layer one decides which ranks emit telemetry; layers two and three decide the volume of telemetry those ranks produce; and layer four decides which traces are retained. Attempting to perform all sampling at a single layer either over-samples routine cases or under-samples and hides critical data.
+Combine these layers. Layer one decides which ranks emit telemetry; layer two decides the volume those ranks produce; and layer three decides which traces are retained. Attempting to perform all sampling at a single layer either over-samples routine cases or under-samples and hides critical data.
 
 ## Use `nemo.run.id` as the Partition Key
 
@@ -58,9 +74,9 @@ Parallelism configuration, model architecture, precision, and cluster name belon
 ```python
 handle = setup_telemetry(
     config,
-    rank=rank,
-    world_size=world_size,
     resource_attributes={
+        "nv.dl.rank": rank,
+        "nv.dl.world_size": world_size,
         "dl.tensor_parallel.size": 4,
         "dl.pipeline_parallel.size": 2,
         "dl.data_parallel.size": 8,
@@ -116,6 +132,6 @@ Spans are recovered on a graceful exit and on an uncaught exception. A process t
 - [ ] Verify that `nemo.run.id` is configured or automatically derived and visible in your dashboards.
 - [ ] Confirm that Jaeger, Grafana, or your specific backend can filter query results by `nemo.run.id`.
 - [ ] Test connection reachability to the OTLP endpoint using `curl` from a training host.
-- [ ] Select a sampler and export strategy deliberately instead of relying on default values.
+- [ ] Decide per rank which processes set `enabled`, and select an `OTEL_TRACES_SAMPLER` deliberately, instead of relying on default values.
 - [ ] Verify that dashboards contain panels for step duration, loss, throughput, and gradient norm.
 - [ ] Confirm a rollback plan exists (such as setting `NEMO_LENS_ENABLED=0` and restarting your application without code changes).

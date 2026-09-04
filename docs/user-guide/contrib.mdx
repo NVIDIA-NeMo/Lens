@@ -57,7 +57,7 @@ if handle.is_exporting:
     instrument_aiohttp_client()
 ```
 
-Avoid running this helper on non-exporting ranks to prevent unnecessary overhead.
+Avoid running this helper where telemetry is disabled to prevent unnecessary overhead.
 
 ## Ray with `contrib.ray`
 

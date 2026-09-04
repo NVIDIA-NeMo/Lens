@@ -36,7 +36,7 @@ reading code at random:
 
 | Symptom | Look first at |
 |---|---|
-| "No spans / nothing exported" | `NEMO_LENS_ENABLED` is `false` by default; then export strategy — `single_rank` means only the last rank exports |
+| "No spans / nothing exported" | `NEMO_LENS_ENABLED` is `false` by default; then check whether the caller left `enabled` false on this rank (lens does no rank filtering of its own) |
 | "Works locally, nothing in my backend" | `OTEL_EXPORTER_OTLP_*` is the SDK's business, not lens's; check their endpoint before reading lens code |
 | "Some spans missing" | span groups — `default` is only `job`, `checkpoint`, `evaluate`. They likely want `per_step` or `all` |
 | "ImportError / no-op behavior" | the optional-dependency contract — `docs/design/optional-dependency.mdx`, `fallbacks.py` |

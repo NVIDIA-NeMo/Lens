@@ -43,7 +43,7 @@ This operation performs two small collective broadcasts: a byte-length `int64` t
 
 ### Collective Correctness
 
-`broadcast_trace_context` is a collective operation. If some ranks call it and others do not, a deadlock occurs. Gate this call only on conditions that are identical on every rank; for example, `config.enabled` (where the same `NemoLensConfig` value is passed to `setup_telemetry()` on all ranks). Do not gate this call on `handle.is_exporting` because that flag is `True` only on exporting ranks; since it differs per rank, gating on it would cause a deadlock.
+`broadcast_trace_context` is a collective operation. If some ranks call it and others do not, a deadlock occurs. Gate this call only on conditions that are identical on every rank; for example, `config.enabled` (where the same `NemoLensConfig` value is passed to `setup_telemetry()` on all ranks). Do not gate this call on `handle.is_exporting` unless `config.enabled` is identical on every rank: the flag now just mirrors `config.enabled`, so if you vary `enabled` per rank to keep some quiet, gating on it would deadlock.
 
 ## `create_linked_span`
 
