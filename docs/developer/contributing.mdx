@@ -32,7 +32,7 @@ Pre-commit runs both checks automatically on staged files. Continuous integratio
 
 ## Defer Heavy Imports
 
-`opentelemetry-sdk` and related packages are expensive to import. Every `opentelemetry.sdk.*` import must be deferred inside the function that requires it and not at the module top level. Most SDK imports are located in `providers.py` (distributed across `build_providers()` and either the `_build_*_exporter` or `_setup_log_provider` helpers), but `sampling.py` and `logging_bridge.py` also import the SDK lazily inside their functions.
+`opentelemetry-sdk` and related packages are expensive to import. Every `opentelemetry.sdk.*` import must be deferred inside the function that requires it and not at the module top level. Most SDK imports are located in `providers.py` (distributed across `build_providers()` and either the `_build_*_exporter` or `_setup_log_provider` helpers); `logging_bridge.py` also imports the SDK lazily inside its functions.
 
 This keeps `import nemo.lens` cheap; this is important for consumers that might import `nemo.lens` solely to access the fallback implementations.
 

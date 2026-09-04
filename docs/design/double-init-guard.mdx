@@ -74,7 +74,7 @@ Tests need to call `setup_telemetry` many times — each test wants a fresh stat
    ```python
    def test_pipeline_parallel_simulation():
        for rank in range(4):
-           handle = setup_telemetry(config, rank=rank, _allow_reinit=True)
+           handle = setup_telemetry(config, _allow_reinit=True)
            # ...
    ```
 
