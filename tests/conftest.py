@@ -113,16 +113,21 @@ def demo_groups():
 
 
 @pytest.fixture(autouse=True)
-def reset_strategy_registry():
-    """Snapshot the strategy registry before each test, restore after."""
-    from nemo.lens.strategies import _REGISTRY, _REGISTRY_LOCK
+def isolate_otel_resource_env(monkeypatch):
+    """Detach the ambient ``OTEL_RESOURCE_ATTRIBUTES`` from every test.
 
-    with _REGISTRY_LOCK:
-        snapshot = dict(_REGISTRY)
-    yield
-    with _REGISTRY_LOCK:
-        _REGISTRY.clear()
-        _REGISTRY.update(snapshot)
+    ``build_providers`` resolves identity from two channels -- the caller's
+    ``resource_attributes`` and this variable, via ``OTELResourceDetector``. That
+    makes an inherited value load-bearing: a runner exporting
+    ``OTEL_RESOURCE_ATTRIBUTES=nv.dl.rank=7`` silently supplies a rank to tests
+    written to assert the no-rank path, and one exporting a ``service.instance.id``
+    suppresses the derivation outright. Either way six tests fail for reasons that
+    have nothing to do with the code under test.
+
+    OTel-instrumented CI runners set this routinely, so clear it rather than
+    trusting the environment to be empty.
+    """
+    monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
 
 
 @pytest.fixture(autouse=True)

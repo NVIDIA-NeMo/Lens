@@ -97,7 +97,7 @@ For the latter group, consumers typically gate the entire setup behind `try/exce
 try:
     from nemo.lens import NemoLensConfig, setup_telemetry
     config = NemoLensConfig.from_env(prefix='...', fallback_prefix='NEMO_LENS')
-    handle = setup_telemetry(config, rank=rank, world_size=world_size)
+    handle = setup_telemetry(config)
 except ImportError:
     handle = None
 ```

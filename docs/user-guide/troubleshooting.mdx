@@ -38,16 +38,16 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://collector.internal:4317
 
 From the training host, verify reachability with `curl -v $OTEL_EXPORTER_OTLP_ENDPOINT`. A firewall between training and collector is a common and silent failure mode.
 
-### Is This Rank the Exporting Rank?
+### Is Telemetry Enabled on This Rank?
 
-With the default `single_rank` + `export_rank=-1`, only the last rank exports. If you're poking at rank 0's logs and nothing shows up, that's why.
+NeMo Lens exports from every process where `config.enabled` is true; it does not
+elect an exporting rank. If your launcher sets `enabled` per rank, a quiet rank
+is simply one where it came out false.
 
 ```python
-handle = setup_telemetry(config, rank=rank, world_size=world_size)
+handle = setup_telemetry(config)
 print(f"rank {rank}: is_exporting={handle.is_exporting}")
 ```
-
-See [Sampling](../user-guide/sampling.mdx) for how to change which rank(s) export.
 
 ### Wrong OTLP Protocol
 
@@ -70,7 +70,7 @@ You see isolated per-rank traces instead of one cross-rank waterfall. There are 
 
 For pipeline-parallel Megatron jobs, the `step` / `microbatch` span groups must be enabled, and the PP broadcast must be running. Look for `megatron.pp.recv_forward.linked` spans on non-first-stage ranks; their absence means the broadcast step didn't happen.
 
-If you're running `all_ranks` without the appropriate span groups, each process creates its own root trace, and nothing links them together.
+If every rank has telemetry enabled but the appropriate span groups are off, each process creates its own root trace, and nothing links them together.
 
 ### Incoming Context Is Not Extracted
 
@@ -96,7 +96,7 @@ You're calling `setup_telemetry` twice with `config.enabled=True`. This is almos
 If you have a legitimate need (multi-rank simulation in one process, tests), pass `_allow_reinit=True`:
 
 ```python
-setup_telemetry(config, rank=rank, world_size=world_size, _allow_reinit=True)
+setup_telemetry(config, _allow_reinit=True)
 ```
 
 The leading underscore is deliberate. If you're reaching for it in production code, step back.
@@ -161,9 +161,36 @@ A `WARNING` that no library registered any span groups means nothing
 group-gated will be emitted at all — the library you expected to instrument was
 never imported.
 
-### You Are on a Non-Exporting Rank
+### Cannot Filter By Rank
 
-On non-exporting ranks, `setup_telemetry` sets the enabled group set to empty regardless of config. Nothing in this rank will export, by design. See [Sampling](../user-guide/sampling.mdx).
+If you cannot filter or group spans by rank in your backend, or
+`service.instance.id` carries no rank, you did not pass `nv.dl.rank`. NeMo Lens
+logs this at startup:
+
+```
+No nv.dl.rank resource attribute was supplied, so telemetry from this process
+cannot be filtered by rank in the collector, and service.instance.id is not
+rank-derived ...
+```
+
+Fix it at the `setup_telemetry` call:
+
+```python
+from nemo.lens.semconv import NV_DL_RANK, NV_DL_WORLD_SIZE
+
+setup_telemetry(
+    cfg,
+    resource_attributes={NV_DL_RANK: rank, NV_DL_WORLD_SIZE: world_size},
+)
+```
+
+A single-process caller can pass rank `0` to silence the warning.
+
+### Telemetry Is Disabled in This Process
+
+When `config.enabled` is false, `setup_telemetry` installs no-op providers and
+sets the enabled group set to empty regardless of the rest of the config. Nothing
+in this process will export, by design.
 
 ## Metrics Not Showing Up in Prometheus
 
@@ -189,7 +216,7 @@ Toggle NeMo Lens off (`NEMO_LENS_ENABLED=0`) and retime the workload. If speed c
 
 ### Narrow the Scope
 
-Switch from `per_step` or `all` to `default`. Spans in the hot loop (microbatch, communication) are the likely cost. See [Span Groups](../user-guide/span-groups.mdx) and [Sampling](../user-guide/sampling.mdx) for how to dial this in.
+Switch from `per_step` or `all` to `default`. Spans in the hot loop (microbatch, communication) are the likely cost. See [Span Groups](../user-guide/span-groups.mdx) for how to dial this in.
 
 ### BatchSpanProcessor Should Never Block
 
@@ -204,7 +231,7 @@ If you are using a custom exporter but it is not receiving any telemetry data, e
 Custom exporters are attached through the `span_exporter=` argument to `setup_telemetry`. Constructing one after `setup_telemetry` returned doesn't do anything, as the provider is already built.
 
 ```python
-handle = setup_telemetry(config, rank=0, world_size=1, span_exporter=my_exporter)
+handle = setup_telemetry(config, span_exporter=my_exporter)
 ```
 
 See [Custom Exporters](../user-guide/custom-exporters.mdx).

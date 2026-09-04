@@ -25,7 +25,6 @@ from opentelemetry import metrics, trace
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
-    from nemo.lens.strategies import ExportStrategy
 
 _INSTRUMENTATION_SCOPE = "nemo.lens"
 _INITIALIZED = False
@@ -34,7 +33,7 @@ _INITIALIZED = False
 class TelemetryHandle:
     """Holds an OTel tracer and meter for the current process.
 
-    On non-exporting ranks (or when disabled) these are no-op objects.
+    When telemetry is disabled these are no-op objects.
     Obtain via :func:`setup_telemetry`.
     """
 
@@ -75,31 +74,12 @@ class TelemetryHandle:
             meter_provider.shutdown()
 
 
-def _should_export(
-    config: NemoLensConfig,
-    rank: int,
-    world_size: int,
-    override: ExportStrategy | None = None,
-) -> bool:
-    """Determine if this rank should export telemetry data.
-
-    If ``override`` is supplied, it is called directly. Otherwise the strategy
-    named by ``config.export_strategy`` is looked up in the registry.
-    """
-    from nemo.lens.strategies import get_export_strategy
-
-    strategy = override if override is not None else get_export_strategy(config.export_strategy)
-    return strategy(config, rank, world_size)
-
-
 def setup_telemetry(
     config: NemoLensConfig,
-    rank: int = 0,
-    world_size: int = 1,
+    *,
     resource_attributes: dict | None = None,
     span_exporter=None,
     metric_reader=None,
-    export_strategy: ExportStrategy | None = None,
     _allow_reinit: bool = False,
 ) -> TelemetryHandle:
     """Initialise OTel providers and return a TelemetryHandle.
@@ -108,19 +88,41 @@ def setup_telemetry(
 
     Logic:
     - If disabled: no-op providers, empty span groups.
-    - If enabled + exporting rank: real providers with exporters.
-    - If enabled + non-exporting rank: no-op providers, empty span groups.
+    - If enabled: real providers with exporters.
+
+    Lens has no notion of rank. A distributed caller that wants per-rank
+    identity passes it as a resource attribute::
+
+        from nemo.lens.semconv import NV_DL_RANK, NV_DL_WORLD_SIZE
+
+        setup_telemetry(cfg, resource_attributes={NV_DL_RANK: rank, NV_DL_WORLD_SIZE: ws})
+
+    Omitting ``nv.dl.rank`` logs a warning: without it this process cannot be
+    filtered by rank in the collector. A genuinely single-process caller can
+    pass rank ``0`` to silence it.
+
+    Restricting export to a subset of ranks is likewise the caller's decision:
+    leave ``config.enabled`` false on ranks that should stay quiet, or filter on
+    ``nv.dl.rank`` in the collector.
+
+    Everything after ``config`` is keyword-only, deliberately. The removed
+    signature was ``(config, rank, world_size, resource_attributes, ...)``, so a
+    stale ``setup_telemetry(cfg, 0, 8)`` would otherwise rebind ``0`` to
+    ``resource_attributes`` and ``8`` to ``span_exporter``. Keyword-only turns
+    every such call site into an immediate ``TypeError``.
+
+    Everything after ``config`` is keyword-only, deliberately. The removed
+    signature was ``(config, rank, world_size, resource_attributes, ...)``, so a
+    stale ``setup_telemetry(cfg, 0, 8)`` would otherwise rebind ``0`` to
+    ``resource_attributes`` and ``8`` to ``span_exporter`` -- yielding a handle
+    that reports ``is_exporting=True``, exports nothing, and still exits zero.
+    Keyword-only turns every such call site into an immediate ``TypeError``.
 
     Args:
         config: Telemetry configuration.
-        rank: This process's global rank.
-        world_size: Total number of processes.
         resource_attributes: Extra resource attributes.
         span_exporter: Optional custom span exporter (bypasses config-based exporter).
         metric_reader: Optional custom metric reader (bypasses config-based reader).
-        export_strategy: Optional callable ``(config, rank, world_size) -> bool``
-            that bypasses the registry-based dispatch. Useful for ad-hoc
-            strategies without registering globally.
 
     Returns:
         A TelemetryHandle with ``.tracer`` and ``.meter``.
@@ -141,31 +143,19 @@ def setup_telemetry(
         slurm_id = os.environ.get("SLURM_JOB_ID", "")
         config.run_id = slurm_id if slurm_id else uuid.uuid4().hex[:12]
 
-    is_export_rank = _should_export(config, rank, world_size, override=export_strategy)
-
-    if not config.enabled:
-        build_noop_providers()
-        set_enabled_span_groups(frozenset())
-        _is_exporting = False
-    elif is_export_rank:
+    if config.enabled:
         build_providers(
             config,
-            rank,
-            world_size,
-            resource_attributes,
+            resource_attributes=resource_attributes,
             span_exporter=span_exporter,
             metric_reader=metric_reader,
         )
         set_span_group_spec(config.span_groups)
-        _is_exporting = True
+        _INITIALIZED = True
     else:
         build_noop_providers()
         set_enabled_span_groups(frozenset())
-        _is_exporting = False
-
-    if config.enabled:
-        _INITIALIZED = True
 
     tracer = trace.get_tracer(_INSTRUMENTATION_SCOPE)
     meter = metrics.get_meter(_INSTRUMENTATION_SCOPE)
-    return TelemetryHandle(tracer=tracer, meter=meter, is_exporting=_is_exporting)
+    return TelemetryHandle(tracer=tracer, meter=meter, is_exporting=config.enabled)

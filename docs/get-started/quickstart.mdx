@@ -19,9 +19,9 @@ export NEMO_LENS_SPAN_GROUPS=per_step                        # adds per-step bou
 from nemo.lens import NemoLensConfig, setup_telemetry
 
 config = NemoLensConfig.from_env()
-handle = setup_telemetry(config, rank=0, world_size=1)
+handle = setup_telemetry(config)
 
-# handle.tracer — OTel Tracer (real on exporting rank, no-op elsewhere)
+# handle.tracer — OTel Tracer (real when enabled, no-op otherwise)
 # handle.meter  — OTel Meter
 # handle.is_exporting — whether this rank exports
 ```
@@ -70,7 +70,7 @@ from nemo.lens import NemoLensConfig, setup_telemetry, managed_span
 
 def main():
     config = NemoLensConfig.from_env()
-    handle = setup_telemetry(config, rank=0, world_size=1)
+    handle = setup_telemetry(config)
 
     try:
         with managed_span('job', 'demo.job'):
