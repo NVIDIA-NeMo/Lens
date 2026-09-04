@@ -37,7 +37,6 @@ NeMo Lens ships `nemo.lens.fallbacks` with canonical no-op implementations of ev
 - `span_cm(name, **kwargs)` → context manager yielding `None`
 - `is_span_group_enabled(group)` → always `False`
 - `safe_set_span_attributes(span, attributes, redact_keys=None)` → no-op
-- `encode_resource_attributes(attributes, inherited=None)` → returns the inherited value unchanged (**not** `""`: with lens absent the child has no lens either, but a launcher-set `OTEL_RESOURCE_ATTRIBUTES` must still reach it)
 
 When NeMo Lens is installed, consumers can re-export these:
 
@@ -85,7 +84,7 @@ The fallback signatures must match the real API exactly. If `managed_span` adds 
 
 Anything under `nemo.lens.fallbacks` has a guaranteed no-op equivalent. Anything else does not.
 
-The following are safe to use with fallbacks: `managed_span`, `trace_fn`, `span_cm`, `is_span_group_enabled`, `safe_set_span_attributes`, and `encode_resource_attributes`.
+The following are safe to use with fallbacks: `managed_span`, `trace_fn`, `span_cm`, `is_span_group_enabled`, and `safe_set_span_attributes`.
 
 The following require NeMo Lens to be installed: `NemoLensConfig`, `setup_telemetry`, `TelemetryHandle`, `inject_context`, `extract_context`, `broadcast_trace_context`, `create_linked_span`, all of `contrib/`, and all of `instruments/`.
 
