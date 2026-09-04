@@ -158,6 +158,19 @@ NV_DL_JOB_UUID = "nv.dl.job.uuid"
 NV_DL_RUN_UUID = "nv.dl.run.uuid"
 
 # ------------------------------------------------------------------ #
+# GPU identity (nv.gpu.*)
+# ------------------------------------------------------------------ #
+
+NV_GPU_UUID = "nv.gpu.uuid"
+NV_GPU_INDEX = "nv.gpu.index"
+NV_GPU_PCI_BUS_ID = "nv.gpu.pci_bus_id"
+NV_GPU_SERIAL = "nv.gpu.serial"
+NV_GPU_MODEL = "nv.gpu.model"
+NV_GPU_COMPUTE_CAPABILITY = "nv.gpu.compute_capability"
+NV_GPU_MEMORY_TOTAL = "nv.gpu.memory_total"
+NV_GPU_DRIVER_VERSION = "nv.gpu.driver_version"
+
+# ------------------------------------------------------------------ #
 # Run identification (nemo.*)
 # ------------------------------------------------------------------ #
 

@@ -20,6 +20,7 @@ from nemo.lens.resources.attributes import (
     publish_otel_resource_attributes,
     set_otel_resource_attributes,
 )
+from nemo.lens.resources.gpu import detect_gpu
 from nemo.lens.resources.kubernetes import detect_kubernetes
 from nemo.lens.resources.local import detect_local
 from nemo.lens.resources.slurm import detect_slurm
@@ -46,4 +47,5 @@ __all__ = [
     "extend_otel_resource_attributes",
     "set_otel_resource_attributes",
     "publish_otel_resource_attributes",
+    "detect_gpu",
 ]

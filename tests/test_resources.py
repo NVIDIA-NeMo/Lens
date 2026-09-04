@@ -17,11 +17,13 @@
 
 import logging
 import os
+import sys
 import uuid
 
 import pytest
 
 from nemo.lens.resources import (
+    detect_gpu,
     detect_resource,
     extend_otel_resource_attributes,
     publish_otel_resource_attributes,
@@ -624,6 +626,154 @@ class TestDetectLocal:
         monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
         result = detect_local()
         assert result.get("host.gpu.count") == 0
+
+
+class TestDetectGpu:
+    def test_detects_worker_gpu_identity(self, monkeypatch):
+        class FakePciInfo:
+            busId = b"00000000:81:00.0"
+
+        class FakeMemoryInfo:
+            total = 80_000_000_000
+
+        fake_pynvml = type(
+            "FakePynvml",
+            (),
+            {
+                "nvmlInit": staticmethod(lambda: None),
+                "nvmlShutdown": staticmethod(lambda: None),
+                "nvmlDeviceGetHandleByIndex": staticmethod(lambda index: f"gpu-{index}"),
+                "nvmlDeviceGetName": staticmethod(lambda handle: b"NVIDIA H100"),
+                "nvmlDeviceGetUUID": staticmethod(lambda handle: b"GPU-123"),
+                "nvmlDeviceGetSerial": staticmethod(lambda handle: b"serial-123"),
+                "nvmlDeviceGetPciInfo": staticmethod(lambda handle: FakePciInfo()),
+                "nvmlDeviceGetCudaComputeCapability": staticmethod(lambda handle: (9, 0)),
+                "nvmlDeviceGetMemoryInfo": staticmethod(lambda handle: FakeMemoryInfo()),
+                "nvmlSystemGetDriverVersion": staticmethod(lambda: b"550.54.15"),
+            },
+        )
+        monkeypatch.setitem(sys.modules, "pynvml", fake_pynvml)
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "4,5")
+
+        result = detect_gpu(local_rank=1)
+
+        assert result == {
+            "nv.gpu.index": 5,
+            "nv.gpu.model": "NVIDIA H100",
+            "nv.gpu.uuid": "GPU-123",
+            "nv.gpu.serial": "serial-123",
+            "nv.gpu.pci_bus_id": "00000000:81:00.0",
+            "nv.gpu.compute_capability": "9.0",
+            "nv.gpu.memory_total": 80_000_000_000,
+            "nv.gpu.driver_version": "550.54.15",
+        }
+
+    def test_non_numeric_visible_device_is_not_guessed(self, monkeypatch):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-123")
+
+        assert detect_gpu(local_rank=0) == {}
+
+    def test_pynvml_unavailable_returns_empty(self, monkeypatch):
+        # Simulate pynvml not installed — import raises ImportError (line 85-86).
+        monkeypatch.setitem(sys.modules, "pynvml", None)
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+
+        assert detect_gpu(local_rank=0) == {}
+
+    def test_nvml_init_failure_returns_empty(self, monkeypatch):
+        # pynvml importable but nvmlInit raises — still caught by outer except (line 85-86).
+        fake_pynvml = type(
+            "FakePynvml",
+            (),
+            {"nvmlInit": staticmethod(lambda: (_ for _ in ()).throw(RuntimeError("NVML error")))},
+        )
+        monkeypatch.setitem(sys.modules, "pynvml", fake_pynvml)
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+
+        assert detect_gpu(local_rank=0) == {}
+
+    def test_rank_out_of_visible_devices_returns_empty(self, monkeypatch):
+        # rank >= len(visible) — line 104.
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+
+        assert detect_gpu(local_rank=5) == {}
+
+    def test_no_cuda_visible_falls_back_to_rank(self, monkeypatch):
+        # CUDA_VISIBLE_DEVICES absent → line 100 returns rank directly,
+        # then pynvml is unavailable so the result is {}.
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+        monkeypatch.setitem(sys.modules, "pynvml", None)
+
+        assert detect_gpu(local_rank=0) == {}
+
+    def test_local_rank_inferred_from_env(self, monkeypatch):
+        # local_rank=None → _first_value walks env_names (lines 118-122).
+        # LOCAL_RANK=0, CUDA_VISIBLE_DEVICES absent, pynvml unavailable → {}.
+        monkeypatch.setenv("LOCAL_RANK", "0")
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+        monkeypatch.setitem(sys.modules, "pynvml", None)
+
+        assert detect_gpu(local_rank=None) == {}
+
+    def test_non_numeric_local_rank_defaults_to_zero(self, monkeypatch):
+        # LOCAL_RANK is non-numeric → int() raises ValueError → rank = 0 (lines 95-96).
+        monkeypatch.setenv("LOCAL_RANK", "bad")
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+        monkeypatch.setitem(sys.modules, "pynvml", None)
+
+        assert detect_gpu(local_rank=None) == {}
+
+    def test_no_env_rank_defaults_to_zero(self, monkeypatch):
+        # local_rank=None and all fallback env vars absent → _first_value returns None
+        # (line 122), int(None) raises TypeError → rank = 0 (lines 95-96).
+        monkeypatch.delenv("LOCAL_RANK", raising=False)
+        monkeypatch.delenv("SLURM_LOCALID", raising=False)
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+        monkeypatch.setitem(sys.modules, "pynvml", None)
+
+        assert detect_gpu(local_rank=None) == {}
+
+    def test_optional_field_exception_is_silenced(self, monkeypatch):
+        # A getter in _set_optional_field raises — attribute is skipped (lines 141-142).
+        fake_pynvml = type(
+            "FakePynvml",
+            (),
+            {
+                "nvmlInit": staticmethod(lambda: None),
+                "nvmlShutdown": staticmethod(lambda: None),
+                "nvmlDeviceGetHandleByIndex": staticmethod(lambda index: "gpu-0"),
+                "nvmlDeviceGetName": staticmethod(lambda handle: b"NVIDIA H100"),
+                "nvmlDeviceGetUUID": staticmethod(lambda handle: b"GPU-abc"),
+                # Serial raises → skipped silently.
+                "nvmlDeviceGetSerial": staticmethod(
+                    lambda handle: (_ for _ in ()).throw(RuntimeError("not supported"))
+                ),
+                # PCI info raises too.
+                "nvmlDeviceGetPciInfo": staticmethod(
+                    lambda handle: (_ for _ in ()).throw(RuntimeError("not supported"))
+                ),
+                # Compute capability raises → lines 149-150.
+                "nvmlDeviceGetCudaComputeCapability": staticmethod(
+                    lambda handle: (_ for _ in ()).throw(RuntimeError("not supported"))
+                ),
+                # Memory info raises.
+                "nvmlDeviceGetMemoryInfo": staticmethod(
+                    lambda handle: (_ for _ in ()).throw(RuntimeError("not supported"))
+                ),
+                "nvmlSystemGetDriverVersion": staticmethod(lambda: b"550.0"),
+            },
+        )
+        monkeypatch.setitem(sys.modules, "pynvml", fake_pynvml)
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+
+        result = detect_gpu(local_rank=0)
+
+        assert result["nv.gpu.model"] == "NVIDIA H100"
+        assert result["nv.gpu.uuid"] == "GPU-abc"
+        assert "nv.gpu.serial" not in result
+        assert "nv.gpu.pci_bus_id" not in result
+        assert "nv.gpu.compute_capability" not in result
+        assert "nv.gpu.memory_total" not in result
 
 
 class TestDetectResource:
