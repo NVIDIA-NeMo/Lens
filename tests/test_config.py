@@ -15,9 +15,34 @@
 
 """Unit tests for NemoLensConfig."""
 
+import copy
+import json
+from dataclasses import asdict, replace
+
 import pytest
 
 from nemo.lens.config import NemoLensConfig
+
+
+@pytest.mark.parametrize("name", [None, "nemo", "trainer", "", "   "])
+def test_service_name_round_trips_without_promoting_default(name):
+    config = NemoLensConfig(service_name=name)
+    copies = [copy.copy(config), copy.deepcopy(config), replace(config)]
+    copies.append(NemoLensConfig(**json.loads(json.dumps(asdict(config)))))
+    assert all(candidate.service_name == name for candidate in copies)
+    config.service_name = "nemo"
+    assert config.service_name == "nemo"
+    config.service_name = None
+    assert config.service_name is None
+
+
+@pytest.mark.parametrize("value", [None, "", "  ", "nemo", " trainer "])
+def test_service_name_environment_retains_unset(monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
+    else:
+        monkeypatch.setenv("OTEL_SERVICE_NAME", value)
+    assert NemoLensConfig.from_env().service_name == ((value or "").strip() or None)
 
 
 class TestNemoLensConfigDefaults:
@@ -27,7 +52,7 @@ class TestNemoLensConfigDefaults:
 
     def test_default_service_name(self):
         cfg = NemoLensConfig()
-        assert cfg.service_name == "nemo"
+        assert cfg.service_name is None
 
     def test_default_traces_enabled(self):
         cfg = NemoLensConfig()
@@ -79,7 +104,7 @@ class TestNemoLensConfigFromEnv:
         self._clear_env(monkeypatch)
         cfg = NemoLensConfig.from_env()
         assert cfg.enabled is False
-        assert cfg.service_name == "nemo"
+        assert cfg.service_name is None
 
     def test_enabled_set_by_env_var(self, monkeypatch):
         self._clear_env(monkeypatch)

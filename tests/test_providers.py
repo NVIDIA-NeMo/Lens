@@ -36,7 +36,67 @@ from nemo.lens.providers import (
     build_noop_providers,
     build_providers,
 )
-from nemo.lens.semconv import NEMO_SPAN_TRUNCATED, NV_DL_RANK, NV_DL_WORLD_SIZE, SLURM_JOB_ID
+from nemo.lens.semconv import (
+    NEMO_SPAN_TRUNCATED,
+    NV_DL_RANK,
+    NV_DL_ROLE,
+    NV_DL_RUN_UUID,
+    NV_DL_WORLD_SIZE,
+    SLURM_JOB_ID,
+)
+
+
+@pytest.mark.parametrize(
+    "inherited,environment,explicit,assignment,default,resource,expected",
+    [
+        ("pretraining", None, None, [], "megatron-lm", None, "pretraining"),
+        ("pretraining", None, "debug-pretraining", [], "megatron-lm", None, "debug-pretraining"),
+        (None, None, None, [], "megatron-lm", None, "megatron-lm"),
+        (None, None, None, [], None, None, "nemo"),
+        ("pretraining", None, "nemo", [], None, None, "nemo"),
+        ("pretraining", "environment", None, [], None, None, "environment"),
+        ("pretraining", "environment", None, ["worker"], None, None, "worker"),
+        ("pretraining", "environment", None, ["worker"], None, "resource", "resource"),
+        ("pretraining", "environment", None, [None], None, None, "pretraining"),
+        ("pretraining", "environment", None, ["  "], None, None, "pretraining"),
+        ("pretraining", "  ", None, [], None, " ", "pretraining"),
+        (" ", None, "", [], "application", None, "application"),
+        (None, None, None, [], " ", "", "nemo"),
+        (None, None, " trainer ", [], None, None, "trainer"),
+    ],
+)
+def test_exported_service_name_precedence(
+    monkeypatch, inherited, environment, explicit, assignment, default, resource, expected
+):
+    from tests.conftest import InMemorySpanExporter
+
+    monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
+    if environment is not None:
+        monkeypatch.setenv("OTEL_SERVICE_NAME", environment)
+    if inherited is not None:
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", f"service.name={inherited}")
+    config = NemoLensConfig.from_env()
+    if explicit is not None:
+        config = NemoLensConfig(service_name=explicit)
+    for value in assignment:
+        config.service_name = value
+    config.enabled = True
+    config.metrics_enabled = False
+    exporter = InMemorySpanExporter()
+    build_providers(
+        config,
+        resource_attributes={"service.name": resource},
+        resource_attribute_defaults={"service.name": default},
+        span_exporter=exporter,
+    )
+    provider = trace.get_tracer_provider()
+    try:
+        with provider.get_tracer(__name__).start_as_current_span("service-test"):
+            pass
+        provider.force_flush()
+        assert exporter.get_finished_spans()[0].resource.attributes["service.name"] == expected
+    finally:
+        provider.shutdown()
 
 
 class TestBuildNoopProviders:
@@ -82,7 +142,7 @@ class TestBuildProviders:
         cfg = NemoLensConfig(enabled=True, exporter="console")
         build_providers(
             cfg,
-            resource_attributes={
+            resource_attribute_defaults={
                 SLURM_JOB_ID: "default",
                 NV_DL_RANK: 0,
                 NV_DL_WORLD_SIZE: 1,
@@ -97,6 +157,77 @@ class TestBuildProviders:
 
         spans = custom_exporter.get_finished_spans()
         assert spans[0].resource.attributes[SLURM_JOB_ID] == "launch"
+
+    def test_composes_inherited_defaults_and_authoritative_process_identity(self, monkeypatch):
+        import nemo.lens.resources as resources
+        import nemo.lens.resources.slurm as slurm
+
+        calls = []
+        monkeypatch.setenv(
+            "OTEL_RESOURCE_ATTRIBUTES",
+            "nv.dl.rank=launcher-rank,nv.dl.role=worker,nemo.run.id=launcher-run,launcher.key=kept",
+        )
+        monkeypatch.setattr(resources, "detect_kubernetes", lambda: {"k8s.pod.name": "pod-0"})
+        monkeypatch.setattr(
+            resources, "detect_gpu", lambda local_rank: calls.append(local_rank) or {}
+        )
+        monkeypatch.setattr(
+            slurm,
+            "derive_nv_dl_run_uuid",
+            lambda *, run_id=None: f"uuid-for-{run_id}",
+        )
+
+        cfg = NemoLensConfig(
+            enabled=True,
+            exporter="console",
+            traces_enabled=False,
+            metrics_enabled=False,
+            run_id="resolved-run",
+        )
+        logical = build_providers(
+            cfg,
+            resource_attribute_defaults={NV_DL_RANK: 3, NV_DL_WORLD_SIZE: 8},
+            resource_attributes={NV_DL_ROLE: "trainer"},
+            local_rank=1,
+        )
+
+        assert logical[NV_DL_RANK] == "launcher-rank"
+        assert logical[NV_DL_WORLD_SIZE] == 8
+        assert logical[NV_DL_ROLE] == "trainer"
+        assert logical[NV_DL_RUN_UUID] == "uuid-for-launcher-run"
+        assert logical["launcher.key"] == "kept"
+        assert logical["k8s.pod.name"] == "pod-0"
+        assert "process.pid" not in logical
+        assert calls == [1]
+
+    def test_explicit_local_identity_applies_only_to_current_provider(self):
+        cfg = NemoLensConfig(enabled=True, exporter="console")
+
+        logical = build_providers(cfg, resource_attributes={"process.pid": 123})
+
+        assert trace.get_tracer_provider().resource.attributes["process.pid"] == 123
+        assert "process.pid" not in logical
+
+    def test_preserves_inherited_run_uuid_without_deriving_another(self, monkeypatch):
+        import nemo.lens.resources.slurm as slurm
+
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", f"{NV_DL_RUN_UUID}=launcher-uuid")
+
+        def fail(*args, **kwargs):
+            raise AssertionError("an inherited run UUID must not be re-derived")
+
+        monkeypatch.setattr(slurm, "derive_nv_dl_run_uuid", fail)
+        cfg = NemoLensConfig(
+            enabled=True,
+            exporter="console",
+            traces_enabled=False,
+            metrics_enabled=False,
+            run_id="resolved-run",
+        )
+
+        logical = build_providers(cfg)
+
+        assert logical[NV_DL_RUN_UUID] == "launcher-uuid"
 
     def test_rank_resource_attributes_use_v01_names(self, monkeypatch):
         from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter

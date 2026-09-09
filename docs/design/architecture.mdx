@@ -74,7 +74,7 @@ Each layer depends only on layers above it. No circular imports.
 ## Call Flow for `setup_telemetry`
 
 ```
-setup_telemetry(config, resource_attributes)
+setup_telemetry(config, resource_attributes, resource_attribute_defaults, local_rank, ...)
   │
   ├─ if _INITIALIZED and config.enabled and not _allow_reinit:
   │     raise RuntimeError          # [double-init guard]

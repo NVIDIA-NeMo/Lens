@@ -15,12 +15,22 @@
 
 """Unit tests for TelemetryHandle and setup_telemetry."""
 
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from nemo.lens.config import NemoLensConfig
 from nemo.lens.groups import SpanRegistry
 from nemo.lens.handle import TelemetryHandle, ensure_run_id, setup_telemetry
+from nemo.lens.resources.attributes import parse_otel_resource_attributes
+from nemo.lens.semconv import NV_DL_RANK, NV_DL_ROLE, NV_DL_WORLD_SIZE
 from nemo.lens.state import is_span_group_enabled
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestSetupTelemetryDisabled:
@@ -54,6 +64,28 @@ class TestSetupTelemetryDisabled:
         cfg = NemoLensConfig(enabled=False)
         handle = setup_telemetry(cfg)
         assert handle.is_exporting is False
+
+    def test_does_not_detect_or_publish_resources(self, monkeypatch):
+        import nemo.lens.resources as resources
+
+        def fail(*args, **kwargs):
+            raise AssertionError("disabled telemetry must not detect resources")
+
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "launcher.key=unchanged")
+        monkeypatch.setattr(resources, "detect_gpu", fail)
+        monkeypatch.setattr(resources, "detect_kubernetes", fail)
+        monkeypatch.setattr(resources, "detect_local", fail)
+        monkeypatch.setattr(resources, "detect_slurm", fail)
+
+        cfg = NemoLensConfig(enabled=False)
+        handle = setup_telemetry(
+            cfg,
+            resource_attribute_defaults={NV_DL_RANK: 3},
+            publish_resource_attributes=True,
+        )
+
+        assert handle.resource_attributes == {}
+        assert os.environ["OTEL_RESOURCE_ATTRIBUTES"] == "launcher.key=unchanged"
 
 
 class TestSetupTelemetryEnabled:
@@ -127,6 +159,148 @@ class TestSetupTelemetryEnabled:
         cfg = NemoLensConfig(enabled=True, exporter="console")
         with pytest.raises(TypeError):
             setup_telemetry(cfg, 0, 8)
+
+    @pytest.mark.parametrize("inherited", [False, True])
+    def test_service_name_carrier_agrees_without_expanding_keys(self, monkeypatch, inherited):
+        from opentelemetry import trace
+
+        previous = "custom.key=with%20space"
+        if inherited:
+            previous += ",service.name=pretraining"
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", previous)
+        config = NemoLensConfig(
+            enabled=True, metrics_enabled=False, service_name="worker", exporter="console"
+        )
+        handle = setup_telemetry(config, publish_resource_attributes=True)
+        try:
+            assert trace.get_tracer_provider().resource.attributes["service.name"] == "worker"
+            carrier = parse_otel_resource_attributes(os.environ["OTEL_RESOURCE_ATTRIBUTES"])
+            if inherited:
+                assert (
+                    carrier["service.name"]
+                    == handle.resource_attributes["service.name"]
+                    == "worker"
+                )
+            else:
+                assert "service.name" not in carrier
+                assert "service.name" not in handle.resource_attributes
+        finally:
+            handle.shutdown()
+        assert os.environ["OTEL_RESOURCE_ATTRIBUTES"] == previous
+
+    def test_publishes_resolved_resource_map_for_handle_lifetime(self, monkeypatch):
+        previous = "launcher.key=with%20space,nv.dl.rank=launcher-rank,nv.dl.role=worker"
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", previous)
+        cfg = NemoLensConfig(
+            enabled=True,
+            exporter="console",
+            traces_enabled=False,
+            metrics_enabled=False,
+            run_id="run-1",
+        )
+
+        handle = setup_telemetry(
+            cfg,
+            resource_attribute_defaults={NV_DL_RANK: 3, NV_DL_WORLD_SIZE: 8},
+            resource_attributes={NV_DL_ROLE: "trainer"},
+            local_rank=0,
+            publish_resource_attributes=True,
+        )
+
+        published = parse_otel_resource_attributes(os.environ["OTEL_RESOURCE_ATTRIBUTES"])
+        assert published == {key: str(value) for key, value in handle.resource_attributes.items()}
+        assert published[NV_DL_RANK] == "launcher-rank"
+        assert published[NV_DL_ROLE] == "trainer"
+        assert published["launcher.key"] == "with space"
+
+        handle.shutdown()
+        handle.shutdown()
+        assert os.environ["OTEL_RESOURCE_ATTRIBUTES"] == previous
+
+    def test_stale_local_identity_is_replaced_and_not_inherited_by_child(self, monkeypatch):
+        from opentelemetry import trace
+
+        local_keys = {"host.name", "host.gpu.count", "process.pid"}
+        monkeypatch.setenv(
+            "OTEL_RESOURCE_ATTRIBUTES",
+            "process.pid=999,host.name=ancestor,host.gpu.count=99,nv.dl.rank=0",
+        )
+        cfg = NemoLensConfig(
+            enabled=True,
+            exporter="console",
+            metrics_enabled=False,
+            run_id="parent",
+        )
+
+        handle = setup_telemetry(cfg, publish_resource_attributes=True)
+
+        parent_resource = dict(trace.get_tracer_provider().resource.attributes)
+        published = parse_otel_resource_attributes(os.environ["OTEL_RESOURCE_ATTRIBUTES"])
+        assert parent_resource["process.pid"] == os.getpid()
+        assert local_keys.isdisjoint(published)
+
+        child_code = """
+import json
+import os
+from opentelemetry import trace
+from nemo.lens import NemoLensConfig, setup_telemetry
+from nemo.lens.resources.attributes import parse_otel_resource_attributes
+
+config = NemoLensConfig(
+    enabled=True,
+    exporter="console",
+    metrics_enabled=False,
+    run_id="child",
+)
+handle = setup_telemetry(config, publish_resource_attributes=True)
+resource = dict(trace.get_tracer_provider().resource.attributes)
+carrier = parse_otel_resource_attributes(os.environ["OTEL_RESOURCE_ATTRIBUTES"])
+print(json.dumps({"pid": os.getpid(), "resource_pid": resource["process.pid"], "carrier": carrier}))
+handle.shutdown()
+"""
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.pathsep.join([str(REPO_ROOT / "src"), env.get("PYTHONPATH", "")])
+        result = subprocess.run(
+            [sys.executable, "-c", child_code],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert result.returncode == 0, result.stderr
+        child = json.loads(result.stdout.strip().splitlines()[-1])
+        assert child["resource_pid"] == child["pid"]
+        assert local_keys.isdisjoint(child["carrier"])
+
+        handle.shutdown()
+        assert os.environ["OTEL_RESOURCE_ATTRIBUTES"].startswith("process.pid=999,")
+
+    def test_publication_failure_restores_previous_environment(self, monkeypatch):
+        import nemo.lens.resources.attributes as attributes
+
+        previous = "launcher.key=original"
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", previous)
+
+        def fail_after_mutation(additions, *, environ=None, overwrite=False, exclude=()):
+            os.environ["OTEL_RESOURCE_ATTRIBUTES"] = "partially=changed"
+            raise RuntimeError("publication failed")
+
+        monkeypatch.setattr(attributes, "set_otel_resource_attributes", fail_after_mutation)
+        cfg = NemoLensConfig(
+            enabled=True,
+            exporter="console",
+            traces_enabled=False,
+            metrics_enabled=False,
+        )
+
+        with pytest.raises(RuntimeError, match="publication failed"):
+            setup_telemetry(
+                cfg,
+                resource_attribute_defaults={NV_DL_RANK: 0},
+                publish_resource_attributes=True,
+            )
+
+        assert os.environ["OTEL_RESOURCE_ATTRIBUTES"] == previous
 
 
 class TestSetupTelemetrySpanGroups:

@@ -47,7 +47,20 @@ A `NemoLensConfig` object contains fields divided into several functional catego
 | Field | Default | Description |
 |---|---|---|
 | `enabled` | `False` | Master toggle. Must be `True` to activate any telemetry. |
-| `service_name` | `"nemo"` | OTLP service name. Overridden by `OTEL_SERVICE_NAME`. |
+| `service_name` | `None` | Explicit service-name override. `from_env()` selects non-empty `OTEL_SERVICE_NAME`; otherwise leaves it unspecified. |
+
+`service_name=None` leaves naming to inheritance, an application default, or
+finally Lens's compatibility fallback `"nemo"`. This replaces the earlier
+config-field default `"nemo"`; the exported fallback is unchanged. Code that
+reads the config field before setup must now allow `None`.
+
+Constructor values and later assignments are explicit, including the literal
+`"nemo"`. Assigning `None`, `""`, or whitespace clears that override. Names are
+trimmed when resolved. `from_env()` reads the environment once; a later
+assignment can override or clear its choice. Dataclass `replace()`/`asdict()`,
+copy/deepcopy, and JSON reconstruction preserve the unset value as `None`/`null`.
+Supply library defaults through `resource_attribute_defaults`, not by assigning
+them to `config.service_name`. See [service-name precedence](/user-guide/resources#service-name-precedence).
 
 ### Restricting Which Processes Export
 
@@ -152,6 +165,9 @@ setup_telemetry(
     config: NemoLensConfig,
     *,
     resource_attributes: dict | None = None,
+    resource_attribute_defaults: dict | None = None,
+    local_rank: int | str | None = None,
+    publish_resource_attributes: bool = False,
     span_exporter=None,
     metric_reader=None,
     _allow_reinit: bool = False,
@@ -161,7 +177,10 @@ setup_telemetry(
 | Parameter | Description |
 |---|---|
 | `config` | The `NemoLensConfig` object, typically from `from_env()`. The only positional parameter — everything after it is keyword-only. |
-| `resource_attributes` | Extra attributes to merge into the OTel `Resource` (become Jaeger "Process" tags). A distributed caller supplies its own position here, as `{NV_DL_RANK: rank, NV_DL_WORLD_SIZE: world_size}` — lens does not derive it, and warns at startup if `nv.dl.rank` is missing. |
+| `resource_attributes` | Authoritative attributes that replace inherited or detected values. Use this for process-local identity such as `nv.dl.role`. |
+| `resource_attribute_defaults` | Application attributes used only when the launcher and Lens detection did not supply the key. Use this for rank, topology, configuration, and software defaults that must preserve inherited values. |
+| `local_rank` | Optional local rank used to select the physical GPU during best-effort GPU detection. |
+| `publish_resource_attributes` | When true, keep the resolved inheritable map in `OTEL_RESOURCE_ATTRIBUTES` until the returned handle shuts down, so future child processes inherit the same baseline. |
 | `span_exporter` | Optional custom `SpanExporter`, bypasses config-based construction. See [Custom Exporters](../user-guide/custom-exporters.mdx). |
 | `metric_reader` | Optional custom `MetricReader`, bypasses config-based construction. |
 | `_allow_reinit` | Escape hatch for testing only, which bypasses the [double-initialization guard](../design/double-init-guard.mdx). |
@@ -170,6 +189,7 @@ Returns a `TelemetryHandle` exposing:
 
 - `.tracer` and `.meter`: read-only properties holding the OTel tracer and meter (no-op objects when telemetry is disabled).
 - `.is_exporting`: a `bool` indicating whether real exporting providers were built. Now equivalent to `config.enabled`.
+- `.resource_attributes`: the resolved inheritable Resource map (empty when telemetry is disabled).
 - `.shutdown(timeout_ms=5000)`: force-flushes and shuts down both the tracer and meter providers.
 
 <Info>

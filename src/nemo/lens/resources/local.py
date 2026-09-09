@@ -18,6 +18,14 @@
 import os
 import socket
 
+LOCAL_RESOURCE_ATTRIBUTE_KEYS = frozenset(
+    {
+        "host.name",
+        "host.gpu.count",
+        "process.pid",
+    }
+)
+
 
 def detect_local() -> dict:
     """Detect local environment attributes."""

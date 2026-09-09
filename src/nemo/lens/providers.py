@@ -26,9 +26,16 @@ import logging
 import os
 import random
 import threading
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
-from nemo.lens.semconv import NEMO_SPAN_TRUNCATED, NV_DL_RANK, NV_DL_WORLD_SIZE
+from nemo.lens.semconv import (
+    NEMO_RUN_ID,
+    NEMO_SPAN_TRUNCATED,
+    NV_DL_RANK,
+    NV_DL_RUN_UUID,
+    NV_DL_WORLD_SIZE,
+)
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
@@ -223,19 +230,27 @@ class SeedIndependentIdGenerator:
 
 def build_providers(
     config: NemoLensConfig,
-    resource_attributes: dict | None = None,
+    resource_attributes: Mapping | None = None,
+    resource_attribute_defaults: Mapping | None = None,
+    local_rank: int | str | None = None,
     span_exporter=None,
     metric_reader=None,
-) -> None:
+) -> dict:
     """Initialise TracerProvider, MeterProvider, and optionally LoggerProvider.
 
     Imports the OTel SDK. Raises ImportError if not installed.
 
     Args:
         config: Telemetry configuration.
-        resource_attributes: Extra resource attributes to merge. A distributed
-            caller supplies its own identity here (``nv.dl.rank``,
-            ``nv.dl.world_size``); lens does not derive them.
+        resource_attributes: Authoritative resource attributes. These override
+            inherited and detected values and are appropriate for process-local
+            identity such as ``nv.dl.role``.
+        resource_attribute_defaults: Caller-provided defaults used only when a
+            value was not inherited or detected. A distributed application can
+            supply rank, topology, configuration, and software identity here
+            while preserving launcher-provided values.
+        local_rank: Optional local rank used to select the physical GPU during
+            best-effort GPU detection.
         span_exporter: Optional custom span exporter (bypasses config-based exporter).
         metric_reader: Optional custom metric reader (bypasses config-based reader).
     """
@@ -253,7 +268,6 @@ def build_providers(
     from nemo.lens.package_info import __version__
 
     attrs = {
-        "service.name": config.service_name,
         "service.version": __version__,
     }
     # Run identification — shared across all ranks in a job.
@@ -269,14 +283,47 @@ def build_providers(
     env_name = os.environ.get("DEPLOYMENT_ENV", os.environ.get("ENVIRONMENT", ""))
     if env_name:
         attrs["deployment.environment"] = env_name
-    if resource_attributes:
-        attrs.update(resource_attributes)
+    logical_resource_attributes = _compose_resource_attributes(
+        config,
+        resource_attributes=resource_attributes,
+        resource_attribute_defaults=resource_attribute_defaults,
+        local_rank=local_rank,
+    )
 
-    # Detect deployment environment
-    from nemo.lens.resources import detect_resource
+    # Resolve explicit Resource > explicit config > inherited/application default
+    # > generic fallback. An explicit "nemo" is not the same as an unset config.
+    service_name = next(
+        value.strip()
+        for value in (
+            (resource_attributes or {}).get("service.name"),
+            config.service_name,
+            logical_resource_attributes.get("service.name"),
+            "nemo",
+        )
+        if isinstance(value, str) and value.strip()
+    )
+    attrs["service.name"] = service_name
+    # Keep an already-carried name consistent, without adding a new carrier key.
+    if "service.name" in logical_resource_attributes:
+        logical_resource_attributes["service.name"] = service_name
 
-    detected = detect_resource()
-    attrs.update(detected)
+    # Process-local detection is deliberately excluded from the inheritable
+    # logical map. Publishing a parent's host or process identity into a spawned
+    # worker would make the child's Resource incorrect. Explicit caller values
+    # for these keys remain authoritative for this provider but are not carried
+    # into future children.
+    from nemo.lens.resources import detect_local
+    from nemo.lens.resources.local import LOCAL_RESOURCE_ATTRIBUTE_KEYS
+
+    attrs.update(detect_local())
+    attrs.update(
+        {
+            key: value
+            for key, value in (resource_attributes or {}).items()
+            if key in LOCAL_RESOURCE_ATTRIBUTE_KEYS and value is not None and value != ""
+        }
+    )
+    attrs.update(logical_resource_attributes)
 
     # OTEL_RESOURCE_ATTRIBUTES is the only identity channel that survives a spawn
     # or an exec, so nv.dl.rank legitimately arrives there rather than through
@@ -369,6 +416,79 @@ def build_providers(
     # Propagator (W3C TraceContext + Baggage)
     # ------------------------------------------------------------------
     _set_propagator()
+    return logical_resource_attributes
+
+
+def _compose_resource_attributes(
+    config: NemoLensConfig,
+    *,
+    resource_attributes: Mapping | None,
+    resource_attribute_defaults: Mapping | None,
+    local_rank: int | str | None,
+) -> dict:
+    """Resolve the inheritable Resource map for one provider setup.
+
+    Launcher attributes and Lens detection replace application defaults. The
+    explicit ``resource_attributes`` map is the final authoritative overlay.
+    Every detector is invoked at most once on this setup path.
+    """
+    from nemo.lens.resources import detect_gpu, detect_kubernetes, detect_slurm
+    from nemo.lens.resources.attributes import (
+        get_otel_resource_attributes,
+        merge_resource_attributes,
+    )
+    from nemo.lens.resources.local import LOCAL_RESOURCE_ATTRIBUTE_KEYS
+    from nemo.lens.resources.slurm import (
+        SLURM_RESOURCE_ATTRIBUTE_KEYS,
+        derive_nv_dl_run_uuid,
+    )
+
+    inherited = get_otel_resource_attributes()
+    # detect_slurm() normalizes its allowlisted inherited values. Do not put the
+    # raw string versions back afterward, especially for integer attributes.
+    inherited_non_slurm = {
+        key: value
+        for key, value in inherited.items()
+        if key not in SLURM_RESOURCE_ATTRIBUTE_KEYS and key not in LOCAL_RESOURCE_ATTRIBUTE_KEYS
+    }
+    inherited_unresolved_slurm = {
+        key: value for key, value in inherited.items() if key in SLURM_RESOURCE_ATTRIBUTE_KEYS
+    }
+
+    defaults = {
+        key: value
+        for key, value in (resource_attribute_defaults or {}).items()
+        if key not in LOCAL_RESOURCE_ATTRIBUTE_KEYS
+    }
+    authoritative = {
+        key: value
+        for key, value in (resource_attributes or {}).items()
+        if key not in LOCAL_RESOURCE_ATTRIBUTE_KEYS
+    }
+
+    # Empty service names clear that source's override, not a lower-priority
+    # name. Other Resource fields retain their existing merge semantics.
+    for source in (defaults, inherited_non_slurm, authoritative):
+        value = source.get("service.name")
+        if not isinstance(value, str) or not value.strip():
+            source.pop("service.name", None)
+
+    logical = merge_resource_attributes({}, defaults)
+    logical = merge_resource_attributes(logical, detect_slurm(), overwrite=True)
+    logical = merge_resource_attributes(logical, detect_kubernetes(), overwrite=True)
+    logical = merge_resource_attributes(logical, inherited_non_slurm, overwrite=True)
+    # Keep an inherited allowlisted key only when Slurm detection could not
+    # normalize it or produce a local fallback. This makes the logical map match
+    # the OTel SDK's eventual Resource without replacing a valid normalized value.
+    logical = merge_resource_attributes(logical, inherited_unresolved_slurm)
+    logical = merge_resource_attributes(logical, authoritative, overwrite=True)
+
+    if NV_DL_RUN_UUID not in logical:
+        run_id = logical.get(NEMO_RUN_ID) or config.run_id
+        run_uuid = derive_nv_dl_run_uuid(run_id=str(run_id) if run_id else None)
+        logical = merge_resource_attributes(logical, {NV_DL_RUN_UUID: run_uuid})
+    logical = merge_resource_attributes(logical, detect_gpu(local_rank))
+    return logical
 
 
 def _warn_no_rank(attrs, *, explicit_identity: bool) -> None:

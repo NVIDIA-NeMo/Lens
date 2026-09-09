@@ -71,6 +71,12 @@ nv.dl.run.uuid               — stable run-attempt identifier
 nv.dl.rank                   — global rank resource attribute
 nv.dl.world_size             — total ranks resource attribute
 nv.dl.local_rank             — rank on this node resource attribute
+nv.dl.role                   — process role, such as trainer or checkpoint worker
+nv.dl.provider.name          — training framework or provider identity
+nv.dl.topology.size.{tp,pp,dp}
+nv.dl.training.config.*      — stable training configuration
+nv.dl.training.target.*      — configured execution targets
+nv.dl.software.*             — application-observed software versions
 dl.tensor_parallel.{rank,size}
 dl.pipeline_parallel.{rank,size}
 dl.data_parallel.{rank,size}

@@ -117,6 +117,7 @@ def extend_otel_resource_attributes(
     additions: ResourceAttributes,
     *,
     overwrite: bool = False,
+    exclude: Iterable[str] = (),
 ) -> str:
     """Add attributes while preserving untouched inherited segments.
 
@@ -129,7 +130,10 @@ def extend_otel_resource_attributes(
             f"additions must be a mapping of name -> value, got {type(additions).__name__}."
         )
 
-    inherited = list(_otel_resource_attribute_segments(value))
+    excluded = frozenset(exclude)
+    inherited = [
+        (key, item) for key, item in _otel_resource_attribute_segments(value) if key not in excluded
+    ]
     encoded = format_otel_resource_attributes(
         {key: item for key, item in additions.items() if item is not None and item != ""}
     )
@@ -150,6 +154,7 @@ def set_otel_resource_attributes(
     *,
     environ: MutableMapping[str, str] | None = None,
     overwrite: bool = False,
+    exclude: Iterable[str] = (),
 ) -> str:
     """Publish attributes into an environment mapping.
 
@@ -160,6 +165,7 @@ def set_otel_resource_attributes(
         env.get(OTEL_RESOURCE_ATTRIBUTES_ENV),
         additions,
         overwrite=overwrite,
+        exclude=exclude,
     )
     env[OTEL_RESOURCE_ATTRIBUTES_ENV] = value
     return value
@@ -171,10 +177,12 @@ def publish_otel_resource_attributes(
     *,
     environ: MutableMapping[str, str] | None = None,
     overwrite: bool = True,
+    exclude: Iterable[str] = (),
 ) -> Iterator[None]:
     """Temporarily publish attributes for children created inside the scope.
 
-    Child identity replaces stale inherited values by default. The exact prior
+    Child identity replaces stale inherited values by default. Keys in
+    ``exclude`` are removed while the scope is active. The exact prior
     environment state is restored when the scope exits, including on error.
     Because environment variables are process-global, publisher scopes may nest
     in one thread but must not overlap across threads; callers must serialize
@@ -183,8 +191,13 @@ def publish_otel_resource_attributes(
     env = os.environ if environ is None else environ
     had_previous = OTEL_RESOURCE_ATTRIBUTES_ENV in env
     previous = env.get(OTEL_RESOURCE_ATTRIBUTES_ENV)
-    set_otel_resource_attributes(additions, environ=env, overwrite=overwrite)
     try:
+        set_otel_resource_attributes(
+            additions,
+            environ=env,
+            overwrite=overwrite,
+            exclude=exclude,
+        )
         yield
     finally:
         if had_previous:

@@ -32,8 +32,10 @@ class NemoLensConfig:
     #: Must be explicitly True to activate telemetry.
     enabled: bool = False
 
-    #: Human-readable service name for the OTLP backend.
-    service_name: str = "nemo"
+    #: Explicit service name, or None to inherit/use an application default.
+    #: Empty/whitespace-only values also clear the override. Setup falls back
+    #: to "nemo" only when no source supplies a name.
+    service_name: str | None = None
 
     #: Enable trace spans.
     traces_enabled: bool = True
@@ -112,7 +114,7 @@ class NemoLensConfig:
                 "Expected '1'/'0', 'true'/'false', 'yes'/'no', 'on'/'off'."
             )
 
-        service_name = os.environ.get("OTEL_SERVICE_NAME", "").strip() or "nemo"
+        service_name = os.environ.get("OTEL_SERVICE_NAME", "").strip() or None
 
         return cls(
             enabled=_bool("ENABLED", False),
