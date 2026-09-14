@@ -110,11 +110,16 @@ def setup_telemetry(
     resource_attribute_defaults: Mapping | None = None,
     local_rank: int | str | None = None,
     publish_resource_attributes: bool = False,
+    derive_run_uuid: bool = True,
     span_exporter=None,
     metric_reader=None,
     _allow_reinit: bool = False,
 ) -> TelemetryHandle:
     """Initialise OTel providers and return a TelemetryHandle.
+
+    ``derive_run_uuid=False`` makes the Resource job-scoped: it excludes
+    ``nv.dl.run.uuid`` from all sources and from any published carrier, not
+    merely the derivation fallback. Use it for processes spanning run attempts.
 
     Single entry point for telemetry initialisation. Call once per process.
 
@@ -179,6 +184,7 @@ def setup_telemetry(
             resource_attributes=resource_attributes,
             resource_attribute_defaults=resource_attribute_defaults,
             local_rank=local_rank,
+            derive_run_uuid=derive_run_uuid,
             span_exporter=span_exporter,
             metric_reader=metric_reader,
         )
@@ -198,10 +204,12 @@ def setup_telemetry(
     if config.enabled and publish_resource_attributes:
         from nemo.lens.resources import publish_otel_resource_attributes
         from nemo.lens.resources.local import LOCAL_RESOURCE_ATTRIBUTE_KEYS
+        from nemo.lens.semconv import NV_DL_RUN_UUID
 
         publisher = publish_otel_resource_attributes(
             logical_resource_attributes,
-            exclude=LOCAL_RESOURCE_ATTRIBUTE_KEYS,
+            exclude=LOCAL_RESOURCE_ATTRIBUTE_KEYS
+            | ({NV_DL_RUN_UUID} if not derive_run_uuid else set()),
         )
         try:
             publisher.__enter__()

@@ -235,6 +235,8 @@ def build_providers(
     local_rank: int | str | None = None,
     span_exporter=None,
     metric_reader=None,
+    *,
+    derive_run_uuid: bool = True,
 ) -> dict:
     """Initialise TracerProvider, MeterProvider, and optionally LoggerProvider.
 
@@ -288,6 +290,7 @@ def build_providers(
         resource_attributes=resource_attributes,
         resource_attribute_defaults=resource_attribute_defaults,
         local_rank=local_rank,
+        derive_run_uuid=derive_run_uuid,
     )
 
     # Resolve explicit Resource > explicit config > inherited/application default
@@ -362,6 +365,13 @@ def build_providers(
         _warn_no_rank(resolved, explicit_identity=explicit_identity)
 
     resource = Resource.create(attrs)
+    if not derive_run_uuid:
+        # Resource.create re-reads the environment. Exclude at the final boundary
+        # too, without mutating the process-wide carrier or dropping SDK defaults.
+        resource = Resource(
+            {key: value for key, value in resource.attributes.items() if key != NV_DL_RUN_UUID},
+            schema_url=resource.schema_url,
+        )
 
     # ------------------------------------------------------------------
     # Traces
@@ -425,6 +435,7 @@ def _compose_resource_attributes(
     resource_attributes: Mapping | None,
     resource_attribute_defaults: Mapping | None,
     local_rank: int | str | None,
+    derive_run_uuid: bool = True,
 ) -> dict:
     """Resolve the inheritable Resource map for one provider setup.
 
@@ -483,7 +494,9 @@ def _compose_resource_attributes(
     logical = merge_resource_attributes(logical, inherited_unresolved_slurm)
     logical = merge_resource_attributes(logical, authoritative, overwrite=True)
 
-    if NV_DL_RUN_UUID not in logical:
+    if not derive_run_uuid:
+        logical.pop(NV_DL_RUN_UUID, None)
+    elif NV_DL_RUN_UUID not in logical:
         run_id = logical.get(NEMO_RUN_ID) or config.run_id
         run_uuid = derive_nv_dl_run_uuid(run_id=str(run_id) if run_id else None)
         logical = merge_resource_attributes(logical, {NV_DL_RUN_UUID: run_uuid})

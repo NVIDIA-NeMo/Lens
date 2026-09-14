@@ -33,6 +33,48 @@ from nemo.lens.state import is_span_group_enabled
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.parametrize("derive", [True, False])
+@pytest.mark.parametrize("source", ["derived", "inherited", "default", "explicit"])
+def test_job_scoped_resource_excludes_run_uuid(monkeypatch, derive, source):
+    from opentelemetry import trace
+
+    from tests.conftest import InMemorySpanExporter
+
+    monkeypatch.setenv("SLURM_JOB_ID", "123")
+    monkeypatch.setenv("SLURM_CLUSTER_NAME", "test")
+    previous = "app.key=keep"
+    if source == "inherited":
+        previous += ",nv.dl.run.uuid=old-attempt"
+    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", previous)
+    options = {}
+    if source == "default":
+        options["resource_attribute_defaults"] = {"nv.dl.run.uuid": "default-attempt"}
+    if source == "explicit":
+        options["resource_attributes"] = {"nv.dl.run.uuid": "explicit-attempt"}
+    exporter = InMemorySpanExporter()
+    handle = setup_telemetry(
+        NemoLensConfig(enabled=True, metrics_enabled=False),
+        derive_run_uuid=derive,
+        publish_resource_attributes=True,
+        span_exporter=exporter,
+        **options,
+    )
+    try:
+        with handle.tracer.start_as_current_span("init"):
+            pass
+        trace.get_tracer_provider().force_flush()
+        resource = exporter.get_finished_spans()[0].resource.attributes
+        carrier = parse_otel_resource_attributes(os.environ["OTEL_RESOURCE_ATTRIBUTES"])
+        for attrs in (resource, carrier, handle.resource_attributes):
+            assert ("nv.dl.run.uuid" in attrs) is derive
+            assert attrs["nv.dl.job.uuid"]
+            assert attrs["app.key"] == "keep"
+        assert resource["process.pid"] == os.getpid()
+    finally:
+        handle.shutdown()
+    assert os.environ["OTEL_RESOURCE_ATTRIBUTES"] == previous
+
+
 class TestSetupTelemetryDisabled:
     def test_returns_handle(self):
         cfg = NemoLensConfig(enabled=False)

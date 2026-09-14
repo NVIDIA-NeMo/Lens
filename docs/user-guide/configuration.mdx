@@ -168,6 +168,7 @@ setup_telemetry(
     resource_attribute_defaults: dict | None = None,
     local_rank: int | str | None = None,
     publish_resource_attributes: bool = False,
+    derive_run_uuid: bool = True,
     span_exporter=None,
     metric_reader=None,
     _allow_reinit: bool = False,
@@ -181,6 +182,7 @@ setup_telemetry(
 | `resource_attribute_defaults` | Application attributes used only when the launcher and Lens detection did not supply the key. Use this for rank, topology, configuration, and software defaults that must preserve inherited values. |
 | `local_rank` | Optional local rank used to select the physical GPU during best-effort GPU detection. |
 | `publish_resource_attributes` | When true, keep the resolved inheritable map in `OTEL_RESOURCE_ATTRIBUTES` until the returned handle shuts down, so future child processes inherit the same baseline. |
+| `derive_run_uuid` | Set to `False` for long-lived, job-scoped services. Excludes `nv.dl.run.uuid` from all Resource sources and the setup-published carrier. Defaults to `True`. |
 | `span_exporter` | Optional custom `SpanExporter`, bypasses config-based construction. See [Custom Exporters](../user-guide/custom-exporters.mdx). |
 | `metric_reader` | Optional custom `MetricReader`, bypasses config-based construction. |
 | `_allow_reinit` | Escape hatch for testing only, which bypasses the [double-initialization guard](../design/double-init-guard.mdx). |

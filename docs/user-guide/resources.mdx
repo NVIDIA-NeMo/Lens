@@ -58,6 +58,14 @@ The `nemo.lens.resources.detect_resource()` function merges attributes from thre
 
 ### Slurm Environment Attributes with `detect_slurm()`
 
+Long-lived services spanning multiple worker attempts can call
+`setup_telemetry(..., derive_run_uuid=False)`. This excludes `nv.dl.run.uuid`
+from the final Resource and any setup-published carrier, including inherited,
+default, and explicit values. Job identity and other attributes are unchanged.
+The default `True` retains normal derivation and explicit-value precedence.
+Attach attempt identity to individual spans instead when one process serves
+multiple attempts; span attributes do not automatically inherit to children.
+
 This helper returns attributes when `SLURM_JOB_ID` is set or when
 launch-provided `OTEL_RESOURCE_ATTRIBUTES` contains a selected Slurm or run
 identity value. With a local job ID, it derives Slurm resource attributes from
