@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from decimal import Decimal, InvalidOperation
@@ -28,28 +29,73 @@ from opentelemetry.context import Context
 
 from nemo.lens.helpers import safe_set_span_attributes
 
+_LOGGER = logging.getLogger(__name__)
+
 _NANOSECONDS_PER_SECOND = 1_000_000_000
 
 
 def emit_span(
-    tracer: trace.Tracer,
+    tracer: trace.Tracer | None,
     name: str,
     start_epoch_seconds: float,
     end_epoch_seconds: float,
     *,
+    group: str | None = None,
+    eps_ms: float = 30.0,
     context: Context | None = None,
     attributes: dict[str, Any] | None = None,
-) -> trace.Span:
-    """Emit one span with explicit Unix-epoch second start and end times."""
-    start_time = _epoch_seconds_to_nanoseconds(start_epoch_seconds, "start_epoch_seconds")
-    end_time = _epoch_seconds_to_nanoseconds(end_epoch_seconds, "end_epoch_seconds")
-    if end_time < start_time:
-        raise ValueError("end_epoch_seconds must be greater than or equal to start_epoch_seconds")
+) -> trace.Span | None:
+    """Emit a completed span for an interval in Unix-epoch seconds.
 
+    Unless context is supplied, use the context active at this call, not the
+    context that was active during the interval. Pass Context() for a root span.
+    The emitted span is never made current.
+
+    Pass None for the default tracer. A disabled group returns None before
+    validation. Otherwise return the completed span.
+
+    Inversions up to eps_ms (default 30 ms) set the end to the start and warn.
+    Larger inversions raise ValueError; eps_ms=0 requires strict ordering.
+    Timestamps must be finite and eps_ms must be finite and non-negative.
+    """
+    if group is not None:
+        from nemo.lens.state import is_span_group_enabled
+
+        if not is_span_group_enabled(group):
+            return None
+    start_seconds = _finite_epoch_seconds(start_epoch_seconds, "start_epoch_seconds")
+    end_seconds = _finite_epoch_seconds(end_epoch_seconds, "end_epoch_seconds")
+    tolerance_ms = _finite_epoch_seconds(eps_ms, "eps_ms")
+    if tolerance_ms < 0:
+        raise ValueError("eps_ms must be non-negative")
+    tolerance_seconds = tolerance_ms / 1000
+    if end_seconds < start_seconds:
+        inversion_seconds = start_seconds - end_seconds
+        if inversion_seconds > tolerance_seconds:
+            raise ValueError(
+                f"end_epoch_seconds={end_seconds} precedes start_epoch_seconds={start_seconds} "
+                f"by {inversion_seconds} seconds, exceeding eps_ms={tolerance_ms} milliseconds"
+            )
+        _LOGGER.warning(
+            "Span %s has inverted timestamps: start_epoch_seconds=%s, end_epoch_seconds=%s, "
+            "inversion=%s seconds; clamping end to start (zero duration)",
+            name,
+            start_seconds,
+            end_seconds,
+            inversion_seconds,
+        )
+        end_seconds = start_seconds
+    start_time = int(start_seconds * _NANOSECONDS_PER_SECOND)
+    end_time = int(end_seconds * _NANOSECONDS_PER_SECOND)
+
+    if tracer is None:
+        tracer = trace.get_tracer("nemo.lens")
     span = tracer.start_span(name, context=context, start_time=start_time)
-    if attributes:
-        safe_set_span_attributes(span, attributes)
-    span.end(end_time=end_time)
+    try:
+        if attributes:
+            safe_set_span_attributes(span, attributes)
+    finally:
+        span.end(end_time=end_time)
     return span
 
 
@@ -89,11 +135,11 @@ def linux_process_create_time(
     return read_time - (uptime_seconds - process_age_seconds)
 
 
-def _epoch_seconds_to_nanoseconds(value: float, label: str) -> int:
+def _finite_epoch_seconds(value: float, label: str) -> Decimal:
     try:
         seconds = Decimal(str(value))
     except InvalidOperation as exc:
         raise ValueError(f"{label} must be finite") from exc
     if not seconds.is_finite():
         raise ValueError(f"{label} must be finite")
-    return int(seconds * _NANOSECONDS_PER_SECOND)
+    return seconds
