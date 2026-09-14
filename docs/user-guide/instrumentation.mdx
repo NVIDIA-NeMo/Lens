@@ -3,7 +3,37 @@ title: "Instrumentation Primitives"
 description: ""
 position: 2
 ---
-NeMo Lens provides three span primitives. These primitives cover the full spectrum from a "cheap when off, gated by a frozenset lookup" approach to an "always-on ergonomic context manager." Select a primitive based on the call site.
+NeMo Lens provides live-span primitives and explicitly timed emission helpers.
+Select a primitive based on the call site.
+
+## Explicit Intervals and Instant Markers
+
+Use the existing `nemo.lens.span_utilities.emit_span` for both. It returns the
+completed **Span**; use `.get_span_context()` when only its identity is needed.
+
+```python
+from nemo.lens.span_utilities import emit_span
+from opentelemetry import trace
+
+marker = emit_span(None, "app.phase_start", 1700000000.25, 1700000000.25,
+                   group="startup", attributes={"phase": "startup"})
+if marker is not None:
+    emit_span(None, "app.phase", 1700000000.25, 1700000001.5,
+              group="startup", context=trace.set_span_in_context(marker))
+```
+
+`emit_span()` uses the context active when it is called unless you pass
+`context=`. Backdated timestamps do not recover an earlier context. Pass
+`Context()` to start a root span. The emitted span is never made current.
+
+Times are Unix-epoch seconds. Equal timestamps produce a zero-duration span.
+`eps_ms` defaults to 30 ms: smaller or equal inversions clamp the end to the
+start and warn; larger inversions raise `ValueError`. Use `eps_ms=0` for strict
+ordering. Timestamps must be finite; tolerance must be finite and non-negative.
+
+Pass `None` for the default tracer. A disabled `group` returns `None` before
+validation; otherwise the function returns a completed span. Attributes are
+filtered and redacted, and the span ends even if attribute processing raises.
 
 ## `managed_span` as a Group-Gated Context Manager
 
