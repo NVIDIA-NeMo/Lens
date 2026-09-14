@@ -15,12 +15,16 @@
 
 """Unit tests for span utility helpers."""
 
+import logging
+from decimal import Decimal
+
 import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
 from nemo.lens.span_utilities import emit_span, linux_process_create_time
+from nemo.lens.state import set_enabled_span_groups
 from tests.conftest import InMemorySpanExporter
 
 
@@ -34,7 +38,7 @@ def tracer_and_exporter():
     provider.shutdown()
 
 
-def test_emit_span_uses_explicit_times_context_and_attributes(tracer_and_exporter):
+def test_emit_span_uses_explicit_times_context_and_attributes(tracer_and_exporter, caplog):
     tracer, exporter = tracer_and_exporter
     parent = tracer.start_span("parent")
 
@@ -55,31 +59,115 @@ def test_emit_span_uses_explicit_times_context_and_attributes(tracer_and_exporte
     assert child.end_time == 1_700_000_001_500_000_000
     assert child.attributes["phase"] == "startup"
     assert "ignored" not in child.attributes
-
-
-def test_emit_span_rejects_end_before_start(tracer_and_exporter):
-    tracer, _exporter = tracer_and_exporter
-
-    with pytest.raises(ValueError, match="end_epoch_seconds"):
-        emit_span(tracer, "test.invalid", 2.0, 1.0)
+    assert not caplog.records
 
 
 @pytest.mark.parametrize(
-    ("start_epoch_seconds", "end_epoch_seconds"),
+    ("start", "end", "kwargs"),
+    [(2.0, 1.0, {}), (1.0300000001, 1.0, {}), (1.0000000002, 1.0000000001, {"eps_ms": 0})],
+)
+def test_emit_span_rejects_end_before_start(tracer_and_exporter, caplog, start, end, kwargs):
+    tracer, exporter = tracer_and_exporter
+    with pytest.raises(ValueError, match="end_epoch_seconds=.*start_epoch_seconds=.*eps_ms="):
+        emit_span(tracer, "test.invalid", start, end, **kwargs)
+    assert not exporter.get_finished_spans()
+    assert not caplog.records
+
+
+def test_zero_duration_and_marker_parentage(tracer_and_exporter, caplog):
+    tracer, exporter = tracer_and_exporter
+    set_enabled_span_groups(frozenset({"test"}))
+    with tracer.start_as_current_span("ambient") as ambient:
+        marker = emit_span(
+            None,
+            "marker",
+            1700000000.25,
+            1700000000.25,
+            group="test",
+            attributes={"phase": "run", "password": "secret"},
+        )
+        child = emit_span(
+            tracer, "child", 1700000000.25, 1700000001.5, context=trace.set_span_in_context(marker)
+        )
+        assert trace.get_current_span() is ambient
+    spans = {s.name: s for s in exporter.get_finished_spans()}
+    assert spans["marker"].start_time == spans["marker"].end_time == 1700000000250000000
+    assert spans["marker"].context == marker.get_span_context()
+    assert spans["marker"].parent == ambient.get_span_context()
+    assert spans["marker"].attributes == {"phase": "run", "password": "[REDACTED]"}
+    assert spans["child"].parent == marker.get_span_context()
+    assert child.get_span_context().trace_id == marker.get_span_context().trace_id
+    assert not marker.is_recording()
+    assert not child.is_recording()
+    assert not caplog.records
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "kwargs"),
     [
-        (float("nan"), 1.0),
-        (1.0, float("inf")),
+        (1.0000000002, 1.0000000001, {}),
+        (1.004, 1.0, {}),
+        (1.03, 1.0, {}),
+        (1.05, 1.0, {"eps_ms": 50.0}),
     ],
 )
-def test_emit_span_rejects_non_finite_timestamps(
-    tracer_and_exporter,
-    start_epoch_seconds,
-    end_epoch_seconds,
-):
-    tracer, _exporter = tracer_and_exporter
+def test_tolerated_reversed_interval(tracer_and_exporter, caplog, start, end, kwargs):
+    tracer, exporter = tracer_and_exporter
+    completed = emit_span(tracer, "reversed", start, end, **kwargs)
+    (span,) = exporter.get_finished_spans()
+    assert span.start_time == span.end_time == int(Decimal(str(start)) * 1_000_000_000)
+    assert not completed.is_recording()
+    (warning,) = caplog.records
+    assert warning.name == "nemo.lens.span_utilities"
+    assert warning.levelno == logging.WARNING
+    assert "reversed" in warning.message
+    assert f"start_epoch_seconds={start}" in warning.message
+    assert f"end_epoch_seconds={end}" in warning.message
+    assert f"inversion={Decimal(str(start)) - Decimal(str(end))} seconds" in warning.message
+    assert "clamping end to start (zero duration)" in warning.message
 
-    with pytest.raises(ValueError, match="must be finite"):
-        emit_span(tracer, "test.invalid", start_epoch_seconds, end_epoch_seconds)
+
+def test_timed_group_gate_precedes_all_work(monkeypatch, caplog):
+    def fail(*args, **kwargs):
+        raise AssertionError("work before gate")
+
+    monkeypatch.setattr("nemo.lens.span_utilities.trace.get_tracer", fail)
+    monkeypatch.setattr("nemo.lens.span_utilities._finite_epoch_seconds", fail)
+    assert emit_span(None, "off", object(), object(), group="off", eps_ms=object()) is None
+    assert not caplog.records
+
+
+def test_timed_span_ends_when_attribute_processing_fails(tracer_and_exporter, monkeypatch):
+    tracer, exporter = tracer_and_exporter
+
+    def fail(*args):
+        raise ValueError("attribute failure")
+
+    monkeypatch.setattr("nemo.lens.span_utilities.safe_set_span_attributes", fail)
+    with pytest.raises(ValueError, match="attribute failure"):
+        emit_span(tracer, "failure", 1, 2, attributes={"a": 1})
+    assert exporter.get_finished_spans()[0].end_time == 2000000000
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "eps_ms", "message"),
+    [
+        (float("nan"), 1.0, 30.0, "start_epoch_seconds must be finite"),
+        (1.0, float("inf"), 30.0, "end_epoch_seconds must be finite"),
+        ("invalid", 1.0, 30.0, "start_epoch_seconds must be finite"),
+        (1.0, None, 30.0, "end_epoch_seconds must be finite"),
+        (1.0, 2.0, -1.0, "eps_ms must be non-negative"),
+        (1.0, 2.0, float("nan"), "eps_ms must be finite"),
+        (1.0, 2.0, float("inf"), "eps_ms must be finite"),
+        (1.0, 2.0, float("-inf"), "eps_ms must be finite"),
+        (1.0, 2.0, "invalid", "eps_ms must be finite"),
+    ],
+)
+def test_emit_span_rejects_invalid_inputs(tracer_and_exporter, start, end, eps_ms, message):
+    tracer, exporter = tracer_and_exporter
+    with pytest.raises(ValueError, match=message):
+        emit_span(tracer, "test.invalid", start, end, eps_ms=eps_ms)
+    assert not exporter.get_finished_spans()
 
 
 def test_linux_process_create_time_uses_start_ticks():
