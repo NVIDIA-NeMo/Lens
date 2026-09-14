@@ -357,8 +357,10 @@ class TestEnvSuppliedIdentity:
         cfg = NemoLensConfig(enabled=True, exporter="console", run_id="run1")
         build_providers(cfg)
         attrs = self._attrs()
-        assert attrs[NV_DL_RANK] == "5"
-        assert attrs[NV_DL_WORLD_SIZE] == "8"
+        assert attrs[NV_DL_RANK] == 5
+        assert type(attrs[NV_DL_RANK]) is int
+        assert attrs[NV_DL_WORLD_SIZE] == 8
+        assert type(attrs[NV_DL_WORLD_SIZE]) is int
 
     def test_instance_id_derives_from_an_env_supplied_rank(self, monkeypatch):
         """The regression: this used to degrade to the bare run id."""

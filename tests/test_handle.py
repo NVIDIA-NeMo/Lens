@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from opentelemetry import trace
 
 from nemo.lens.config import NemoLensConfig
 from nemo.lens.groups import SpanRegistry
@@ -31,6 +32,177 @@ from nemo.lens.semconv import NV_DL_RANK, NV_DL_ROLE, NV_DL_WORLD_SIZE
 from nemo.lens.state import is_span_group_enabled
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+# Independent inventory: committed schema 89182747, nv.dl.yaml / nv.gpu.yaml.
+_CARRIED_INTEGERS = {
+    "nv.dl.rank": 7,
+    "nv.dl.world_size": 16,
+    "nv.dl.local_rank": 3,
+    "nv.dl.topology.size.tp": 2,
+    "nv.dl.topology.size.pp": 4,
+    "nv.dl.topology.size.dp": 2,
+    "nv.dl.training.config.global_batch_size": 128,
+    "nv.dl.training.config.micro_batch_size": 1,
+    "nv.dl.training.config.sequence_length": 8192,
+    "nv.dl.training.target.train_iters": 1000,
+    "nv.dl.training.target.train_samples": 128000,
+    "nv.dl.training.target.train_tokens": 2**53 + 1,
+    "nv.gpu.index": 3,
+    "nv.gpu.memory_total": 85899345920,
+    "slurm.array.count": 1,
+    "slurm.nnodes": 2,
+    "slurm.ntasks": 16,
+    "slurm.restart_count": 0,
+}
+
+
+@pytest.mark.parametrize("value", [True, 3.5, "3.5", "true", "1_000"])
+def test_integer_constructor_rejects_non_integer_values(value):
+    from nemo.lens.resources.attributes import _resource_integer
+
+    with pytest.raises(ValueError):
+        _resource_integer(value)
+
+
+def test_normalizer_preserves_native_integers_and_string_fields():
+    from nemo.lens.resources.attributes import _normalize_resource_attributes
+
+    attrs = {
+        **_CARRIED_INTEGERS,
+        "nv.dl.job.uuid": "123",
+        "nv.dl.run.uuid": "456",
+        "nemo.run.id": "007",
+        "slurm.job.id": "00123",
+        "nv.dl.software.cuda": "12.8",
+        "nv.gpu.compute_capability": "9.0",
+        "nv.gpu.serial": "001234",
+        "app.count": "123",
+        "nv.dl.topology.size.cp": "2",
+    }
+    result = _normalize_resource_attributes(attrs)
+    assert result == attrs
+    assert {key: type(value) for key, value in result.items()} == {
+        key: type(value) for key, value in attrs.items()
+    }
+
+
+def test_exported_resource_types_survive_subprocess(monkeypatch):
+    from tests.conftest import InMemorySpanExporter
+
+    previous = "app.code=007,process.pid=999,host.name=stale"
+    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", previous)
+    exporter = InMemorySpanExporter()
+    config = NemoLensConfig(enabled=True, metrics_enabled=False, service_name="trainer")
+    handle = setup_telemetry(
+        config,
+        resource_attributes=_CARRIED_INTEGERS,
+        publish_resource_attributes=True,
+        span_exporter=exporter,
+    )
+    try:
+        with handle.tracer.start_as_current_span("parent"):
+            pass
+        trace.get_tracer_provider().force_flush()
+        parent = exporter.get_finished_spans()[0].resource.attributes
+        carrier = parse_otel_resource_attributes(os.environ["OTEL_RESOURCE_ATTRIBUTES"])
+        for key, value in _CARRIED_INTEGERS.items():
+            assert parent[key] == value and type(parent[key]) is int
+            assert carrier[key] == str(value) and type(carrier[key]) is str
+        child_code = """
+import json, os
+from opentelemetry import trace
+from nemo.lens import NemoLensConfig, setup_telemetry
+from nemo.lens.resources.attributes import parse_otel_resource_attributes
+from tests.conftest import InMemorySpanExporter
+exporter = InMemorySpanExporter()
+before = os.environ['OTEL_RESOURCE_ATTRIBUTES']
+handle = setup_telemetry(
+    NemoLensConfig(enabled=True, metrics_enabled=False, service_name='nvrx.ckpt_worker'),
+    resource_attribute_defaults={'nv.dl.rank': 99},
+    resource_attributes={'nv.dl.role': 'ckpt_worker'},
+    publish_resource_attributes=True, span_exporter=exporter,
+)
+with handle.tracer.start_as_current_span('child'):
+    pass
+trace.get_tracer_provider().force_flush()
+attrs = dict(exporter.get_finished_spans()[0].resource.attributes)
+carrier = parse_otel_resource_attributes(os.environ['OTEL_RESOURCE_ATTRIBUTES'])
+handle.shutdown()
+assert os.environ['OTEL_RESOURCE_ATTRIBUTES'] == before
+print(json.dumps({'attrs': attrs, 'carrier': carrier, 'pid': os.getpid()}))
+"""
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(REPO_ROOT / "src"), str(REPO_ROOT), env.get("PYTHONPATH", "")]
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", child_code],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        child = json.loads(result.stdout.strip().splitlines()[-1])
+        for key, value in _CARRIED_INTEGERS.items():
+            assert child["attrs"][key] == value and type(child["attrs"][key]) is int
+            assert child["carrier"][key] == str(value)
+        assert child["attrs"]["service.name"] == "nvrx.ckpt_worker"
+        assert child["attrs"]["nv.dl.role"] == "ckpt_worker"
+        assert child["attrs"]["app.code"] == "007"
+        assert child["attrs"]["process.pid"] == child["pid"]
+        assert "process.pid" not in child["carrier"]
+        assert "host.name" not in child["carrier"]
+    finally:
+        handle.shutdown()
+    assert os.environ["OTEL_RESOURCE_ATTRIBUTES"] == previous
+
+
+@pytest.mark.parametrize("raw,expected", [("7", 7), (" +007 ", 7), ("-1", -1), ("0", 0)])
+@pytest.mark.parametrize("explicit", [None, 11])
+def test_inherited_integer_precedence(monkeypatch, raw, expected, explicit):
+    from tests.conftest import InMemorySpanExporter
+
+    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", f"nv.dl.rank={raw}")
+    exporter = InMemorySpanExporter()
+    handle = setup_telemetry(
+        NemoLensConfig(enabled=True, metrics_enabled=False),
+        resource_attribute_defaults={"nv.dl.rank": 3},
+        resource_attributes={"nv.dl.rank": explicit},
+        span_exporter=exporter,
+    )
+    try:
+        with handle.tracer.start_as_current_span("rank"):
+            pass
+        trace.get_tracer_provider().force_flush()
+        rank = exporter.get_finished_spans()[0].resource.attributes["nv.dl.rank"]
+        assert rank == (expected if explicit is None else explicit)
+        assert type(rank) is int
+    finally:
+        handle.shutdown()
+
+
+@pytest.mark.parametrize("raw", ["3.5", "true", "1e3", "1_000", "--1", "seven"])
+def test_invalid_inherited_integer_is_visible(monkeypatch, caplog, raw):
+    from tests.conftest import InMemorySpanExporter
+
+    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", f"nv.dl.rank={raw}")
+    exporter = InMemorySpanExporter()
+    handle = setup_telemetry(
+        NemoLensConfig(enabled=True, metrics_enabled=False),
+        resource_attribute_defaults={"nv.dl.rank": 3},
+        span_exporter=exporter,
+    )
+    try:
+        with handle.tracer.start_as_current_span("invalid"):
+            pass
+        trace.get_tracer_provider().force_flush()
+        assert exporter.get_finished_spans()[0].resource.attributes["nv.dl.rank"] == raw
+        assert "nv.dl.rank requires a base-10 integer" in caplog.text
+    finally:
+        handle.shutdown()
 
 
 class TestSetupTelemetryDisabled:

@@ -434,6 +434,7 @@ def _compose_resource_attributes(
     """
     from nemo.lens.resources import detect_gpu, detect_kubernetes, detect_slurm
     from nemo.lens.resources.attributes import (
+        _normalize_resource_attributes,
         get_otel_resource_attributes,
         merge_resource_attributes,
     )
@@ -443,7 +444,7 @@ def _compose_resource_attributes(
         derive_nv_dl_run_uuid,
     )
 
-    inherited = get_otel_resource_attributes()
+    inherited = _normalize_resource_attributes(get_otel_resource_attributes())
     # detect_slurm() normalizes its allowlisted inherited values. Do not put the
     # raw string versions back afterward, especially for integer attributes.
     inherited_non_slurm = {

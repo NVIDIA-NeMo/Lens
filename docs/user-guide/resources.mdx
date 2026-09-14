@@ -235,13 +235,26 @@ On conflict the caller's dict wins, matching what the OTel SDK does with the sam
 inputs.
 
 <Note>
-The two channels produce different **types** for the same attribute:
-`resource_attributes={NV_DL_RANK: 3}` yields the integer `3`, while
-`OTEL_RESOURCE_ATTRIBUTES="nv.dl.rank=3"` yields the string `"3"` — the env
-channel is string-only by construction. A collector or backend filtering on a
-numeric attribute should tolerate both. NeMo Lens does not generally coerce env
-attributes; the four numeric Slurm attributes normalized by `detect_slurm()` are
-the exception described above. See `semconv.py`.
+The generic environment parser returns strings. During Resource construction,
+Lens restores integers for this explicit set of inherited attributes:
+
+- `nv.dl.rank`, `nv.dl.world_size`, `nv.dl.local_rank`
+- `nv.dl.topology.size.tp`, `nv.dl.topology.size.pp`, `nv.dl.topology.size.dp`
+- `nv.dl.training.config.global_batch_size`, `nv.dl.training.config.micro_batch_size`,
+  `nv.dl.training.config.sequence_length`
+- `nv.dl.training.target.train_iters`, `nv.dl.training.target.train_samples`,
+  `nv.dl.training.target.train_tokens`
+- `nv.gpu.index`, `nv.gpu.memory_total`
+
+Complete base-10 integer strings, optionally signed and surrounded by whitespace,
+are accepted without floating-point conversion. Invalid values remain visible
+and produce a setup-time warning; they still violate the integer schema. Empty
+values retain the existing absent-value merge behavior. This does not change
+source precedence or validate explicit caller dictionaries. The four Slurm
+integer conversions described above retain their existing rules.
+
+Unknown attributes, UUIDs, IDs, software versions, and GPU compute capability
+remain strings. No types are inferred from numeric-looking values or key suffixes.
 </Note>
 
 ```bash
@@ -318,12 +331,10 @@ when multiple threads can launch children.
 | Separators in *keys* | Dropped with a warning. The SDK unquotes only the value half, so such a key has no representation; encoding it would ship the escape sequence as the attribute name. No semconv name contains `,` or `=`. |
 
 <Note>
-Values arrive in the child as **strings** — the env format has no other type.
-`resource_attributes={NV_DL_RANK: 3}` yields the integer `3`, the env channel
-yields `"3"`. A collector filtering on a numeric attribute should tolerate both.
-NeMo Lens does not generally coerce environment attributes; the four numeric
-Slurm attributes normalized by `detect_slurm()` are the exception described
-above.
+Values travel as **strings** — the env format has no other type. Lens reconstructs
+the allowlisted integer Resource fields described above at child setup. For
+example, inherited `nv.dl.rank=3` exports as integer `3`, while the generic parser
+still returns string `"3"`. Publishing the Resource serializes it back to text.
 </Note>
 
 For selected Slurm and run identity keys, launch-provided

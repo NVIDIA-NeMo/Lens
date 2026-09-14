@@ -19,12 +19,29 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections.abc import Iterable, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from urllib.parse import quote, unquote
 
 from nemo.lens.helpers import _SCALAR_TYPES
+from nemo.lens.semconv import (
+    NV_DL_LOCAL_RANK,
+    NV_DL_RANK,
+    NV_DL_TOPOLOGY_SIZE_DP,
+    NV_DL_TOPOLOGY_SIZE_PP,
+    NV_DL_TOPOLOGY_SIZE_TP,
+    NV_DL_TRAINING_CONFIG_GLOBAL_BATCH_SIZE,
+    NV_DL_TRAINING_CONFIG_MICRO_BATCH_SIZE,
+    NV_DL_TRAINING_CONFIG_SEQUENCE_LENGTH,
+    NV_DL_TRAINING_TARGET_TRAIN_ITERS,
+    NV_DL_TRAINING_TARGET_TRAIN_SAMPLES,
+    NV_DL_TRAINING_TARGET_TRAIN_TOKENS,
+    NV_DL_WORLD_SIZE,
+    NV_GPU_INDEX,
+    NV_GPU_MEMORY_TOTAL,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -32,6 +49,57 @@ OTEL_RESOURCE_ATTRIBUTES_ENV = "OTEL_RESOURCE_ATTRIBUTES"
 
 ResourceAttributeValue = str | bool | int | float
 ResourceAttributes = Mapping[str, ResourceAttributeValue | None]
+
+
+def _resource_integer(value: ResourceAttributeValue) -> int:
+    """Accept integers or complete ASCII base-10 strings, never truncate."""
+    if type(value) is int:
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[+-]?[0-9]+", value.strip()):
+        return int(value.strip(), 10)
+    raise ValueError("expected a base-10 integer")
+
+
+# Live Resource fields in schema v0.1 at 89182747. Slurm owns its separate
+# constructor map; do not broaden this to parked fields or numeric-looking IDs.
+_RESOURCE_ATTRIBUTE_NORMALIZERS = dict.fromkeys(
+    (
+        NV_DL_RANK,
+        NV_DL_WORLD_SIZE,
+        NV_DL_LOCAL_RANK,
+        NV_DL_TOPOLOGY_SIZE_TP,
+        NV_DL_TOPOLOGY_SIZE_PP,
+        NV_DL_TOPOLOGY_SIZE_DP,
+        NV_DL_TRAINING_CONFIG_GLOBAL_BATCH_SIZE,
+        NV_DL_TRAINING_CONFIG_MICRO_BATCH_SIZE,
+        NV_DL_TRAINING_CONFIG_SEQUENCE_LENGTH,
+        NV_DL_TRAINING_TARGET_TRAIN_ITERS,
+        NV_DL_TRAINING_TARGET_TRAIN_SAMPLES,
+        NV_DL_TRAINING_TARGET_TRAIN_TOKENS,
+        NV_GPU_INDEX,
+        NV_GPU_MEMORY_TOTAL,
+    ),
+    _resource_integer,
+)
+
+
+def _normalize_resource_attributes(
+    attrs: Mapping[str, ResourceAttributeValue],
+) -> dict[str, ResourceAttributeValue]:
+    """Restore known carrier types without changing parsing or precedence."""
+    normalized = dict(attrs)
+    for key, constructor in _RESOURCE_ATTRIBUTE_NORMALIZERS.items():
+        if key not in attrs:
+            continue
+        try:
+            normalized[key] = constructor(attrs[key])
+        except ValueError:
+            _LOG.warning(
+                "Resource attribute %s requires a base-10 integer; preserving invalid value %r.",
+                key,
+                attrs[key],
+            )
+    return normalized
 
 
 @dataclass(frozen=True)
