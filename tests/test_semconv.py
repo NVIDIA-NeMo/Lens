@@ -28,7 +28,24 @@ from nemo.lens.resources.attributes import format_otel_resource_attributes
 from nemo.lens.semconv import (
     NEMO_RUN_ID,
     NV_DL_LOCAL_RANK,
+    NV_DL_PROVIDER_NAME,
     NV_DL_RANK,
+    NV_DL_ROLE,
+    NV_DL_SOFTWARE_CUDA,
+    NV_DL_SOFTWARE_NCCL,
+    NV_DL_SOFTWARE_TORCH,
+    NV_DL_SOFTWARE_TRANSFORMER_ENGINE,
+    NV_DL_TOPOLOGY_SIZE_DP,
+    NV_DL_TOPOLOGY_SIZE_PP,
+    NV_DL_TOPOLOGY_SIZE_TP,
+    NV_DL_TRAINING_CONFIG_GLOBAL_BATCH_SIZE,
+    NV_DL_TRAINING_CONFIG_MICRO_BATCH_SIZE,
+    NV_DL_TRAINING_CONFIG_OPTIMIZER,
+    NV_DL_TRAINING_CONFIG_RECOMPUTE_GRANULARITY,
+    NV_DL_TRAINING_CONFIG_SEQUENCE_LENGTH,
+    NV_DL_TRAINING_TARGET_TRAIN_ITERS,
+    NV_DL_TRAINING_TARGET_TRAIN_SAMPLES,
+    NV_DL_TRAINING_TARGET_TRAIN_TOKENS,
     NV_DL_WORLD_SIZE,
     NV_GPU_INDEX,
     NV_GPU_MEMORY_TOTAL,
@@ -41,7 +58,11 @@ from nemo.lens.semconv.encoding import (
     compose_attributes,
     convert_attribute,
 )
-from nemo.lens.semconv.resources import RESOURCE_TYPES, normalize_resource_attributes
+from nemo.lens.semconv.resources import (
+    DL_RESOURCE_TYPES,
+    RESOURCE_TYPES,
+    normalize_resource_attributes,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -51,6 +72,15 @@ _CARRIED_INTEGERS = {
     NV_DL_LOCAL_RANK: 3,
     NV_GPU_INDEX: 3,
     NV_GPU_MEMORY_TOTAL: 85899345920,
+    NV_DL_TOPOLOGY_SIZE_TP: 2,
+    NV_DL_TOPOLOGY_SIZE_PP: 4,
+    NV_DL_TOPOLOGY_SIZE_DP: 2,
+    NV_DL_TRAINING_CONFIG_GLOBAL_BATCH_SIZE: 128,
+    NV_DL_TRAINING_CONFIG_MICRO_BATCH_SIZE: 1,
+    NV_DL_TRAINING_CONFIG_SEQUENCE_LENGTH: 8192,
+    NV_DL_TRAINING_TARGET_TRAIN_ITERS: 1000,
+    NV_DL_TRAINING_TARGET_TRAIN_SAMPLES: 128000,
+    NV_DL_TRAINING_TARGET_TRAIN_TOKENS: 2**53 + 1,
 }
 
 _RESOURCE_INTEGER_FIELDS = {
@@ -60,6 +90,46 @@ _RESOURCE_INTEGER_FIELDS = {
     SLURM_RESTART_COUNT,
     *_CARRIED_INTEGERS,
 }
+
+_CURRENT_RESOURCE_FIELDS = (
+    (NV_DL_ROLE, "nv.dl.role"),
+    (NV_DL_PROVIDER_NAME, "nv.dl.provider.name"),
+    (NV_DL_TOPOLOGY_SIZE_TP, "nv.dl.topology.size.tp"),
+    (NV_DL_TOPOLOGY_SIZE_PP, "nv.dl.topology.size.pp"),
+    (NV_DL_TOPOLOGY_SIZE_DP, "nv.dl.topology.size.dp"),
+    (NV_DL_TRAINING_CONFIG_GLOBAL_BATCH_SIZE, "nv.dl.training.config.global_batch_size"),
+    (NV_DL_TRAINING_CONFIG_MICRO_BATCH_SIZE, "nv.dl.training.config.micro_batch_size"),
+    (NV_DL_TRAINING_CONFIG_SEQUENCE_LENGTH, "nv.dl.training.config.sequence_length"),
+    (NV_DL_TRAINING_CONFIG_OPTIMIZER, "nv.dl.training.config.optimizer"),
+    (
+        NV_DL_TRAINING_CONFIG_RECOMPUTE_GRANULARITY,
+        "nv.dl.training.config.recompute_granularity",
+    ),
+    (NV_DL_TRAINING_TARGET_TRAIN_ITERS, "nv.dl.training.target.train_iters"),
+    (NV_DL_TRAINING_TARGET_TRAIN_SAMPLES, "nv.dl.training.target.train_samples"),
+    (NV_DL_TRAINING_TARGET_TRAIN_TOKENS, "nv.dl.training.target.train_tokens"),
+    (NV_DL_SOFTWARE_TORCH, "nv.dl.software.torch"),
+    (NV_DL_SOFTWARE_CUDA, "nv.dl.software.cuda"),
+    (NV_DL_SOFTWARE_NCCL, "nv.dl.software.nccl"),
+    (NV_DL_SOFTWARE_TRANSFORMER_ENGINE, "nv.dl.software.transformer_engine"),
+)
+
+
+def test_current_resource_field_inventory_and_types():
+    assert all(actual == expected for actual, expected in _CURRENT_RESOURCE_FIELDS)
+    assert all(actual in DL_RESOURCE_TYPES for actual, _ in _CURRENT_RESOURCE_FIELDS)
+
+    strings = {
+        NV_DL_ROLE: "trainer",
+        NV_DL_PROVIDER_NAME: "megatron-lm",
+        NV_DL_TRAINING_CONFIG_OPTIMIZER: "adam",
+        NV_DL_TRAINING_CONFIG_RECOMPUTE_GRANULARITY: "full",
+        NV_DL_SOFTWARE_TORCH: "2.8.0",
+        NV_DL_SOFTWARE_CUDA: "12.8",
+        NV_DL_SOFTWARE_NCCL: "2.27.3",
+        NV_DL_SOFTWARE_TRANSFORMER_ENGINE: "2.5.0",
+    }
+    assert normalize_resource_attributes(strings) == strings
 
 
 def test_convert_attribute_uses_only_the_explicit_mapping():
