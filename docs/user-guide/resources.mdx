@@ -182,13 +182,21 @@ inputs.
 
 <Note>
 The Resource carrier parser returns strings. During Resource construction,
-Lens restores integers for `nv.dl.rank`, `nv.dl.world_size`, `nv.dl.local_rank`,
-`nv.gpu.index`, and `nv.gpu.memory_total`. Complete signed base-10 strings are
-accepted. Invalid values remain visible and produce a warning. Unknown fields,
-UUIDs, IDs, software versions, and GPU compute capability remain strings; Lens
-does not infer types from a numeric-looking value such as `"007"`. Slurm retains
-the selection and invalid-value fallback described above while using the same
-strict integer conversion.
+Lens restores integers for these fields:
+
+- `nv.dl.rank`, `nv.dl.world_size`, and `nv.dl.local_rank`
+- `nv.dl.topology.size.tp`, `nv.dl.topology.size.pp`, and `nv.dl.topology.size.dp`
+- `nv.dl.training.config.global_batch_size`,
+  `nv.dl.training.config.micro_batch_size`, and `nv.dl.training.config.sequence_length`
+- `nv.dl.training.target.train_iters`, `nv.dl.training.target.train_samples`,
+  and `nv.dl.training.target.train_tokens`
+- `nv.gpu.index` and `nv.gpu.memory_total`
+
+Complete signed base-10 strings are accepted. Invalid values remain visible and
+produce a warning. Unknown fields, UUIDs, IDs, software versions, and GPU compute
+capability remain strings; Lens does not infer types from a numeric-looking value
+such as `"007"`. Slurm retains the selection and invalid-value fallback described
+above while using the same strict integer conversion.
 </Note>
 
 ```bash
