@@ -16,7 +16,9 @@
 """Telemetry helper utilities: span_cm, managed_span, trace_fn, safe_set_span_attributes."""
 
 import functools
+from collections.abc import Mapping
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from opentelemetry import trace
@@ -30,6 +32,25 @@ DEFAULT_REDACT_KEYS: frozenset = frozenset(
 )
 
 _SCALAR_TYPES = (bool, int, float, str)
+
+
+_SPAN_ATTRIBUTES: ContextVar[Mapping[str, Any] | None] = ContextVar(
+    "lens_span_attributes", default=None
+)
+
+
+@contextmanager
+def span_attributes(attributes: Mapping[str, Any]):
+    """Apply attributes to new spans from the Lens provider until this scope exits.
+
+    Inner scopes override outer values. Explicit span attributes take precedence.
+    This does not create a span or change existing spans, Resources, logs, or metrics.
+    """
+    token = _SPAN_ATTRIBUTES.set({**(_SPAN_ATTRIBUTES.get() or {}), **attributes})
+    try:
+        yield None
+    finally:
+        _SPAN_ATTRIBUTES.reset(token)
 
 
 def redact_value(key: str, value: str, redact_keys: frozenset = DEFAULT_REDACT_KEYS) -> str:

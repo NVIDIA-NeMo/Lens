@@ -148,6 +148,7 @@ class TestSignatureParity:
             "trace_fn",
             "managed_span",
             "span_cm",
+            "span_attributes",
             "is_span_group_enabled",
             "safe_set_span_attributes",
         ],
