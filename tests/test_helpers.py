@@ -162,3 +162,49 @@ class TestTraceFn:
         spans = exporter.get_finished_spans()
         assert len(spans) == 1
         assert spans[0].name == "test.fn"
+
+
+class TestSpanAttributes:
+    def test_provider_applies_scope(self):
+        from opentelemetry.context import Context
+
+        from nemo.lens import NemoLensConfig, setup_telemetry, span_attributes
+
+        exporter = InMemorySpanExporter()
+        handle = setup_telemetry(
+            NemoLensConfig(enabled=True, metrics_enabled=False), span_exporter=exporter
+        )
+        with (
+            span_attributes({"attempt": 3, "label": "scoped"}),
+            trace.get_tracer("test").start_as_current_span(
+                "direct", context=Context(), attributes={"label": "direct", "local": True}
+            ),
+            span_cm("helper", label="helper"),
+        ):
+            pass
+        handle.shutdown()
+        spans = {s.name: dict(s.attributes) for s in exporter.get_finished_spans()}
+        assert spans == {
+            "direct": {"attempt": 3, "label": "direct", "local": True},
+            "helper": {"attempt": 3, "label": "helper"},
+        }
+
+    def test_nested_scope_restores_after_exception(self):
+        from nemo.lens import NemoLensConfig, setup_telemetry, span_attributes
+
+        exporter = InMemorySpanExporter()
+        handle = setup_telemetry(
+            NemoLensConfig(enabled=True, metrics_enabled=False), span_exporter=exporter
+        )
+        with span_attributes({"attempt": 3}):
+            with pytest.raises(ValueError), span_attributes({"attempt": 4, "rank": 0}):
+                with span_cm("inner"):
+                    pass
+                raise ValueError("failed")
+            with span_cm("outer"):
+                pass
+        with span_cm("after"):
+            pass
+        handle.shutdown()
+        spans = {s.name: dict(s.attributes) for s in exporter.get_finished_spans()}
+        assert spans == {"inner": {"attempt": 4, "rank": 0}, "outer": {"attempt": 3}, "after": {}}
