@@ -24,7 +24,6 @@ from collections.abc import Mapping
 from nemo.lens.resources.attributes import (
     ResourceAttributeValue,
     get_otel_resource_attributes,
-    merge_resource_attributes,
 )
 from nemo.lens.semconv import (
     NV_DL_JOB_UUID,
@@ -50,10 +49,14 @@ from nemo.lens.semconv import (
     SLURM_TOPOLOGY_ADDR,
     SLURM_TOPOLOGY_ADDR_PATTERN,
 )
+from nemo.lens.semconv.encoding import compose_attributes, convert_attribute
 from nemo.lens.semconv.resources import (
     SLURM_RESOURCE_ATTRIBUTE_KEYS,
-    SLURM_RESOURCE_ATTRIBUTE_NORMALIZERS,
+    SLURM_RESOURCE_TYPES,
     SLURM_RETIRED_RESOURCE_ATTRIBUTE_KEYS,
+)
+from nemo.lens.semconv.resources import (
+    SLURM_RESOURCE_ATTRIBUTE_NORMALIZERS as SLURM_RESOURCE_ATTRIBUTE_NORMALIZERS,
 )
 
 
@@ -65,13 +68,13 @@ def detect_slurm(environ: Mapping[str, str] | None = None) -> dict[str, Resource
     also available; locally derived values never overwrite inherited keys.
     """
     env = os.environ if environ is None else environ
-    inherited = _select_slurm_resource_attributes(get_otel_resource_attributes(env))
+    inherited = _select_slurm_resource_attributes(get_otel_resource_attributes(environ=env))
     fallback = derive_slurm_resource_attributes(env)
 
     if not inherited and not fallback:
         return {}
 
-    return merge_resource_attributes(inherited, fallback, overwrite=False)
+    return compose_attributes(inherited, defaults=fallback)
 
 
 def derive_slurm_resource_attributes(
@@ -170,9 +173,8 @@ def _select_slurm_resource_attributes(
     for key, value in attrs.items():
         if key not in SLURM_RESOURCE_ATTRIBUTE_KEYS or key in retired:
             continue
-        normalizer = SLURM_RESOURCE_ATTRIBUTE_NORMALIZERS[key]
         try:
-            normalized = normalizer(value)
+            normalized = convert_attribute(key, value, SLURM_RESOURCE_TYPES)
         except ValueError:
             continue
         _set(selected, key, normalized)
@@ -214,7 +216,7 @@ def _set_int(
             attrs[key] = default
         return
     try:
-        attrs[key] = int(value)
+        attrs[key] = convert_attribute(key, value, SLURM_RESOURCE_TYPES)
     except ValueError:
         return
 

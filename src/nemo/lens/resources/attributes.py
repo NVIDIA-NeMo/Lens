@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from urllib.parse import quote, unquote
 
-from nemo.lens.helpers import _SCALAR_TYPES
+from nemo.lens.semconv.encoding import compose_attributes
 
 _LOG = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ OTEL_RESOURCE_ATTRIBUTES_ENV = "OTEL_RESOURCE_ATTRIBUTES"
 
 ResourceAttributeValue = str | bool | int | float
 ResourceAttributes = Mapping[str, ResourceAttributeValue | None]
+_SCALAR_TYPES = (str, bool, int, float)
 
 
 @dataclass(frozen=True)
@@ -49,19 +50,19 @@ class ResourceAttributeCheck:
         return not (self.missing or self.empty or self.forbidden or self.duplicates)
 
 
-def parse_otel_resource_attributes(value: str | None) -> dict[str, str]:
+def parse_otel_resource_attributes(text: str | None) -> dict[str, str]:
     """Parse an ``OTEL_RESOURCE_ATTRIBUTES`` value like the OTel SDK."""
     attrs: dict[str, str] = {}
-    for key, item in _otel_resource_attribute_segments(value):
+    for key, item in _otel_resource_attribute_segments(text):
         _, _, raw_value = item.partition("=")
         attrs[key] = unquote(raw_value.strip())
     return attrs
 
 
-def format_otel_resource_attributes(attrs: ResourceAttributes) -> str:
+def format_otel_resource_attributes(attributes: ResourceAttributes) -> str:
     """Format representable scalar attributes for ``OTEL_RESOURCE_ATTRIBUTES``."""
     parts: dict[str, str] = {}
-    for key, value in attrs.items():
+    for key, value in attributes.items():
         if value is None:
             continue
         if not isinstance(key, str):
@@ -88,7 +89,7 @@ def format_otel_resource_attributes(attrs: ResourceAttributes) -> str:
             continue
 
         try:
-            encoded_value = quote(_format_value(value), safe="")
+            encoded_value = quote(_format_resource_attribute_value(value), safe="")
         except UnicodeEncodeError:
             _LOG.warning(
                 "Resource attribute %r has a value that is not valid UTF-8 and was "
@@ -105,6 +106,7 @@ def format_otel_resource_attributes(attrs: ResourceAttributes) -> str:
 
 
 def get_otel_resource_attributes(
+    *,
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """Read and parse ``OTEL_RESOURCE_ATTRIBUTES`` from an environment mapping."""
@@ -113,77 +115,48 @@ def get_otel_resource_attributes(
 
 
 def extend_otel_resource_attributes(
-    value: str | None,
-    additions: ResourceAttributes,
+    text: str | None,
     *,
-    overwrite: bool = False,
+    defaults: ResourceAttributes | None = None,
+    overrides: ResourceAttributes | None = None,
 ) -> str:
-    """Add attributes while preserving untouched inherited segments.
-
-    Existing keys win by default. Set ``overwrite=True`` when *additions* carry
-    newer identity that must replace inherited values. ``None`` and ``""``
-    additions are treated as absent under either policy.
-    """
-    if not isinstance(additions, Mapping):
-        raise TypeError(
-            f"additions must be a mapping of name -> value, got {type(additions).__name__}."
-        )
-
-    inherited = list(_otel_resource_attribute_segments(value))
-    encoded = format_otel_resource_attributes(
-        {key: item for key, item in additions.items() if item is not None and item != ""}
-    )
-    added = list(_otel_resource_attribute_segments(encoded))
-
-    inherited_keys = {key for key, _ in inherited}
-    added_keys = {key for key, _ in added}
-    if overwrite:
-        inherited = [(key, item) for key, item in inherited if key not in added_keys]
-    else:
-        added = [(key, item) for key, item in added if key not in inherited_keys]
-
-    return ",".join(item for _, item in inherited + added)
+    """Compose an ``OTEL_RESOURCE_ATTRIBUTES`` string without environment I/O."""
+    current = parse_otel_resource_attributes(text)
+    resolved = compose_attributes(current, defaults=defaults, overrides=overrides)
+    return format_otel_resource_attributes(resolved)
 
 
 def set_otel_resource_attributes(
-    additions: ResourceAttributes,
+    attributes: ResourceAttributes,
     *,
     environ: MutableMapping[str, str] | None = None,
-    overwrite: bool = False,
 ) -> str:
-    """Publish attributes into an environment mapping.
-
-    Existing keys win by default. Set ``overwrite=True`` to replace them.
-    """
+    """Format and replace ``OTEL_RESOURCE_ATTRIBUTES`` in an environment mapping."""
     env = os.environ if environ is None else environ
-    value = extend_otel_resource_attributes(
-        env.get(OTEL_RESOURCE_ATTRIBUTES_ENV),
-        additions,
-        overwrite=overwrite,
-    )
+    value = format_otel_resource_attributes(attributes)
     env[OTEL_RESOURCE_ATTRIBUTES_ENV] = value
     return value
 
 
 @contextmanager
 def publish_otel_resource_attributes(
-    additions: ResourceAttributes,
+    attributes: ResourceAttributes,
     *,
     environ: MutableMapping[str, str] | None = None,
-    overwrite: bool = True,
 ) -> Iterator[None]:
-    """Temporarily publish attributes for children created inside the scope.
+    """Temporarily publish an exact attribute map for child processes.
 
-    Child identity replaces stale inherited values by default. The exact prior
-    environment state is restored when the scope exits, including on error.
-    Because environment variables are process-global, publisher scopes may nest
-    in one thread but must not overlap across threads; callers must serialize
-    cross-thread publication.
+    Composition belongs to the caller: this scope installs only the encoded
+    *attributes* supplied here and never retains values from the current
+    environment implicitly. The exact prior environment state is restored when
+    the scope exits, including on error. Because environment variables are
+    process-global, publisher scopes may nest in one thread but must not overlap
+    across threads; callers must serialize cross-thread publication.
     """
     env = os.environ if environ is None else environ
     had_previous = OTEL_RESOURCE_ATTRIBUTES_ENV in env
     previous = env.get(OTEL_RESOURCE_ATTRIBUTES_ENV)
-    set_otel_resource_attributes(additions, environ=env, overwrite=overwrite)
+    set_otel_resource_attributes(attributes, environ=env)
     try:
         yield
     finally:
@@ -192,25 +165,6 @@ def publish_otel_resource_attributes(
             env[OTEL_RESOURCE_ATTRIBUTES_ENV] = previous
         else:
             env.pop(OTEL_RESOURCE_ATTRIBUTES_ENV, None)
-
-
-def merge_resource_attributes(
-    base: ResourceAttributes,
-    additions: ResourceAttributes,
-    *,
-    overwrite: bool = False,
-) -> dict[str, ResourceAttributeValue]:
-    """Merge non-empty attributes, optionally replacing existing keys.
-
-    ``None`` and ``""`` are treated as absent under either policy.
-    """
-    merged = {key: value for key, value in base.items() if value is not None and value != ""}
-    for key, value in additions.items():
-        if value is None or value == "":
-            continue
-        if overwrite or key not in merged:
-            merged[key] = value
-    return merged
 
 
 def check_resource_attributes(
@@ -251,13 +205,13 @@ def duplicate_otel_resource_attribute_keys(value: str | None) -> tuple[str, ...]
     return tuple(duplicates)
 
 
-def _otel_resource_attribute_segments(value: str | None) -> list[tuple[str, str]]:
+def _otel_resource_attribute_segments(text: str | None) -> list[tuple[str, str]]:
     """Return valid ``(key, raw_segment)`` pairs without rewriting bytes."""
-    if not value:
+    if not text:
         return []
 
     segments = []
-    for item in value.split(","):
+    for item in text.split(","):
         if not item.strip() or "=" not in item:
             continue
         key = item.partition("=")[0].strip()
@@ -266,7 +220,7 @@ def _otel_resource_attribute_segments(value: str | None) -> list[tuple[str, str]
     return segments
 
 
-def _format_value(value: ResourceAttributeValue) -> str:
+def _format_resource_attribute_value(value: ResourceAttributeValue) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, bool):

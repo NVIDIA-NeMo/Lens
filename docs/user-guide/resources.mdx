@@ -70,9 +70,11 @@ locally derived fallback values. Empty inherited values are ignored.
 `detect_slurm()` returns `slurm.array.count`, `slurm.nnodes`, `slurm.ntasks`,
 and `slurm.restart_count` as integers whether they are derived locally or
 inherited through `OTEL_RESOURCE_ATTRIBUTES`. Other inherited values remain
-strings. An empty inherited value, or a non-integer value for one of those four
-attributes, is discarded so that a valid locally derived value can be used as
-the fallback. If no valid local value exists, the attribute is omitted.
+strings. Complete signed ASCII base-10 strings are accepted. An empty inherited
+value, or any other form for one of those four attributes, is discarded so that
+a valid locally derived value can be used as the fallback. Locally detected
+integer values use the same conversion rule. If no valid local value exists,
+the attribute is omitted.
 
 The table above is the complete allowlist of attributes that `detect_slurm()`
 reads from `OTEL_RESOURCE_ATTRIBUTES`; every accepted key has an explicit
@@ -179,14 +181,14 @@ On conflict the caller's dict wins, matching what the OTel SDK does with the sam
 inputs.
 
 <Note>
-The two channels produce different **types** for the same attribute:
-`resource_attributes={NV_DL_RANK: 3}` yields the integer `3`, while
-`OTEL_RESOURCE_ATTRIBUTES="nv.dl.rank=3"` yields the string `"3"` — the env
-channel is string-only by construction. A collector or backend filtering on a
-numeric attribute should tolerate both. NeMo Lens does not generally coerce env
-attributes; the four numeric Slurm attributes normalized by `detect_slurm()` are
-the exception described above. Resource field types are defined in
-`semconv/resources.py`.
+The Resource carrier parser returns strings. During Resource construction,
+Lens restores integers for `nv.dl.rank`, `nv.dl.world_size`, `nv.dl.local_rank`,
+`nv.gpu.index`, and `nv.gpu.memory_total`. Complete signed base-10 strings are
+accepted. Invalid values remain visible and produce a warning. Unknown fields,
+UUIDs, IDs, software versions, and GPU compute capability remain strings; Lens
+does not infer types from a numeric-looking value such as `"007"`. Slurm retains
+the selection and invalid-value fallback described above while using the same
+strict integer conversion.
 </Note>
 
 ```bash
@@ -212,41 +214,56 @@ so mutating `os.environ` before `start()` is not one option among several.
 When both channels provide the same key, the caller's `resource_attributes`
 mapping wins, matching the OpenTelemetry SDK.
 
-Use the helpers in `nemo.lens.resources.attributes` rather than formatting the
-value by hand:
+Use the Resource carrier helpers rather than formatting the value by hand:
 
 ```python
-import os
-import subprocess
-
-from nemo.lens.resources import (
-    extend_otel_resource_attributes,
+from nemo.lens.resources.attributes import (
+    get_otel_resource_attributes,
     publish_otel_resource_attributes,
 )
-from nemo.lens.semconv import NV_DL_RANK, NV_DL_WORLD_SIZE
+from nemo.lens.semconv.encoding import compose_attributes
 
-# multiprocessing — publish while the child starts, then restore the environment
-with publish_otel_resource_attributes(
-    {NV_DL_RANK: rank, NV_DL_WORLD_SIZE: world_size},
-    overwrite=True,
-):
+current = get_otel_resource_attributes()
+defaults = {'service.name': 'checkpoint-worker'}
+overrides = {'nv.dl.role': 'ckpt_worker'}
+resolved = compose_attributes(current, defaults=defaults, overrides=overrides)
+
+# Publish the exact resolved map while the child starts, then restore the environment.
+with publish_otel_resource_attributes(resolved):
     ctx.Process(target=worker).start()
-
-# subprocess — build the child's environment
-value = extend_otel_resource_attributes(
-    os.environ.get('OTEL_RESOURCE_ATTRIBUTES'),
-    {NV_DL_RANK: rank, NV_DL_WORLD_SIZE: world_size},
-    overwrite=True,
-)
-env = {**os.environ, 'OTEL_RESOURCE_ATTRIBUTES': value}
-subprocess.Popen(cmd, env=env)
 ```
 
-Use `overwrite=True` when current child identity must replace stale inherited
-values. Use `overwrite=False` for additive launcher and Slurm behavior, where an
-existing value is authoritative. `extend_otel_resource_attributes()` is pure;
-`set_otel_resource_attributes()` updates an environment mapping permanently;
-`publish_otel_resource_attributes()` updates it only for the context lifetime.
+When a consumer needs a child carrier string without changing the environment,
+use the pure string transformation directly:
+
+```python
+from nemo.lens.resources.attributes import (
+    extend_otel_resource_attributes,
+)
+
+child_carrier = extend_otel_resource_attributes(
+    selected_carrier,
+    defaults={'nv.dl.rank': rank},
+    overrides={'nv.dl.role': 'worker'},
+)
+```
+
+Composition follows ordinary dictionary precedence: defaults apply only when a
+key is absent, current values replace defaults, and overrides replace both.
+Empty strings and `None` are ordinary overriding values. Encoding retains an
+empty string as `key=` and omits a `None` entry; it does not reapply a default.
+The function returns a new dictionary and does not mutate any input mapping.
+Type reconstruction remains a separate Resource operation.
+
+Publication installs only the encoded resolved map. It never retains current
+attributes implicitly, so include them in composition when they should survive.
+Passing an already resolved map requires no second decode or merge.
+`extend_otel_resource_attributes()` parses, composes, and formats a string without
+changing the environment. `set_otel_resource_attributes()` formats a resolved map
+and permanently replaces the selected environment value; it does not merge with
+the old value. `publish_otel_resource_attributes()` temporarily replaces the value
+and restores the exact incoming state. A resolved map needs no second parse or
+composition before it is set or published.
 Publisher contexts may nest within one thread, but they must not overlap across
 threads because environment variables are process-global. Serialize publication
 when multiple threads can launch children.
@@ -256,19 +273,17 @@ when multiple threads can launch children.
 | Concern | Behavior |
 |---|---|
 | Separators in values | Percent-encoded. Unencoded, a comma truncates its value *and* invents a key — a run id of `exp/2026-01,seed=7` arrives as `nemo.run.id="exp/2026-01"` plus a spurious `seed="7"`, with no error. |
-| Value types | `str`, `bool`, `int` and `float` are stringified. During a merge, `None` and `""` mean absent and do not replace an inherited value, even with `overwrite=True`. Other values — `bytes`, a list, a dict — are dropped with a warning, because this channel is string-typed and a repr is not a round trip. |
-| An inherited value | Unchanged segments are carried through byte-for-byte, never re-encoded, so a launcher's bytes survive untouched. `overwrite` explicitly selects whether inherited or added values win for duplicate keys. |
-| Repeated calls | Replacing a key removes its inherited occurrence before appending the current value, so repeated publication does not accumulate stale copies. |
+| Value types | `str`, `bool`, `int` and `float` are stringified. An empty string is retained as `key=` and `None` is omitted. Other values — `bytes`, a list, a dict — are dropped with a warning, because this channel is string-typed and a repr is not a round trip. |
+| An inherited value | Extend applies defaults → parsed current values → overrides. Later layers win even when the value is empty or `None`. Parsing and formatting may canonicalize escaping and collapse duplicate keys to the last decoded value. |
+| Repeated calls | Parse/compose/format produces one entry per decoded key, so repeated transformations do not accumulate stale duplicates. |
 | Non-string keys | Dropped with a warning. `str(key)` would ship `None` as the literal attribute name `"None"`. |
 | Separators in *keys* | Dropped with a warning. The SDK unquotes only the value half, so such a key has no representation; encoding it would ship the escape sequence as the attribute name. No semconv name contains `,` or `=`. |
 
 <Note>
-Values arrive in the child as **strings** — the env format has no other type.
-`resource_attributes={NV_DL_RANK: 3}` yields the integer `3`, the env channel
-yields `"3"`. A collector filtering on a numeric attribute should tolerate both.
-NeMo Lens does not generally coerce environment attributes; the four numeric
-Slurm attributes normalized by `detect_slurm()` are the exception described
-above.
+Values arrive from the environment carrier as **strings** because the format has
+no type metadata. During Resource construction, NeMo Lens restores the documented
+integer Resource fields. Unknown fields remain strings rather than being inferred
+from numeric-looking text.
 </Note>
 
 For selected Slurm and run identity keys, launch-provided
@@ -306,3 +321,10 @@ The `detect_resource()` function merges resource attributes in the following ord
 ## Run Telemetry Locally
 
 On a development machine with no Slurm or Kubernetes environment, only the `detect_local()` helper executes. Run identifiers are automatically generated as UUID values, so you can still filter by `nemo.run.id` to isolate a single local run.
+
+## Deriving an attempt UUID
+
+Use `from nemo.lens import derive_nv_dl_run_uuid` to derive an attempt UUID from
+scheduler identity or a supplied `run_id`. Call it when the application establishes
+an attempt. This standalone helper does not configure telemetry or publish
+attributes; callers choose where to record the result.

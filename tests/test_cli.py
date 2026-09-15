@@ -212,6 +212,7 @@ def test_set_slurm_resource_attrs_task_prints_shell_export_and_preserves_inherit
             f"{SLURM_HEAD_NODE_NAME}=head-01,{SLURM_JOB_ID}=from-launch,custom.attr=kept"
         ),
     }
+    original_env = dict(env)
     args = cli._build_parser().parse_args(
         [
             "set-slurm-resource-attrs",
@@ -239,6 +240,7 @@ def test_set_slurm_resource_attrs_task_prints_shell_export_and_preserves_inherit
     assert attrs[SLURM_TOPOLOGY_ADDR] == "rack.switch.node"
     assert attrs[SLURM_TOPOLOGY_ADDR_PATTERN] == "rack.switch.node"
     assert attrs[NV_DL_LAUNCH_CONTAINER_IMAGE] == "image=name,tag"
+    assert env == original_env
 
 
 def test_set_slurm_resource_attrs_sbatch_derives_head_node_without_task_topology():

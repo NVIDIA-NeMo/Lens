@@ -332,6 +332,7 @@ def build_providers(
     # Resource
     # ------------------------------------------------------------------
     from nemo.lens.package_info import __version__
+    from nemo.lens.semconv.resources import normalize_resource_attributes
 
     attrs = {
         "service.name": config.service_name,
@@ -369,8 +370,9 @@ def build_providers(
     #
     # Resolve the two explicit sources the way Resource.create will -- caller over
     # env -- and decide from that.
-    env_attrs = dict(OTELResourceDetector().detect().attributes)
-    resolved = {**env_attrs, **attrs}
+    env_attrs = normalize_resource_attributes(dict(OTELResourceDetector().detect().attributes))
+    attrs = {**env_attrs, **attrs}
+    resolved = dict(attrs)
 
     rank = resolved.get(NV_DL_RANK)
     # Captured before deriving: distinguishes "the caller named this process" from
