@@ -28,10 +28,35 @@ import random
 import threading
 from typing import TYPE_CHECKING
 
+from nemo.lens.helpers import _SPAN_ATTRIBUTES, safe_set_span_attributes
 from nemo.lens.semconv import NEMO_SPAN_TRUNCATED, NV_DL_RANK, NV_DL_WORLD_SIZE
 
 if TYPE_CHECKING:
     from nemo.lens.config import NemoLensConfig
+
+
+class _ScopedSpanAttributes:
+    """Apply the current attribute scope when a span starts."""
+
+    def on_start(self, span, parent_context=None) -> None:
+        attributes = _SPAN_ATTRIBUTES.get()
+        if attributes:
+            safe_set_span_attributes(
+                span,
+                {key: value for key, value in attributes.items() if key not in span.attributes},
+            )
+
+    def _on_ending(self, span) -> None:
+        pass
+
+    def on_end(self, span) -> None:
+        pass
+
+    def shutdown(self) -> None:
+        pass
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return True
 
 
 class _OpenSpanCloser:
@@ -332,9 +357,10 @@ def build_providers(
         tracer_provider = TracerProvider(
             resource=resource, id_generator=SeedIndependentIdGenerator()
         )
-        # Order matters: the closer is registered BEFORE the batch processor so its
-        # shutdown() runs first and ends any still-open spans -> they flow into the
-        # batch queue via on_end -> the batch shutdown then flushes them out.
+        # Apply scoped attributes before tracking the span, since shutdown can end
+        # tracked spans. The closer must shut down before the batch processor so
+        # those spans are queued before the exporter flushes and stops.
+        tracer_provider.add_span_processor(_ScopedSpanAttributes())
         tracer_provider.add_span_processor(_OpenSpanCloser())
         tracer_provider.add_span_processor(BatchSpanProcessor(_span_exporter))
         trace.set_tracer_provider(tracer_provider)

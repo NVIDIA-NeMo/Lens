@@ -33,6 +33,7 @@ from nemo.lens.config import NemoLensConfig
 from nemo.lens.providers import (
     SeedIndependentIdGenerator,
     _OpenSpanCloser,
+    _ScopedSpanAttributes,
     build_noop_providers,
     build_providers,
 )
@@ -782,12 +783,7 @@ class _FakeSpan:
 
 
 class TestOpenSpanCloserWiring:
-    """``build_providers`` must register the closer, and register it FIRST.
-
-    Every other test here builds its own ``TracerProvider`` by hand, so none of them
-    assert the wiring that actually ships: deleting the ``add_span_processor`` call,
-    or moving it after the ``BatchSpanProcessor``, leaves them all green.
-    """
+    """Verify processor registration and export of open spans at shutdown."""
 
     @staticmethod
     def _build(span_exporter):
@@ -796,8 +792,7 @@ class TestOpenSpanCloserWiring:
         return trace.get_tracer_provider()
 
     def test_open_span_reaches_the_exporter_end_to_end(self):
-        """The whole fix, through the real wiring: no closer, or a closer registered
-        after the batch processor, and this span is never exported."""
+        """Export an open span when the configured provider shuts down."""
         from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
         exporter = InMemorySpanExporter()
@@ -807,17 +802,26 @@ class TestOpenSpanCloserWiring:
 
         assert [s.name for s in exporter.get_finished_spans()] == ["whole_run"]
 
-    def test_closer_is_registered_before_the_batch_processor(self):
-        """States the ordering directly, so a reorder fails as a wiring bug rather
-        than as a puzzling export miss."""
+    def test_scoped_attributes_precede_closer_and_batch_processor(self):
+        """Apply scoped attributes before tracking and close spans before exporter shutdown."""
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
         from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
         provider = self._build(InMemorySpanExporter())
         processors = provider._active_span_processor._span_processors
 
-        assert isinstance(processors[0], _OpenSpanCloser)
-        assert any(isinstance(p, BatchSpanProcessor) for p in processors[1:])
+        scope_index = next(
+            i
+            for i, processor in enumerate(processors)
+            if isinstance(processor, _ScopedSpanAttributes)
+        )
+        closer_index = next(
+            i for i, processor in enumerate(processors) if isinstance(processor, _OpenSpanCloser)
+        )
+        batch_index = next(
+            i for i, processor in enumerate(processors) if isinstance(processor, BatchSpanProcessor)
+        )
+        assert scope_index < closer_index < batch_index
 
 
 class TestConsoleExporterJsonl:

@@ -52,6 +52,12 @@ def span_cm(name, tracer=None, record_exception=True, **attributes):
     yield None
 
 
+@contextmanager
+def span_attributes(attributes):
+    """No-op attribute scope."""
+    yield None
+
+
 def is_span_group_enabled(group):
     """Always returns False."""
     return False
