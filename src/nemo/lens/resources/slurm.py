@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 
 from nemo.lens.resources.attributes import (
     ResourceAttributeValue,
@@ -28,12 +28,10 @@ from nemo.lens.resources.attributes import (
 )
 from nemo.lens.semconv import (
     NV_DL_JOB_UUID,
-    NV_DL_RUN_UUID,
     SLURM_ARRAY_COUNT,
     SLURM_ARRAY_JOB_ID,
     SLURM_ARRAY_SLUID,
     SLURM_ARRAY_TASK_ID,
-    SLURM_CLUSTER,
     SLURM_CLUSTER_NAME,
     SLURM_HEAD_NODE_NAME,
     SLURM_JOB_ACCOUNT,
@@ -44,7 +42,6 @@ from nemo.lens.semconv import (
     SLURM_JOB_RESERVATION,
     SLURM_JOB_USER,
     SLURM_NNODES,
-    SLURM_NODELIST,
     SLURM_NTASKS,
     SLURM_PARTITION,
     SLURM_RESTART_COUNT,
@@ -52,44 +49,12 @@ from nemo.lens.semconv import (
     SLURM_SLUID,
     SLURM_TOPOLOGY_ADDR,
     SLURM_TOPOLOGY_ADDR_PATTERN,
-    SLURM_TORCHELASTIC_RESTART_COUNT,
 )
-
-SLURM_RETIRED_RESOURCE_ATTRIBUTE_KEYS = frozenset(
-    {
-        SLURM_CLUSTER,
-        SLURM_NODELIST,
-        SLURM_TORCHELASTIC_RESTART_COUNT,
-    }
+from nemo.lens.semconv.resources import (
+    SLURM_RESOURCE_ATTRIBUTE_KEYS,
+    SLURM_RESOURCE_ATTRIBUTE_NORMALIZERS,
+    SLURM_RETIRED_RESOURCE_ATTRIBUTE_KEYS,
 )
-
-SLURM_RESOURCE_ATTRIBUTE_NORMALIZERS: dict[str, Callable[[str], ResourceAttributeValue]] = {
-    SLURM_JOB_ID: str,
-    SLURM_JOB_ID_RAW: str,
-    SLURM_ARRAY_JOB_ID: str,
-    SLURM_ARRAY_TASK_ID: str,
-    SLURM_ARRAY_COUNT: int,
-    SLURM_SLUID: str,
-    SLURM_ARRAY_SLUID: str,
-    SLURM_JOB_NAME: str,
-    SLURM_CLUSTER_NAME: str,
-    SLURM_PARTITION: str,
-    SLURM_HEAD_NODE_NAME: str,
-    SLURM_NNODES: int,
-    SLURM_NTASKS: int,
-    SLURM_RESTART_COUNT: int,
-    SLURM_JOB_USER: str,
-    SLURM_JOB_ACCOUNT: str,
-    SLURM_JOB_QOS: str,
-    SLURM_JOB_RESERVATION: str,
-    SLURM_SEGMENT: str,
-    SLURM_TOPOLOGY_ADDR: str,
-    SLURM_TOPOLOGY_ADDR_PATTERN: str,
-    NV_DL_JOB_UUID: str,
-    NV_DL_RUN_UUID: str,
-}
-
-SLURM_RESOURCE_ATTRIBUTE_KEYS = frozenset(SLURM_RESOURCE_ATTRIBUTE_NORMALIZERS)
 
 
 def detect_slurm(environ: Mapping[str, str] | None = None) -> dict[str, ResourceAttributeValue]:

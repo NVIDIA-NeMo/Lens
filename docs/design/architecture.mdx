@@ -48,7 +48,7 @@ NeMo Lens is intentionally small. Its architecture prioritizes three properties:
 │ — contrib/      FastAPI, aiohttp, Ray, NCCL                 │
 │ — logging_bridge.py                                          │
 │ — fallbacks.py  canonical no-ops for consumers              │
-│ — semconv.py    attribute name constants                    │
+│ — semconv/      attribute and Resource field definitions    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -67,7 +67,7 @@ Each layer depends only on layers above it. No circular imports.
 | `providers.py` | SDK provider construction (lazy imports) |
 | `propagation.py` | W3C context inject/extract |
 | `distributed.py` | `broadcast_trace_context`, `create_linked_span` |
-| `semconv.py` | Attribute name constants and version tracking |
+| `semconv/` | Attribute names, version tracking, and Resource field definitions |
 | `fallbacks.py` | Canonical no-op implementations for consumers |
 | `logging_bridge.py` | Python logging → OTel LoggerProvider bridge |
 
