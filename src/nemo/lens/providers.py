@@ -22,6 +22,7 @@ code paths that never reach this module.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import random
@@ -221,6 +222,86 @@ class SeedIndependentIdGenerator:
         return True
 
 
+class DeterministicTraceIdGenerator(SeedIndependentIdGenerator):
+    """IdGenerator that derives a fixed trace ID from a job-identity seed.
+
+    Every process that computes the SAME seed (SLURM cluster + job id) mints the
+    SAME 128-bit trace ID with no coordination, so all spans of a distributed job
+    land in one trace even when ranks start as separate processes on different
+    nodes -- the "one trace ID per job without a comm channel" pattern. The trace
+    ID is a SHA-256 of the seed truncated to 128 bits (non-zero per W3C).
+
+    Only the TRACE ID is overridden. Span IDs are inherited unchanged from
+    :class:`SeedIndependentIdGenerator` -- they must stay per-process random (and
+    fork-safe), because a span ID is what parent/child links resolve to; if span
+    IDs also collapsed to a shared value the trace tree would be corrupt.
+
+    Gated behind ``ENABLE_SINGLE_TRACEID`` (``config.single_trace_id``); off by
+    default. See :func:`_deterministic_trace_id_seed` for how the seed is built.
+
+    Note on restarts: the seed (cluster + job id) carries NO restart/attempt
+    count, so a job that crashes and restarts under the same SLURM job id reuses
+    the same trace ID -- the whole job (incl. restarts) is one trace. To separate
+    attempts instead, fold ``SLURM_RESTART_COUNT`` / ``TORCHELASTIC_RESTART_COUNT``
+    into the seed in :func:`_deterministic_trace_id_seed`.
+    """
+
+    def __init__(self, seed: str) -> None:
+        super().__init__()  # sets up the fork-safe private RNG used for span IDs
+        digest = hashlib.sha256(seed.encode("utf-8")).digest()[:16]  # 128 bits
+        self._trace_id = int.from_bytes(digest, "big") or 1  # must be non-zero
+
+    def generate_trace_id(self) -> int:
+        return self._trace_id
+
+    def is_trace_id_random(self) -> bool:
+        # Deterministic by construction -> NOT the W3C random-trace-id flag.
+        # Irrelevant to the default ParentBased(AlwaysOn) sampler used here; only a
+        # TraceIdRatioBased sampler would be skewed by a non-random trace id.
+        return False
+
+
+def _deterministic_trace_id_seed(config: NemoLensConfig) -> str | None:
+    """Return a stable seed for :class:`DeterministicTraceIdGenerator`, or None.
+
+    The seed is ``"<cluster>_<job_id>"``, where the job id is the **array job id**
+    when it is set (all tasks/ranks of an array share it) and the plain
+    ``SLURM_JOB_ID`` otherwise. Every rank on every node derives the same value,
+    so they all mint the same trace ID with no coordination.
+
+    Off SLURM, falls back to an explicit ``run_id``. Returns None when neither is
+    available -- the caller then keeps random trace IDs rather than collapsing
+    every unidentified job onto one shared ID.
+    """
+    env = os.environ
+    array_job_id = env.get("SLURM_ARRAY_JOB_ID", "").strip()
+    job_id = array_job_id or env.get("SLURM_JOB_ID", "").strip()
+    if job_id:
+        cluster = env.get("SLURM_CLUSTER_NAME", "").strip() or "nocluster"
+        return f"{cluster}_{job_id}"
+    if config.run_id:
+        return config.run_id
+    return None
+
+
+def _select_id_generator(config: NemoLensConfig):
+    """Choose the trace/span IdGenerator for the TracerProvider.
+
+    Returns :class:`DeterministicTraceIdGenerator` when single-trace-id is enabled
+    AND a stable job seed exists; otherwise :class:`SeedIndependentIdGenerator`.
+    """
+    if config.single_trace_id:
+        seed = _deterministic_trace_id_seed(config)
+        if seed:
+            return DeterministicTraceIdGenerator(seed)
+        logging.getLogger(__name__).warning(
+            "ENABLE_SINGLE_TRACEID is set but no SLURM job identity "
+            "(SLURM_JOB_ID/SLURM_ARRAY_JOB_ID) or run_id is available to seed a "
+            "deterministic trace ID; falling back to random per-process trace IDs."
+        )
+    return SeedIndependentIdGenerator()
+
+
 def build_providers(
     config: NemoLensConfig,
     resource_attributes: dict | None = None,
@@ -329,8 +410,10 @@ def build_providers(
         # Seed-independent IDs cover EVERY setup_telemetry caller -- trainer, ckpt worker, nvrx --
         # since they all build their TracerProvider here (the worker/nvrx set telemetry up in their
         # own process via from_env, so a caller-side patch would miss them; fixing it here does not).
+        # When ENABLE_SINGLE_TRACEID is set, this instead derives one deterministic trace ID from the
+        # job identity so all ranks/processes share a single trace (span IDs still per-process random).
         tracer_provider = TracerProvider(
-            resource=resource, id_generator=SeedIndependentIdGenerator()
+            resource=resource, id_generator=_select_id_generator(config)
         )
         # Order matters: the closer is registered BEFORE the batch processor so its
         # shutdown() runs first and ends any still-open spans -> they flow into the

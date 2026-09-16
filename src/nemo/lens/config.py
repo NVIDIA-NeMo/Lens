@@ -63,6 +63,12 @@ class NemoLensConfig:
     #: W&B project name. Required when exporting traces to W&B Weave.
     wandb_project: str = ""
 
+    #: Derive a single deterministic trace ID per job from the scheduler job
+    #: identity (SLURM cluster + job id), so every rank/process of a distributed
+    #: job shares one trace ID with no cross-process coordination. Off by
+    #: default; toggled by the standalone ``ENABLE_SINGLE_TRACEID`` env var.
+    single_trace_id: bool = False
+
     @property
     def resolved_span_groups(self) -> frozenset:
         """Resolve :attr:`span_groups` against the current registry contents.
@@ -112,6 +118,24 @@ class NemoLensConfig:
                 "Expected '1'/'0', 'true'/'false', 'yes'/'no', 'on'/'off'."
             )
 
+        def _standalone_bool(name: str, default: bool) -> bool:
+            """Parse a non-prefixed env var (e.g. ``ENABLE_SINGLE_TRACEID``).
+
+            Some toggles are deliberately global rather than per-library, so they
+            are read by their bare name instead of via ``<PREFIX>_``.
+            """
+            val = os.environ.get(name, "").strip().lower()
+            if not val:
+                return default
+            if val in ("1", "true", "yes", "on"):
+                return True
+            if val in ("0", "false", "no", "off"):
+                return False
+            raise ValueError(
+                f"Invalid boolean for {name}: {val!r}. "
+                "Expected '1'/'0', 'true'/'false', 'yes'/'no', 'on'/'off'."
+            )
+
         service_name = os.environ.get("OTEL_SERVICE_NAME", "").strip() or "nemo"
 
         return cls(
@@ -126,4 +150,5 @@ class NemoLensConfig:
             user=_env("USER_ID", ""),
             wandb_entity=os.environ.get("WANDB_ENTITY", ""),
             wandb_project=os.environ.get("WANDB_PROJECT", ""),
+            single_trace_id=_standalone_bool("ENABLE_SINGLE_TRACEID", False),
         )
