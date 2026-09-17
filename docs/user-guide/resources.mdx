@@ -185,7 +185,8 @@ The two channels produce different **types** for the same attribute:
 channel is string-only by construction. A collector or backend filtering on a
 numeric attribute should tolerate both. NeMo Lens does not generally coerce env
 attributes; the four numeric Slurm attributes normalized by `detect_slurm()` are
-the exception described above. See `semconv.py`.
+the exception described above. Resource field types are defined in
+`semconv/resources.py`.
 </Note>
 
 ```bash
