@@ -31,8 +31,11 @@ from opentelemetry.trace import NoOpTracerProvider
 
 from nemo.lens.config import NemoLensConfig
 from nemo.lens.providers import (
+    DeterministicTraceIdGenerator,
     SeedIndependentIdGenerator,
+    _deterministic_trace_id_seed,
     _OpenSpanCloser,
+    _select_id_generator,
     build_noop_providers,
     build_providers,
 )
@@ -509,6 +512,170 @@ class TestSeedIndependentIds:
             os.wait()
 
         assert len(set(ids)) == len(ids), f"forked children shared trace IDs: {ids}"
+
+
+class TestDeterministicTraceId:
+    """ENABLE_SINGLE_TRACEID: every process of a job mints one shared trace ID."""
+
+    def test_same_seed_yields_same_trace_id(self):
+        """Two independent processes (here, two generator instances) that compute the
+        same job seed must produce the identical trace ID with no coordination."""
+        a = DeterministicTraceIdGenerator("agilerl/cluster-a/job-42")
+        b = DeterministicTraceIdGenerator("agilerl/cluster-a/job-42")
+        assert a.generate_trace_id() == b.generate_trace_id()
+
+    def test_different_seed_yields_different_trace_id(self):
+        a = DeterministicTraceIdGenerator("cluster-a/job-42")
+        b = DeterministicTraceIdGenerator("cluster-a/job-43")
+        assert a.generate_trace_id() != b.generate_trace_id()
+
+    def test_trace_id_is_stable_across_calls(self):
+        gen = DeterministicTraceIdGenerator("cluster-a/job-42")
+        assert gen.generate_trace_id() == gen.generate_trace_id()
+
+    def test_trace_id_in_range_and_nonzero(self):
+        gen = DeterministicTraceIdGenerator("")  # even empty seed must be valid
+        assert 0 < gen.generate_trace_id() < 2**128
+
+    def test_span_ids_stay_random_and_unique(self):
+        """Span IDs must NOT collapse to a shared value even though the trace ID does,
+        or parent/child links across ranks would resolve to the wrong span."""
+        gen = DeterministicTraceIdGenerator("cluster-a/job-42")
+        span_ids = {gen.generate_span_id() for _ in range(100)}
+        assert len(span_ids) == 100
+        assert all(0 < sid < 2**64 for sid in span_ids)
+
+    def test_span_ids_survive_identical_random_seed(self):
+        import random
+
+        gen = DeterministicTraceIdGenerator("cluster-a/job-42")
+        state = random.getstate()
+        try:
+            random.seed(1234)
+            first = gen.generate_span_id()
+            random.seed(1234)
+            second = gen.generate_span_id()
+        finally:
+            random.setstate(state)
+        assert first != second
+
+    def test_does_not_declare_random_trace_id_flag(self):
+        """A deterministic trace ID is not W3C random-trace-id; declaring otherwise
+        would mislead trace-id-ratio samplers downstream."""
+        assert DeterministicTraceIdGenerator("cluster-a/job-42").is_trace_id_random() is False
+
+    def test_selector_picks_deterministic_when_enabled_with_slurm(self, monkeypatch):
+        monkeypatch.setenv("SLURM_JOB_ID", "12345")
+        monkeypatch.setenv("SLURM_CLUSTER_NAME", "cluster-a")
+        cfg = NemoLensConfig(enabled=True, single_trace_id=True)
+        assert isinstance(_select_id_generator(cfg), DeterministicTraceIdGenerator)
+
+    def test_selector_is_deterministic_across_slurm_ranks(self, monkeypatch):
+        """Same SLURM job + cluster -> same trace ID even from separate selector calls
+        (stand-in for separate rank processes)."""
+        monkeypatch.setenv("SLURM_JOB_ID", "12345")
+        monkeypatch.setenv("SLURM_CLUSTER_NAME", "cluster-a")
+        cfg = NemoLensConfig(enabled=True, single_trace_id=True)
+        rank0 = _select_id_generator(cfg).generate_trace_id()
+        rank1 = _select_id_generator(cfg).generate_trace_id()
+        assert rank0 == rank1
+
+    def test_seed_prefers_array_job_id_when_set(self, monkeypatch):
+        """All tasks/ranks of an array share SLURM_ARRAY_JOB_ID, so it wins over the
+        per-task SLURM_JOB_ID to keep the whole array on one trace ID."""
+        monkeypatch.setenv("SLURM_CLUSTER_NAME", "cluster-a")
+        monkeypatch.setenv("SLURM_ARRAY_JOB_ID", "999")
+        monkeypatch.setenv("SLURM_JOB_ID", "12345")  # differs per array task
+        cfg = NemoLensConfig(enabled=True, single_trace_id=True)
+        seed = _deterministic_trace_id_seed(cfg)
+        assert seed == "cluster-a_999"
+
+    def test_seed_uses_job_id_when_array_id_empty(self, monkeypatch):
+        monkeypatch.setenv("SLURM_CLUSTER_NAME", "cluster-a")
+        monkeypatch.delenv("SLURM_ARRAY_JOB_ID", raising=False)
+        monkeypatch.setenv("SLURM_JOB_ID", "12345")
+        cfg = NemoLensConfig(enabled=True, single_trace_id=True)
+        assert _deterministic_trace_id_seed(cfg) == "cluster-a_12345"
+
+    def test_seed_includes_cluster_so_same_job_id_differs_across_clusters(self, monkeypatch):
+        """Job ids are only unique within a cluster; the cluster name must be part of
+        the seed so the same job id on two clusters does not collide."""
+        monkeypatch.setenv("SLURM_JOB_ID", "12345")
+        cfg = NemoLensConfig(enabled=True, single_trace_id=True)
+        monkeypatch.setenv("SLURM_CLUSTER_NAME", "cluster-a")
+        a = _deterministic_trace_id_seed(cfg)
+        monkeypatch.setenv("SLURM_CLUSTER_NAME", "cluster-b")
+        b = _deterministic_trace_id_seed(cfg)
+        assert a != b
+        assert DeterministicTraceIdGenerator(a).generate_trace_id() != (
+            DeterministicTraceIdGenerator(b).generate_trace_id()
+        )
+
+    def test_seed_defaults_cluster_when_unset(self, monkeypatch):
+        monkeypatch.delenv("SLURM_CLUSTER_NAME", raising=False)
+        monkeypatch.setenv("SLURM_JOB_ID", "12345")
+        cfg = NemoLensConfig(enabled=True, single_trace_id=True)
+        assert _deterministic_trace_id_seed(cfg) == "nocluster_12345"
+
+    def test_selector_falls_back_to_run_id_off_slurm(self, monkeypatch):
+        monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+        monkeypatch.delenv("SLURM_ARRAY_JOB_ID", raising=False)
+        cfg = NemoLensConfig(enabled=True, single_trace_id=True, run_id="my-run-1")
+        gen = _select_id_generator(cfg)
+        assert isinstance(gen, DeterministicTraceIdGenerator)
+
+    def test_selector_falls_back_to_random_without_identity(self, monkeypatch, caplog):
+        monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+        monkeypatch.delenv("SLURM_ARRAY_JOB_ID", raising=False)
+        cfg = NemoLensConfig(enabled=True, single_trace_id=True, run_id="")
+        with caplog.at_level(logging.WARNING):
+            gen = _select_id_generator(cfg)
+        assert isinstance(gen, SeedIndependentIdGenerator)
+        assert "ENABLE_SINGLE_TRACEID" in caplog.text
+
+    def test_selector_defaults_to_random_when_disabled(self, monkeypatch):
+        monkeypatch.setenv("SLURM_JOB_ID", "12345")
+        cfg = NemoLensConfig(enabled=True, single_trace_id=False)
+        assert isinstance(_select_id_generator(cfg), SeedIndependentIdGenerator)
+
+    def test_all_spans_in_a_process_share_the_deterministic_trace_id(self, monkeypatch):
+        monkeypatch.setenv("SLURM_JOB_ID", "12345")
+        monkeypatch.setenv("SLURM_CLUSTER_NAME", "cluster-a")
+        cfg = NemoLensConfig(enabled=True, exporter="console", single_trace_id=True)
+        build_providers(cfg)
+        tracer = trace.get_tracer("test")
+        with (
+            tracer.start_as_current_span("root") as root,
+            tracer.start_as_current_span("child") as child,
+        ):
+            assert child.get_span_context().trace_id == root.get_span_context().trace_id
+        # The shared trace ID is the deterministic one derived from the job seed:
+        # cluster name + job id.
+        expected = DeterministicTraceIdGenerator("cluster-a_12345").generate_trace_id()
+        assert root.get_span_context().trace_id == expected
+
+
+class TestConfigSingleTraceIdEnv:
+    """ENABLE_SINGLE_TRACEID is a standalone (non-prefixed) toggle on the config."""
+
+    def test_default_is_false(self, monkeypatch):
+        monkeypatch.delenv("ENABLE_SINGLE_TRACEID", raising=False)
+        assert NemoLensConfig.from_env().single_trace_id is False
+
+    @pytest.mark.parametrize("val", ["1", "true", "TRUE", "yes", "on"])
+    def test_truthy_values_enable(self, monkeypatch, val):
+        monkeypatch.setenv("ENABLE_SINGLE_TRACEID", val)
+        assert NemoLensConfig.from_env().single_trace_id is True
+
+    @pytest.mark.parametrize("val", ["0", "false", "no", "off"])
+    def test_falsy_values_disable(self, monkeypatch, val):
+        monkeypatch.setenv("ENABLE_SINGLE_TRACEID", val)
+        assert NemoLensConfig.from_env().single_trace_id is False
+
+    def test_invalid_value_raises(self, monkeypatch):
+        monkeypatch.setenv("ENABLE_SINGLE_TRACEID", "maybe")
+        with pytest.raises(ValueError, match="ENABLE_SINGLE_TRACEID"):
+            NemoLensConfig.from_env()
 
 
 class TestOpenSpanCloser:
