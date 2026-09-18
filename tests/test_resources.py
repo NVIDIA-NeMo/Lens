@@ -33,7 +33,7 @@ from nemo.lens.resources.attributes import (
     check_resource_attributes,
     duplicate_otel_resource_attribute_keys,
     format_otel_resource_attributes,
-    merge_resource_attributes,
+    get_otel_resource_attributes,
     parse_otel_resource_attributes,
 )
 from nemo.lens.resources.kubernetes import detect_kubernetes
@@ -44,6 +44,7 @@ from nemo.lens.resources.slurm import (
     derive_slurm_resource_attributes,
     detect_slurm,
 )
+from nemo.lens.semconv.encoding import compose_attributes
 
 
 class TestDetectSlurm:
@@ -159,10 +160,10 @@ class TestDetectSlurm:
                 "SLURM_ARRAY_TASK_COUNT": "8",
                 "SLURM_RESTART_COUNT": "1",
                 "OTEL_RESOURCE_ATTRIBUTES": (
-                    "slurm.nnodes=invalid,"
-                    "slurm.ntasks=invalid,"
-                    "slurm.array.count=invalid,"
-                    "slurm.restart_count=invalid"
+                    "slurm.nnodes=1_0,"
+                    "slurm.ntasks=3_2,"
+                    "slurm.array.count=6_4,"
+                    "slurm.restart_count=0_2"
                 ),
             }
         )
@@ -171,6 +172,22 @@ class TestDetectSlurm:
         assert result["slurm.ntasks"] == 16
         assert result["slurm.array.count"] == 8
         assert result["slurm.restart_count"] == 1
+
+    def test_invalid_local_integer_attributes_are_omitted(self):
+        result = derive_slurm_resource_attributes(
+            {
+                "SLURM_JOB_ID": "12345",
+                "SLURM_JOB_NUM_NODES": "1_0",
+                "SLURM_NTASKS": "3_2",
+                "SLURM_ARRAY_TASK_COUNT": "6_4",
+                "SLURM_RESTART_COUNT": "0_2",
+            }
+        )
+
+        assert "slurm.nnodes" not in result
+        assert "slurm.ntasks" not in result
+        assert "slurm.array.count" not in result
+        assert "slurm.restart_count" not in result
 
     def test_empty_inherited_attributes_use_derived_values(self):
         result = detect_slurm(
@@ -436,138 +453,82 @@ class TestResourceAttributes:
     def test_formatter_emits_trimmed_duplicate_key_once(self):
         assert format_otel_resource_attributes({"a": 1, " a ": 2}) == "a=2"
 
-    def test_merge_resource_attributes_preserves_base_by_default(self):
-        merged = merge_resource_attributes(
-            {"slurm.job.id": "from-launch"},
-            {"slurm.job.id": "from-fallback", "slurm.job.id.raw": "12345"},
-            overwrite=False,
-        )
+    def test_get_reads_only_the_selected_environment(self, monkeypatch):
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "source=global")
+        env = {"OTEL_RESOURCE_ATTRIBUTES": "source=selected,empty="}
 
-        assert merged == {
-            "slurm.job.id": "from-launch",
-            "slurm.job.id.raw": "12345",
+        assert get_otel_resource_attributes(environ=env) == {
+            "source": "selected",
+            "empty": "",
         }
 
-    def test_merge_resource_attributes_ignores_empty_values(self):
-        for empty in (None, ""):
-            merged = merge_resource_attributes(
-                {"slurm.job.id": empty},
-                {"slurm.job.id": "from-fallback", "slurm.job.name": empty},
-            )
-
-            assert merged == {"slurm.job.id": "from-fallback"}
-
-    def test_extend_preserves_inherited_values(self):
+    def test_extend_composes_defaults_current_and_overrides(self):
         encoded = extend_otel_resource_attributes(
-            "slurm.job.id=from-launch",
-            {"slurm.job.id": "from-fallback", "slurm.job.id.raw": "12345"},
-            overwrite=False,
+            "slurm.job.id=from-launch,empty=,duplicate=first,duplicate=last",
+            defaults={
+                "slurm.job.id": "from-fallback",
+                "slurm.job.id.raw": 12345,
+                "empty": "from-fallback",
+            },
+            overrides={"nv.dl.role": "worker", "suppressed": None},
         )
 
-        assert parse_otel_resource_attributes(encoded) == {
-            "slurm.job.id": "from-launch",
-            "slurm.job.id.raw": "12345",
-        }
-
-    def test_extend_can_replace_inherited_values(self):
-        encoded = extend_otel_resource_attributes(
-            "slurm.job.id=stale,launcher.id=abc",
-            {"slurm.job.id": "current"},
-            overwrite=True,
+        assert encoded == (
+            "slurm.job.id=from-launch,slurm.job.id.raw=12345,empty=,"
+            "duplicate=last,nv.dl.role=worker"
         )
 
-        assert encoded == "launcher.id=abc,slurm.job.id=current"
-
-    def test_extend_overwrite_removes_inherited_duplicates(self):
+    def test_extend_canonicalizes_the_temporary_carrier(self):
         encoded = extend_otel_resource_attributes(
-            "nv.dl.rank=1,launcher.id=abc,nv.dl.rank=2",
-            {"nv.dl.rank": 3},
-            overwrite=True,
+            "odd=%2Fpre%2Dencoded, malformed ,nv.dl.rank=1,nv.dl.rank=2"
         )
 
-        assert encoded == "launcher.id=abc,nv.dl.rank=3"
+        assert encoded == "odd=%2Fpre-encoded,nv.dl.rank=2"
 
-    def test_extend_rejects_non_mapping_additions(self):
-        with pytest.raises(
-            TypeError,
-            match=r"additions must be a mapping of name -> value, got list\.",
-        ):
-            extend_otel_resource_attributes("launcher.id=abc", [("nv.dl.rank", 2)])
-
-    def test_extend_treats_empty_additions_as_absent_when_overwriting(self):
-        encoded = extend_otel_resource_attributes(
-            "run.id=current,launcher.id=abc",
-            {"run.id": "", "launcher.id": None},
-            overwrite=True,
-        )
-
-        assert encoded == "run.id=current,launcher.id=abc"
-
-    def test_extend_preserves_untouched_inherited_segments(self):
-        encoded = extend_otel_resource_attributes(
-            "odd=%2Fpre%2Dencoded, malformed ",
-            {"slurm.job.id": "12345"},
-            overwrite=False,
-        )
-
-        assert encoded == "odd=%2Fpre%2Dencoded,slurm.job.id=12345"
-
-    def test_set_otel_resource_attributes_updates_env(self):
+    def test_set_otel_resource_attributes_replaces_env_exactly(self):
         env = {"OTEL_RESOURCE_ATTRIBUTES": "slurm.job.id=from-launch"}
 
         value = set_otel_resource_attributes(
-            {"slurm.job.id": "from-fallback", "host.name": "node-01"},
+            {"nv.dl.rank": 2, "empty": "", "suppressed": None},
             environ=env,
-            overwrite=False,
         )
 
-        assert env["OTEL_RESOURCE_ATTRIBUTES"] == value
-        assert parse_otel_resource_attributes(value) == {
-            "slurm.job.id": "from-launch",
-            "host.name": "node-01",
-        }
+        assert value == "nv.dl.rank=2,empty="
+        assert env == {"OTEL_RESOURCE_ATTRIBUTES": value}
 
-    def test_set_can_replace_inherited_values(self):
-        env = {"OTEL_RESOURCE_ATTRIBUTES": "nv.dl.rank=1,launcher.id=abc"}
+    def test_set_empty_map_writes_present_but_empty_value(self):
+        env = {}
 
-        value = set_otel_resource_attributes(
-            {"nv.dl.rank": 2},
-            environ=env,
-            overwrite=True,
-        )
+        assert set_otel_resource_attributes({}, environ=env) == ""
+        assert env == {"OTEL_RESOURCE_ATTRIBUTES": ""}
 
-        assert value == "launcher.id=abc,nv.dl.rank=2"
-        assert env["OTEL_RESOURCE_ATTRIBUTES"] == value
-
-    def test_set_reads_live_environment_without_accumulating(self, monkeypatch):
-        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "launcher.id=abc")
-
-        for rank in range(5):
-            value = set_otel_resource_attributes({"nv.dl.rank": rank}, overwrite=True)
-            assert value == f"launcher.id=abc,nv.dl.rank={rank}"
-            assert os.environ["OTEL_RESOURCE_ATTRIBUTES"] == value
-
-    def test_publish_temporarily_replaces_identity_and_restores_environment(self):
-        env = {"OTEL_RESOURCE_ATTRIBUTES": "nv.dl.rank=1,launcher.id=abc"}
-
-        with publish_otel_resource_attributes({"nv.dl.rank": 2}, environ=env):
-            assert env["OTEL_RESOURCE_ATTRIBUTES"] == "launcher.id=abc,nv.dl.rank=2"
-
-        assert env == {"OTEL_RESOURCE_ATTRIBUTES": "nv.dl.rank=1,launcher.id=abc"}
-
-    def test_publish_can_preserve_inherited_identity(self):
+    def test_publish_installs_exact_attributes_and_restores_environment(self):
         env = {"OTEL_RESOURCE_ATTRIBUTES": "nv.dl.rank=1,launcher.id=abc"}
 
         with publish_otel_resource_attributes(
-            {"nv.dl.rank": 2, "nv.dl.world_size": 8},
-            environ=env,
-            overwrite=False,
+            {"nv.dl.rank": 2, "empty": "", "suppressed": None}, environ=env
         ):
-            assert (
-                env["OTEL_RESOURCE_ATTRIBUTES"] == "nv.dl.rank=1,launcher.id=abc,nv.dl.world_size=8"
-            )
+            assert env["OTEL_RESOURCE_ATTRIBUTES"] == "nv.dl.rank=2,empty="
 
         assert env == {"OTEL_RESOURCE_ATTRIBUTES": "nv.dl.rank=1,launcher.id=abc"}
+
+    @pytest.mark.parametrize(
+        ("original_present", "original"),
+        [(False, None), (True, ""), (True, "launcher.id=abc")],
+    )
+    def test_publish_restores_exact_original_state(self, original_present, original):
+        env = {}
+        if original_present:
+            assert original is not None
+            env["OTEL_RESOURCE_ATTRIBUTES"] = original
+
+        with publish_otel_resource_attributes({}, environ=env):
+            assert env["OTEL_RESOURCE_ATTRIBUTES"] == ""
+
+        if original_present:
+            assert env == {"OTEL_RESOURCE_ATTRIBUTES": original}
+        else:
+            assert env == {}
 
     def test_publish_restores_nested_scopes_in_lifo_order(self):
         env = {"OTEL_RESOURCE_ATTRIBUTES": "nv.dl.rank=0"}
@@ -829,8 +790,7 @@ class TestEndToEndAcrossAProcessBoundary:
 
         value = extend_otel_resource_attributes(
             "",
-            {"nv.dl.rank": 5, "nv.dl.world_size": 8, "nemo.run.id": "exp,2026"},
-            overwrite=True,
+            overrides={"nv.dl.rank": 5, "nv.dl.world_size": 8, "nemo.run.id": "exp,2026"},
         )
         out = subprocess.run(
             [sys.executable, "-c", self.CHILD],
@@ -866,7 +826,12 @@ class TestEndToEndAcrossAProcessBoundary:
         ctx = mp.get_context(method)
         queue = ctx.Queue()
         proc = ctx.Process(target=_child_reports_resource, args=(queue,))
-        with publish_otel_resource_attributes({"nv.dl.rank": 2, "nv.dl.world_size": 8}):
+        current = get_otel_resource_attributes()
+        resolved = compose_attributes(
+            current,
+            overrides={"nv.dl.rank": 2, "nv.dl.world_size": 8},
+        )
+        with publish_otel_resource_attributes(resolved):
             proc.start()
         # Drain before joining. A child cannot exit until its queue feeder has
         # flushed to the pipe, and the feeder cannot flush once the pipe fills,

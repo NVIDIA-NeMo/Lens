@@ -84,6 +84,7 @@ from nemo.lens.package_info import (
     __version__,
 )
 from nemo.lens.propagation import extract_context, inject_context
+from nemo.lens.resources.slurm import derive_nv_dl_run_uuid
 from nemo.lens.state import (
     enabled_span_groups,
     is_span_group_enabled,
@@ -114,6 +115,7 @@ __all__ = [
     "SpanRegistry",
     "TelemetryHandle",
     "ensure_run_id",
+    "derive_nv_dl_run_uuid",
     "setup_telemetry",
     "span_cm",
     "managed_span",

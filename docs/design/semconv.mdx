@@ -37,6 +37,23 @@ When upgrading NeMo Lens to a new semconv version, complete these tasks:
 3. Update any changed constants.
 4. Add the version bump to the NeMo Lens changelog so consumers know to update.
 
+## Resource Types and Attribute Carriers
+
+`semconv/resources.py` defines explicit type mappings for Resource fields.
+`normalize_resource_attributes()` applies those mappings after decoding an
+environment carrier. Unknown values are unchanged, so numeric-looking identifiers
+such as `"007"` stay strings. Every mapped Resource integer field, including
+Slurm fields, uses one converter that accepts native integers or complete signed
+ASCII base-10 strings. Invalid DL/GPU values remain visible and produce a
+warning. Invalid Slurm values are omitted so locally detected values can be
+used; the conversion rule is shared while callers retain their failure policy.
+
+`semconv/encoding.py` contains generic dictionary composition and explicit
+converter lookup. The `resources/attributes.py` module owns formatting and
+parsing for the comma-separated, percent-encoded `OTEL_RESOURCE_ATTRIBUTES`
+carrier. Parsing returns strings. Type reconstruction is a separate step and
+always uses a caller-selected mapping; the Resource codec does not infer types.
+
 ## Stability Markers
 
 From `semconv/attributes.py`:

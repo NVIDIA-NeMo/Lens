@@ -34,7 +34,7 @@ from opentelemetry.context import Context
 from nemo.lens.providers import _build_span_emitter_provider
 from nemo.lens.resources.attributes import (
     OTEL_RESOURCE_ATTRIBUTES_ENV,
-    set_otel_resource_attributes,
+    extend_otel_resource_attributes,
 )
 from nemo.lens.resources.slurm import derive_slurm_resource_attributes
 from nemo.lens.semconv import (
@@ -202,7 +202,10 @@ def _run_set_slurm_resource_attrs(
         if args.container_image:
             additions[NV_DL_LAUNCH_CONTAINER_IMAGE] = args.container_image
 
-    value = set_otel_resource_attributes(additions, environ=env, overwrite=False)
+    value = extend_otel_resource_attributes(
+        env.get(OTEL_RESOURCE_ATTRIBUTES_ENV),
+        defaults=additions,
+    )
     print(f"export {OTEL_RESOURCE_ATTRIBUTES_ENV}={shlex.quote(value)}", file=stdout)
     return 0
 
