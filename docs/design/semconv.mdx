@@ -92,6 +92,21 @@ nv.dl.run.uuid               — stable run-attempt identifier
 nv.dl.rank                   — global rank resource attribute
 nv.dl.world_size             — total ranks resource attribute
 nv.dl.local_rank             — rank on this node resource attribute
+nv.dl.role                   — trainer or worker process role
+nv.dl.provider.name          — training framework or provider name
+nv.dl.topology.size.{tp,pp,dp}
+                             — tensor, pipeline, and data parallel sizes (integers)
+nv.dl.training.config.global_batch_size
+nv.dl.training.config.micro_batch_size
+nv.dl.training.config.sequence_length
+                             — stable integer training configuration
+nv.dl.training.config.optimizer
+nv.dl.training.config.recompute_granularity
+                             — stable text training configuration
+nv.dl.training.target.{train_iters,train_samples,train_tokens}
+                             — configured integer training targets
+nv.dl.software.{torch,cuda,nccl,transformer_engine}
+                             — application-observed software versions
 dl.tensor_parallel.{rank,size}
 dl.pipeline_parallel.{rank,size}
 dl.data_parallel.{rank,size}
