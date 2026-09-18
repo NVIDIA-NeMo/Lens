@@ -189,3 +189,36 @@ if is_span_group_enabled('step'):
 ```
 
 This saves the `build_expensive_attributes()` cost when `step` is disabled.
+
+
+## Scoped span attributes
+
+Use `span_attributes` for values shared by operations within a block:
+
+```python
+from nemo import lens
+
+with (
+    lens.span_attributes({"nv.dl.run.uuid": run_uuid}),
+    lens.managed_span("checkpoint", "checkpoint.save", **{"checkpoint.size": size}),
+):
+    save_checkpoint()
+```
+
+The first context manager sets attributes; the second creates a span. The UUID
+applies to spans created within the scope. `checkpoint.size` belongs only to the
+save span; child spans do not inherit it. Inner attribute scopes override outer
+values, and explicit span attributes override scoped values. Exit restores the
+previous scope, including on exceptions.
+
+Lens installs a span processor during provider setup. It adds scoped values when
+spans start, including spans created directly through OTel using that provider.
+A tracer from a separate provider does not use this processor. Span-group
+settings still control whether a span is created.
+
+This API does not update existing spans or provide attributes to the initial
+sampler. Backdated spans receive the scope active when they are created. Scopes
+follow Python context-variable rules: tasks inherit their creation context;
+new threads require explicit context copying. This API does not propagate values
+to worker processes or change Resource, metric, or log attributes. It is separate
+from OTel's instrumentation scope, which identifies the instrumentation library.

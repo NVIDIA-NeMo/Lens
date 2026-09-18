@@ -26,6 +26,7 @@ Public API
         TelemetryHandle,
         ensure_run_id,
         setup_telemetry,
+        span_attributes,
         span_cm,
         managed_span,
         trace_fn,
@@ -71,6 +72,7 @@ from nemo.lens.helpers import (
     managed_span,
     redact_value,
     safe_set_span_attributes,
+    span_attributes,
     span_cm,
     trace_fn,
 )
@@ -117,6 +119,7 @@ __all__ = [
     "ensure_run_id",
     "derive_nv_dl_run_uuid",
     "setup_telemetry",
+    "span_attributes",
     "span_cm",
     "managed_span",
     "trace_fn",
