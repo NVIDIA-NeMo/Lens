@@ -132,3 +132,31 @@ Refer to [Build the Documentation](../developer/building-docs.mdx) for local pre
 ## Questions
 
 Open an issue on the repository, or contact the NeMo ecosystem team.
+
+## Release from a Git tag
+
+Package versions come from Git tags through `setuptools-scm`; there are no
+version constants to bump. The former code-freeze workflow has been retired.
+If a release needs a stabilization branch, create one from the selected commit
+and cherry-pick fixes there before tagging the final commit.
+
+Create and push a version tag on a commit containing the SCM packaging setup:
+
+```bash
+git tag -a v0.3.0 <release-commit> -m "Release 0.3.0"
+git push origin v0.3.0
+```
+
+Run **Build, validate, and release NeMo-Lens** from `main`, set `release-ref`
+to the existing tag (`v0.3.0` in this example), and leave `dry-run` enabled for
+the first run. Tags must use `vX.Y.Z` or `vX.Y.ZrcN`. The workflow rejects
+branches, raw commit IDs, missing tags, and tags whose SCM version disagrees.
+After a successful rehearsal, run it again with `dry-run` disabled to publish
+the wheel to PyPI and optionally create the GitHub release for that same tag.
+Pushing a tag alone does not publish anything.
+
+The shared release workflow retains its administrator check and publishing
+credentials, but skips its version-bump job. Branch pushes still validate
+packaging without publishing. `NO_VCS_VERSION` is ignored; the release tag is
+the version source. Build wheels and source distributions through the PEP 517
+backend so the resolved version is retained when Git metadata is unavailable.

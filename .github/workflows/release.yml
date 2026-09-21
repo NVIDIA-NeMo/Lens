@@ -20,11 +20,10 @@ on:
     branches:
       - main
       - "pull-request/[0-9]+"
-      - "deploy-release/*"
   workflow_dispatch:
     inputs:
       release-ref:
-        description: Ref (SHA or branch name) to release
+        description: Existing version tag to release (vX.Y.Z or vX.Y.ZrcN)
         required: true
         type: string
       dry-run:
@@ -42,10 +41,6 @@ on:
         required: false
         default: true
         type: boolean
-      version-bump-branch:
-        description: Branch for version bump
-        required: true
-        type: string
       gh-release-from-tag:
         description: Tag of previous release for changelog builder
         required: false
@@ -76,20 +71,76 @@ jobs:
       sso_users_filename: ${{ vars.SSO_USERS_FILENAME }}
     secrets: inherit  # pragma: allowlist secret
 
+  release-ref:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      ref: ${{ steps.ref.outputs.ref }}
+    steps:
+      - name: Select build ref
+        id: ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ inputs.release-ref }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+              if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(rc(0|[1-9][0-9]*))?$ ]]; then
+                  echo "::error::release-ref must be an existing vX.Y.Z or vX.Y.ZrcN tag"
+                  exit 1
+              fi
+              echo "ref=refs/tags/$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          else
+              echo "ref=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out release tag with history
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Verify tag matches package version
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_TAG: ${{ inputs.release-ref }}
+        run: |
+          python -m pip install 'setuptools-scm>=8'
+          python - <<'PYTHON'
+          import os
+          from setuptools_scm import get_version
+
+          expected = os.environ["RELEASE_TAG"][1:]
+          actual = get_version()
+          if actual != expected:
+              raise SystemExit(f"Tag declares {expected}, but SCM resolves {actual}")
+          PYTHON
+
   release:
     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_release_library.yml@d48ee21a4986f7281abf746b7d500880c0e91f41 # v1.5.1
-    needs: [pre-flight]
+    needs: [pre-flight, release-ref]
     if: |
       !cancelled() && !failure()
-      && !(needs.pre-flight.outputs.docs_only == 'true'
-           || needs.pre-flight.outputs.is_deployment_workflow == 'true')
+      && (github.event_name == 'workflow_dispatch'
+          || !(needs.pre-flight.outputs.docs_only == 'true'
+               || needs.pre-flight.outputs.is_deployment_workflow == 'true'))
     with:
-      release-ref: ${{ inputs.release-ref || github.sha }}
+      release-ref: ${{ needs.release-ref.outputs.ref }}
       python-package: nemo.lens
       library-name: NeMo-Lens
       validate-only: ${{ github.event_name != 'workflow_dispatch' }}
       dry-run: ${{ inputs.dry-run || false }}
-      version-bump-branch: ${{ inputs.version-bump-branch || github.ref_name }}
+      skip-version-bump: true
       create-gh-release: ${{ inputs.create-gh-release || false }}
       gh-release-use-changelog-builder: ${{ inputs.generate-changelog || false }}
       gh-release-from-tag: ${{ inputs.gh-release-from-tag || '' }}
@@ -103,7 +154,7 @@ jobs:
     secrets: inherit  # pragma: allowlist secret
 
   release-summary:
-    needs: [pre-flight, release]
+    needs: [pre-flight, release-ref, release]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
