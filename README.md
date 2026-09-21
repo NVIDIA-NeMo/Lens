@@ -22,11 +22,6 @@ pip install nemo-lens           # API only — no-op at runtime, no SDK overhead
 pip install 'nemo-lens[sdk]'    # adds SDK + OTLP exporters, required wherever telemetry is enabled
 ```
 
-Tagged revisions can also be installed with
-`pip install "nemo-lens @ git+https://github.com/NVIDIA-NeMo/Lens.git@TAG"`.
-Tags containing the SCM packaging configuration determine the installed version.
-See the [installation guide](docs/get-started/installation.mdx) for details.
-
 ## Quickstart
 
 ```python

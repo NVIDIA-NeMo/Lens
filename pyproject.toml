@@ -46,9 +46,6 @@ aiohttp = [
 
 [dependency-groups]
 dev = [
-    "build>=1.0",
-    "setuptools>=80",
-    "setuptools-scm>=8",
     "nemo-lens[sdk]",
     "pytest>=7.0",
     "pytest-cov>=4.0",

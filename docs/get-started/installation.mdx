@@ -38,13 +38,8 @@ To install a tagged revision directly, replace `TAG` with the desired release ta
 pip install "nemo-lens @ git+https://github.com/NVIDIA-NeMo/Lens.git@TAG"
 ```
 
-Package versions are derived from Git by `setuptools-scm`. A clean `v0.3.0`
-tag containing this packaging configuration produces version `0.3.0`, satisfying
-`nemo-lens>=0.3.0`. Commits after a tag produce development versions. Existing
-tags retain the packaging behavior of their original source code.
-
-Built wheels and source distributions preserve their version without requiring
-Git or `setuptools-scm` at runtime. `NO_VCS_VERSION` no longer overrides versioning.
+The installed version is derived from the Git tag. Commits after a tag receive
+development versions.
 
 ## Install for Development
 
