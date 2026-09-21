@@ -13,18 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
-from importlib.metadata import version as _dist_version
-
-try:
-    __version__ = _dist_version("nemo-lens")
-except _PackageNotFoundError:
-    try:
-        from nemo.lens._version import __version__
-    except ModuleNotFoundError:
-        from setuptools_scm import get_version as _get_version
-
-        __version__ = _get_version(root="../../..", relative_to=__file__)
+from nemo.lens._version import __version__ as __version__
 
 __package_name__ = "nemo_lens"
 __contact_names__ = "NVIDIA"

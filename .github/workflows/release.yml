@@ -43,7 +43,7 @@ on:
         default: true
         type: boolean
       gh-release-from-tag:
-        description: Tag of previous release for changelog builder
+        description: Previous release tag for changelog generation (leave empty to skip)
         required: false
         type: string
         default: ""
@@ -87,7 +87,7 @@ jobs:
       dry-run: ${{ inputs.dry-run || false }}
       skip-version-bump: true
       create-gh-release: ${{ inputs.create-gh-release || false }}
-      gh-release-use-changelog-builder: ${{ inputs.generate-changelog || false }}
+      gh-release-use-changelog-builder: ${{ inputs.generate-changelog && inputs.gh-release-from-tag != '' && inputs.gh-release-from-tag != inputs.release-ref }}
       gh-release-from-tag: ${{ inputs.gh-release-from-tag || '' }}
       packaging: uv
       has-src-dir: true
