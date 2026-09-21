@@ -27,6 +27,7 @@ from typing import Any
 
 from opentelemetry import trace
 
+from nemo.lens._tracers import get_tracer
 from nemo.lens.propagation import extract_context, inject_context
 
 
@@ -82,7 +83,7 @@ def traced_remote_call(
     @functools.wraps(method)
     def wrapper(*args: Any, _otel_carrier: dict | None = None, **kwargs: Any) -> Any:
         ctx = extract_ray_context(_otel_carrier)
-        t = tracer or trace.get_tracer("nemo.lens.ray")
+        t = tracer if tracer is not None else get_tracer("nemo.lens.ray")
         with t.start_as_current_span(method.__qualname__, context=ctx):
             return method(*args, **kwargs)
 

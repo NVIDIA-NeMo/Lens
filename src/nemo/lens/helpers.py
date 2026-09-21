@@ -23,6 +23,8 @@ from typing import Any
 
 from opentelemetry import trace
 
+from nemo.lens._tracers import get_tracer
+
 # ---------------------------------------------------------------------------
 # Attribute key redaction
 # ---------------------------------------------------------------------------
@@ -102,7 +104,7 @@ def span_cm(
         The active Span.
     """
     if tracer is None:
-        tracer = trace.get_tracer(__name__)
+        tracer = get_tracer(__name__)
 
     with tracer.start_as_current_span(name, record_exception=record_exception) as span:
         if attributes:
@@ -142,7 +144,7 @@ def managed_span(
     from opentelemetry.trace import StatusCode, set_span_in_context
 
     if tracer is None:
-        tracer = trace.get_tracer(__name__)
+        tracer = get_tracer(__name__)
 
     span = tracer.start_span(name)
     if attributes:
@@ -180,7 +182,7 @@ def trace_fn(group: str, name: str, tracer: trace.Tracer | None = None):
 
             if not is_span_group_enabled(group):
                 return func(*args, **kwargs)
-            t = tracer if tracer is not None else trace.get_tracer("nemo.lens")
+            t = tracer if tracer is not None else get_tracer("nemo.lens")
             with t.start_as_current_span(name):
                 return func(*args, **kwargs)
 
