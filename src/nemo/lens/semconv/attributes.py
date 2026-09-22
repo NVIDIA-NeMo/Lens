@@ -56,6 +56,15 @@ are NeMo-specific extensions that do not exist upstream.
 HOST_NAME = "host.name"
 
 # ------------------------------------------------------------------ #
+# Corrected explicit span intervals (inverted.*) — NeMo custom
+# ------------------------------------------------------------------ #
+
+INVERTED_SKEW = "inverted.skew"
+INVERTED_START_EPOCH_SECONDS = "inverted.start_epoch_seconds"
+INVERTED_END_EPOCH_SECONDS = "inverted.end_epoch_seconds"
+INVERTED_DELTA_SECONDS = "inverted.delta_seconds"
+
+# ------------------------------------------------------------------ #
 # Distributed learning participant resources (nv.dl.*)
 # ------------------------------------------------------------------ #
 
