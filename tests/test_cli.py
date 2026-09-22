@@ -66,14 +66,13 @@ def test_parse_span_arg_warns_for_missing_and_unparseable_timestamps():
     assert "error: skipping ',1,2': missing span name" in warnings
 
 
-def test_parse_span_arg_rejects_end_before_start():
+def test_parse_span_arg_passes_inversion_to_shared_emitter():
     stderr = io.StringIO()
 
-    assert cli._parse_span_arg("backwards,2,1", stderr=stderr) is None
-
-    assert (
-        "error: skipping 'backwards': end timestamp precedes start timestamp" in stderr.getvalue()
-    )
+    spec = cli._parse_span_arg("backwards,2,1", stderr=stderr)
+    assert spec.start == 2
+    assert spec.end == 1
+    assert not stderr.getvalue()
 
 
 def test_order_span_specs_emits_parents_before_children():
@@ -170,6 +169,71 @@ def test_main_emit_spans_service_overrides_env_service_name(monkeypatch):
     (span,) = exporter.get_finished_spans()
     assert span.resource.attributes["service.name"] == "from-cli"
     assert span.resource.attributes["cluster.name"] == "atlas"
+
+
+@pytest.mark.parametrize("inverted", [{"root"}, {"child"}, {"root", "child", "leaf"}])
+def test_main_emit_spans_keeps_all_descendants_of_clamped_spans(inverted, caplog):
+    exporter = InMemorySpanExporter()
+    stderr = io.StringIO()
+    # Children precede parents in the input, including a three-level hierarchy.
+    intervals = [
+        ("leaf", "12", "11" if "leaf" in inverted else "13", "child"),
+        ("child", "10", "9" if "child" in inverted else "14", "root"),
+        ("root", "8", "7" if "root" in inverted else "16", None),
+        ("sibling", "9", "15", "root"),
+        ("marker", "11", "11", "root"),
+        ("other-root", "20", "21", None),
+    ]
+    argv = ["emit-spans", "--service", "nemo-test"]
+    for name, start, end, parent in intervals:
+        argv.extend(["--span", ",".join([name, start, end] + ([parent] if parent else []))])
+
+    args = cli._build_parser().parse_args(argv)
+    assert cli._run_emit_spans(args, span_exporter=exporter, stderr=stderr) == 0
+    spans = {span.name: span for span in exporter.get_finished_spans()}
+    assert len(spans) == 6
+    for name, start, end, parent in intervals:
+        span = spans[name]
+        assert span.start_time == int(start) * 1_000_000_000
+        expected_end = start if name in inverted else end
+        assert span.end_time == int(expected_end) * 1_000_000_000
+        if parent:
+            assert span.parent.span_id == spans[parent].context.span_id
+            assert span.context.trace_id == spans[parent].context.trace_id
+        else:
+            assert span.parent is None
+        if name in inverted:
+            assert span.attributes == {
+                "inverted.skew": True,
+                "inverted.start_epoch_seconds": start,
+                "inverted.end_epoch_seconds": end,
+                "inverted.delta_seconds": "1",
+            }
+        else:
+            assert not any(key.startswith("inverted.") for key in span.attributes)
+    assert caplog.text.count("clamping end to start") == len(inverted)
+    for name in inverted:
+        assert f"  {name:34s} {0:8.3f}s" in stderr.getvalue()
+
+
+def test_main_emit_spans_preserves_nanosecond_inversion_evidence():
+    exporter = InMemorySpanExporter()
+    start = "1790038547.061741440"
+    end = "1790038547.061741439"
+    assert float(start) == float(end)  # A float comparison alone misses this.
+    args = cli._build_parser().parse_args(
+        ["emit-spans", "--service", "nemo-test", "--span", f"launch,{start},{end}"]
+    )
+
+    assert cli._run_emit_spans(args, span_exporter=exporter) == 0
+    (span,) = exporter.get_finished_spans()
+    assert span.start_time == span.end_time == 1790038547061741440
+    assert span.attributes == {
+        "inverted.skew": True,
+        "inverted.start_epoch_seconds": start,
+        "inverted.end_epoch_seconds": end,
+        "inverted.delta_seconds": "1E-9",
+    }
 
 
 def test_main_emit_spans_returns_error_when_provider_setup_fails(monkeypatch):
@@ -372,7 +436,6 @@ def test_main_emit_spans_returns_error_when_flush_times_out(monkeypatch):
         ),
         (["root,2,3"], "error: invalid span 'root': duplicate span name"),
         (["malformed,,2"], "error: skipping 'malformed': missing timestamp"),
-        (["backwards,2,1"], "error: skipping 'backwards': end timestamp precedes start timestamp"),
         (["not-finite,nan,2"], "error: skipping 'not-finite': timestamp must be finite"),
     ],
 )

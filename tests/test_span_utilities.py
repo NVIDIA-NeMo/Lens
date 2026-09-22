@@ -62,18 +62,6 @@ def test_emit_span_uses_explicit_times_context_and_attributes(tracer_and_exporte
     assert not caplog.records
 
 
-@pytest.mark.parametrize(
-    ("start", "end", "kwargs"),
-    [(2.0, 1.0, {}), (1.0300000001, 1.0, {}), (1.0000000002, 1.0000000001, {"eps_ms": 0})],
-)
-def test_emit_span_rejects_end_before_start(tracer_and_exporter, caplog, start, end, kwargs):
-    tracer, exporter = tracer_and_exporter
-    with pytest.raises(ValueError, match="end_epoch_seconds=.*start_epoch_seconds=.*eps_ms="):
-        emit_span(tracer, "test.invalid", start, end, **kwargs)
-    assert not exporter.get_finished_spans()
-    assert not caplog.records
-
-
 def test_zero_duration_and_marker_parentage(tracer_and_exporter, caplog):
     tracer, exporter = tracer_and_exporter
     set_enabled_span_groups(frozenset({"test"}))
@@ -103,20 +91,30 @@ def test_zero_duration_and_marker_parentage(tracer_and_exporter, caplog):
 
 
 @pytest.mark.parametrize(
-    ("start", "end", "kwargs"),
+    ("start", "end"),
     [
-        (1.0000000002, 1.0000000001, {}),
-        (1.004, 1.0, {}),
-        (1.03, 1.0, {}),
-        (1.05, 1.0, {"eps_ms": 50.0}),
+        (1.0000000002, 1.0000000001),
+        (1.004, 1.0),
+        (1.03, 1.0),
+        (1.05, 1.0),
+        (2.0, 1.0),
+        (1.0300000001, 1.0),
+        (3600, 0),
+        ("1790038547.061741440", "1790038547.061741439"),
     ],
 )
-def test_tolerated_reversed_interval(tracer_and_exporter, caplog, start, end, kwargs):
+def test_reversed_interval_always_clamps_and_records_skew(tracer_and_exporter, caplog, start, end):
     tracer, exporter = tracer_and_exporter
-    completed = emit_span(tracer, "reversed", start, end, **kwargs)
+    completed = emit_span(tracer, "reversed", start, end)
     (span,) = exporter.get_finished_spans()
     assert span.start_time == span.end_time == int(Decimal(str(start)) * 1_000_000_000)
     assert not completed.is_recording()
+    assert span.attributes == {
+        "inverted.skew": True,
+        "inverted.start_epoch_seconds": str(start),
+        "inverted.end_epoch_seconds": str(end),
+        "inverted.delta_seconds": str(Decimal(str(start)) - Decimal(str(end))),
+    }
     (warning,) = caplog.records
     assert warning.name == "nemo.lens.span_utilities"
     assert warning.levelno == logging.WARNING
@@ -125,6 +123,30 @@ def test_tolerated_reversed_interval(tracer_and_exporter, caplog, start, end, kw
     assert f"end_epoch_seconds={end}" in warning.message
     assert f"inversion={Decimal(str(start)) - Decimal(str(end))} seconds" in warning.message
     assert "clamping end to start (zero duration)" in warning.message
+    assert "possible clock skew" in warning.message
+
+
+def test_inverted_parent_retains_children_and_copies_attributes(tracer_and_exporter):
+    tracer, exporter = tracer_and_exporter
+    attributes = {"phase": "launch", "inverted.skew": False}
+    parent = emit_span(tracer, "parent", 20, 10, attributes=attributes)
+    child = emit_span(tracer, "child", 21, 19, context=trace.set_span_in_context(parent))
+    emit_span(tracer, "grandchild", 22, 23, context=trace.set_span_in_context(child))
+
+    spans = {span.name: span for span in exporter.get_finished_spans()}
+    assert len(spans) == 3
+    assert spans["parent"].start_time == spans["parent"].end_time == 20_000_000_000
+    assert spans["child"].start_time == spans["child"].end_time == 21_000_000_000
+    assert spans["grandchild"].start_time == 22_000_000_000
+    assert spans["grandchild"].end_time == 23_000_000_000
+    assert spans["child"].parent == parent.get_span_context()
+    assert spans["grandchild"].parent == child.get_span_context()
+    assert len({span.context.trace_id for span in spans.values()}) == 1
+    assert spans["parent"].attributes["phase"] == "launch"
+    assert spans["parent"].attributes["inverted.skew"] is True
+    assert spans["child"].attributes["inverted.skew"] is True
+    assert "inverted.skew" not in spans["grandchild"].attributes
+    assert attributes == {"phase": "launch", "inverted.skew": False}
 
 
 def test_timed_group_gate_precedes_all_work(monkeypatch, caplog):
@@ -133,7 +155,7 @@ def test_timed_group_gate_precedes_all_work(monkeypatch, caplog):
 
     monkeypatch.setattr("nemo.lens.span_utilities.trace.get_tracer", fail)
     monkeypatch.setattr("nemo.lens.span_utilities._finite_epoch_seconds", fail)
-    assert emit_span(None, "off", object(), object(), group="off", eps_ms=object()) is None
+    assert emit_span(None, "off", object(), object(), group="off") is None
     assert not caplog.records
 
 
@@ -150,23 +172,19 @@ def test_timed_span_ends_when_attribute_processing_fails(tracer_and_exporter, mo
 
 
 @pytest.mark.parametrize(
-    ("start", "end", "eps_ms", "message"),
+    ("start", "end", "message"),
     [
-        (float("nan"), 1.0, 30.0, "start_epoch_seconds must be finite"),
-        (1.0, float("inf"), 30.0, "end_epoch_seconds must be finite"),
-        ("invalid", 1.0, 30.0, "start_epoch_seconds must be finite"),
-        (1.0, None, 30.0, "end_epoch_seconds must be finite"),
-        (1.0, 2.0, -1.0, "eps_ms must be non-negative"),
-        (1.0, 2.0, float("nan"), "eps_ms must be finite"),
-        (1.0, 2.0, float("inf"), "eps_ms must be finite"),
-        (1.0, 2.0, float("-inf"), "eps_ms must be finite"),
-        (1.0, 2.0, "invalid", "eps_ms must be finite"),
+        (float("nan"), 1.0, "start_epoch_seconds must be finite"),
+        (1.0, float("inf"), "end_epoch_seconds must be finite"),
+        (1.0, float("-inf"), "end_epoch_seconds must be finite"),
+        ("invalid", 1.0, "start_epoch_seconds must be finite"),
+        (1.0, None, "end_epoch_seconds must be finite"),
     ],
 )
-def test_emit_span_rejects_invalid_inputs(tracer_and_exporter, start, end, eps_ms, message):
+def test_emit_span_rejects_invalid_inputs(tracer_and_exporter, start, end, message):
     tracer, exporter = tracer_and_exporter
     with pytest.raises(ValueError, match=message):
-        emit_span(tracer, "test.invalid", start, end, eps_ms=eps_ms)
+        emit_span(tracer, "test.invalid", start, end)
     assert not exporter.get_finished_spans()
 
 

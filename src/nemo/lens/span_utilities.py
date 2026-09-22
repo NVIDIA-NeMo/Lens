@@ -28,6 +28,12 @@ from opentelemetry import trace
 from opentelemetry.context import Context
 
 from nemo.lens.helpers import safe_set_span_attributes
+from nemo.lens.semconv import (
+    INVERTED_DELTA_SECONDS,
+    INVERTED_END_EPOCH_SECONDS,
+    INVERTED_SKEW,
+    INVERTED_START_EPOCH_SECONDS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,11 +43,10 @@ _NANOSECONDS_PER_SECOND = 1_000_000_000
 def emit_span(
     tracer: trace.Tracer | None,
     name: str,
-    start_epoch_seconds: float,
-    end_epoch_seconds: float,
+    start_epoch_seconds: float | str | Decimal,
+    end_epoch_seconds: float | str | Decimal,
     *,
     group: str | None = None,
-    eps_ms: float = 30.0,
     context: Context | None = None,
     attributes: dict[str, Any] | None = None,
 ) -> trace.Span | None:
@@ -54,9 +59,11 @@ def emit_span(
     Pass None for the default tracer. A disabled group returns None before
     validation. Otherwise return the completed span.
 
-    Inversions up to eps_ms (default 30 ms) set the end to the start and warn.
-    Larger inversions raise ValueError; eps_ms=0 requires strict ordering.
-    Timestamps must be finite and eps_ms must be finite and non-negative.
+    Inverted timestamps always set the end to the start and warn about possible
+    clock skew. The span records inverted.skew=True, the original timestamps,
+    and the inversion amount. Parent context and caller attributes are retained.
+    Timestamps must be finite. There is no inversion tolerance or rejection
+    threshold.
     """
     if group is not None:
         from nemo.lens.state import is_span_group_enabled
@@ -65,25 +72,25 @@ def emit_span(
             return None
     start_seconds = _finite_epoch_seconds(start_epoch_seconds, "start_epoch_seconds")
     end_seconds = _finite_epoch_seconds(end_epoch_seconds, "end_epoch_seconds")
-    tolerance_ms = _finite_epoch_seconds(eps_ms, "eps_ms")
-    if tolerance_ms < 0:
-        raise ValueError("eps_ms must be non-negative")
-    tolerance_seconds = tolerance_ms / 1000
     if end_seconds < start_seconds:
         inversion_seconds = start_seconds - end_seconds
-        if inversion_seconds > tolerance_seconds:
-            raise ValueError(
-                f"end_epoch_seconds={end_seconds} precedes start_epoch_seconds={start_seconds} "
-                f"by {inversion_seconds} seconds, exceeding eps_ms={tolerance_ms} milliseconds"
-            )
         _LOGGER.warning(
             "Span %s has inverted timestamps: start_epoch_seconds=%s, end_epoch_seconds=%s, "
-            "inversion=%s seconds; clamping end to start (zero duration)",
+            "inversion=%s seconds; possible clock skew; "
+            "clamping end to start (zero duration), inverted.skew=true",
             name,
             start_seconds,
             end_seconds,
             inversion_seconds,
         )
+        # Copy caller attributes and keep the correction evidence authoritative.
+        attributes = {
+            **(attributes or {}),
+            INVERTED_SKEW: True,
+            INVERTED_START_EPOCH_SECONDS: str(start_epoch_seconds),
+            INVERTED_END_EPOCH_SECONDS: str(end_epoch_seconds),
+            INVERTED_DELTA_SECONDS: str(inversion_seconds),
+        }
         end_seconds = start_seconds
     start_time = int(start_seconds * _NANOSECONDS_PER_SECOND)
     end_time = int(end_seconds * _NANOSECONDS_PER_SECOND)
@@ -135,7 +142,7 @@ def linux_process_create_time(
     return read_time - (uptime_seconds - process_age_seconds)
 
 
-def _finite_epoch_seconds(value: float, label: str) -> Decimal:
+def _finite_epoch_seconds(value: float | str | Decimal, label: str) -> Decimal:
     try:
         seconds = Decimal(str(value))
     except InvalidOperation as exc:
