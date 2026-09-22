@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import argparse
-import math
 import os
 import shlex
 import socket
@@ -26,6 +25,7 @@ import sys
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any, TextIO
 
 from opentelemetry import trace
@@ -56,8 +56,8 @@ _TASK_LOCAL_SLURM_RESOURCE_KEYS = frozenset(
 @dataclass(frozen=True, slots=True)
 class _SpanSpec:
     name: str
-    start: float
-    end: float
+    start: Decimal
+    end: Decimal
     parent: str | None = None
 
 
@@ -170,7 +170,7 @@ def _run_emit_spans(
 
     for spec in order:
         print(
-            f"  {spec.name:34s} {spec.end - spec.start:8.3f}s"
+            f"  {spec.name:34s} {max(spec.end - spec.start, 0):8.3f}s"
             f"{'' if spec.parent is None else '  -> ' + spec.parent}",
             file=stderr,
         )
@@ -249,20 +249,17 @@ def _parse_span_arg(arg: str, *, stderr: TextIO | None = None) -> _SpanSpec | No
         return None
 
     try:
-        start_epoch_seconds = float(start)
-        end_epoch_seconds = float(end)
-    except ValueError:
+        start_epoch_seconds = Decimal(start)
+        end_epoch_seconds = Decimal(end)
+    except InvalidOperation:
         print(f"error: skipping {name!r}: unparseable timestamp", file=stderr)
         return None
 
-    if not math.isfinite(start_epoch_seconds) or not math.isfinite(end_epoch_seconds):
+    if not start_epoch_seconds.is_finite() or not end_epoch_seconds.is_finite():
         print(f"error: skipping {name!r}: timestamp must be finite", file=stderr)
         return None
 
-    if end_epoch_seconds < start_epoch_seconds:
-        print(f"error: skipping {name!r}: end timestamp precedes start timestamp", file=stderr)
-        return None
-
+    # Preserve precision and let emit_span apply the shared clock-skew policy.
     return _SpanSpec(name, start_epoch_seconds, end_epoch_seconds, parent or None)
 
 
