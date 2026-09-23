@@ -60,6 +60,8 @@ with managed_span('step', 'train.step', iteration=42) as span:
 
 If you do not pass a `tracer` argument, `managed_span` obtains a named tracer from the global `TracerProvider` using the `nemo.lens.helpers` instrumentation scope. This defaults to the same scope used by `span_cm`, whereas `trace_fn` defaults to the `nemo.lens` scope instead. Passing `tracer=handle.tracer` (which uses the `nemo.lens` scope) skips this `get_tracer` call, allowing spans to share the handle's instrumentation scope.
 
+Lens reuses default tracers for each scope and provider. This avoids repeated SDK tracer lookups, which in SDK 1.44 modify Python's warning filters and allow unrelated warnings to print again. The cache resets when the global provider changes or the process forks, so initialization and child processes still resolve the appropriate tracer. Disabled span groups do not resolve a tracer, and explicitly supplied tracers are used directly. Lens does not install a warning-suppression policy; rank-aware warning handling belongs to the consuming application.
+
 ## `trace_fn` as a Group-Gated Decorator
 
 ```python

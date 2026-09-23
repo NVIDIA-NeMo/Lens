@@ -63,6 +63,7 @@ Quick start
 from opentelemetry import metrics as _metrics_mod
 from opentelemetry import trace as _trace_mod
 
+from nemo.lens._tracers import get_tracer as _get_cached_tracer
 from nemo.lens.config import NemoLensConfig
 from nemo.lens.distributed import broadcast_trace_context, create_linked_span
 from nemo.lens.groups import SpanRegistry
@@ -97,7 +98,7 @@ from nemo.lens.state import (
 
 def get_tracer(name: str = "nemo.lens") -> _trace_mod.Tracer:
     """Return the globally registered tracer."""
-    return _trace_mod.get_tracer(name)
+    return _get_cached_tracer(name)
 
 
 def get_meter(name: str = "nemo.lens") -> _metrics_mod.Meter:
