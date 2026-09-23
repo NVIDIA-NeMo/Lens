@@ -30,6 +30,17 @@ pip install 'nemo-lens[aiohttp]'    # aiohttp client auto-instrumentation
 
 Each adds the relevant OTel instrumentation package. See [Contrib Helpers](../user-guide/contrib.mdx) for details.
 
+## Install from GitHub
+
+To install a tagged revision directly, replace `TAG` with the desired release tag:
+
+```bash
+pip install "nemo-lens @ git+https://github.com/NVIDIA-NeMo/Lens.git@TAG"
+```
+
+The installed version is derived from the Git tag. Commits after a tag receive
+development versions.
+
 ## Install for Development
 
 ```bash

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=80"]
+requires = ["setuptools>=80", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -26,8 +26,8 @@ dependencies = [
 [project.scripts]
 nemo-lens = "nemo.lens.cli:main"
 
-[tool.setuptools.dynamic]
-version = { attr = "nemo.lens.package_info.__version__" }
+[tool.setuptools_scm]
+version_file = "src/nemo/lens/_version.py"
 
 [project.optional-dependencies]
 sdk = [
