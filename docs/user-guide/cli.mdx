@@ -77,9 +77,32 @@ command orders them before emission so the exported spans have parent context.
 Parent/child intervals are not required to be nested; launch flows sometimes use
 short anchor spans as parents for longer measured work.
 
+If an end timestamp precedes its start, the shared `emit_span()` helper clamps
+the end to the start and emits a zero-duration span. It logs a warning with the original timestamps
+and inversion amount, and attaches these attributes to the corrected span:
+
+| Attribute | Value |
+| --- | --- |
+| `inverted.skew` | Boolean `true` |
+| `inverted.start_epoch_seconds` | Original start timestamp as a string |
+| `inverted.end_epoch_seconds` | Original end timestamp as a string |
+| `inverted.delta_seconds` | Positive start-minus-end difference in seconds, as a decimal string |
+
+Strings preserve the supplied timestamp precision. The flag identifies an
+observed inversion, which can result from clock skew or a clock adjustment;
+the difference is not a measurement of the true offset between clocks.
+Clamping a parent preserves its children and their parent context. Each interval
+is corrected independently: valid children retain their measured timestamps,
+even when they extend outside the corrected parent's zero-duration interval.
+Ordinary zero-duration spans and correctly ordered spans receive no inversion
+attributes. Consumers should exclude flagged spans from duration analysis.
+Successful emission of corrected spans exits zero.
+
 If any span input is invalid, nothing is emitted. Invalid input includes
 malformed fields, duplicate span names, missing parents, parent cycles,
-non-finite timestamps, and end times before start times.
+and non-finite timestamps. Inverted finite intervals are corrected as described
+above rather than treated as invalid input. The CLI preserves decimal timestamp
+precision and delegates correction to the same helper used by Python callers.
 
 `--service` sets the exported `service.name`. Other attributes from
 `OTEL_RESOURCE_ATTRIBUTES` are inherited by the SDK resource detector, but

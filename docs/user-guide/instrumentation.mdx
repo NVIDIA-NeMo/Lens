@@ -27,9 +27,26 @@ if marker is not None:
 `Context()` to start a root span. The emitted span is never made current.
 
 Times are Unix-epoch seconds. Equal timestamps produce a zero-duration span.
-`eps_ms` defaults to 30 ms: smaller or equal inversions clamp the end to the
-start and warn; larger inversions raise `ValueError`. Use `eps_ms=0` for strict
-ordering. Timestamps must be finite; tolerance must be finite and non-negative.
+If the end precedes the start, `emit_span()` always clamps the end to the start,
+logs a warning about possible clock skew, and records `inverted.skew=true` on
+the span. The original values are retained as string attributes
+`inverted.start_epoch_seconds` and `inverted.end_epoch_seconds`, together with
+the positive difference as the decimal string `inverted.delta_seconds`.
+The difference records the observed inversion, not a measured clock offset.
+Pass decimal strings or `Decimal` values to retain precision below that of a
+floating-point epoch timestamp.
+
+Corrected parents remain available as parents for subsequent spans; children
+retain their own timestamps and are corrected independently if needed.
+Non-inverted spans, including ordinary zero-duration markers, receive no skew
+attributes. Exclude corrected spans from duration analysis using the skew flag.
+Caller attributes are preserved without mutating the supplied dictionary;
+the correction attributes take precedence if the same keys were supplied.
+
+Timestamps must be finite. There is no tolerance or rejection threshold for an
+inversion. The former `eps_ms` parameter has been removed; callers that supplied
+it should remove that keyword argument.
+The [CLI](./cli.mdx) uses this same helper and correction policy.
 
 Pass `None` for the default tracer. A disabled `group` returns `None` before
 validation; otherwise the function returns a completed span. Attributes are
