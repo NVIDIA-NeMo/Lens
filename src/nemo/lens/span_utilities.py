@@ -27,6 +27,7 @@ from typing import Any
 from opentelemetry import trace
 from opentelemetry.context import Context
 
+from nemo.lens._tracers import get_tracer
 from nemo.lens.helpers import safe_set_span_attributes
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,7 +90,7 @@ def emit_span(
     end_time = int(end_seconds * _NANOSECONDS_PER_SECOND)
 
     if tracer is None:
-        tracer = trace.get_tracer("nemo.lens")
+        tracer = get_tracer("nemo.lens")
     span = tracer.start_span(name, context=context, start_time=start_time)
     try:
         if attributes:
