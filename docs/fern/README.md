@@ -72,7 +72,7 @@ export FERN_TOKEN="$DOCS_FERN_TOKEN"
 npm --prefix docs/fern run preview
 ```
 
-GitHub Actions publishes pull request previews when `PUBLISH_FERN_PREVIEWS=true` and `DOCS_FERN_TOKEN` are configured.
+GitHub Actions publishes previews for approved PR mirror pushes when `PUBLISH_FERN_PREVIEWS=true` and `DOCS_FERN_TOKEN` are configured.
 
 Do not enable `nemo-lens-local` for hosted previews or publication. Fern rejects
 local `input.path` libraries during remote docs generation.
