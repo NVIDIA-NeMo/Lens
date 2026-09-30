@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       release-ref:
-        description: Ref (SHA or branch name) to release
+        description: Existing version tag to release (for example, v0.3.0)
         required: true
         type: string
       dry-run:
@@ -42,12 +42,8 @@ on:
         required: false
         default: true
         type: boolean
-      version-bump-branch:
-        description: Branch for version bump
-        required: true
-        type: string
       gh-release-from-tag:
-        description: Tag of previous release for changelog builder
+        description: Previous release tag for changelog generation (leave empty to skip)
         required: false
         type: string
         default: ""
@@ -84,14 +80,14 @@ jobs:
       && !(needs.pre-flight.outputs.docs_only == 'true'
            || needs.pre-flight.outputs.is_deployment_workflow == 'true')
     with:
-      release-ref: ${{ inputs.release-ref || github.sha }}
+      release-ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.release-ref) || github.sha }}
       python-package: nemo.lens
       library-name: NeMo-Lens
       validate-only: ${{ github.event_name != 'workflow_dispatch' }}
       dry-run: ${{ inputs.dry-run || false }}
-      version-bump-branch: ${{ inputs.version-bump-branch || github.ref_name }}
+      skip-version-bump: true
       create-gh-release: ${{ inputs.create-gh-release || false }}
-      gh-release-use-changelog-builder: ${{ inputs.generate-changelog || false }}
+      gh-release-use-changelog-builder: ${{ inputs.generate-changelog && inputs.gh-release-from-tag != '' && inputs.gh-release-from-tag != inputs.release-ref }}
       gh-release-from-tag: ${{ inputs.gh-release-from-tag || '' }}
       packaging: uv
       has-src-dir: true

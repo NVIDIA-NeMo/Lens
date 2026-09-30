@@ -56,7 +56,7 @@ src/nemo/lens/
 ├── propagation.py     inject_context / extract_context (W3C)
 ├── logging_bridge.py  Python logging → OTel logs
 ├── semconv.py         attribute-name constants (single source)
-├── package_info.py    version (bumped by release automation, not by hand)
+├── package_info.py    runtime version (build metadata comes from setuptools-scm)
 ├── instruments/       metric instruments: inference, rl, gym
 ├── resources/         detection plus OTEL resource-attribute helpers
 └── contrib/           fastapi, aiohttp, ray, nccl integration helpers
@@ -276,7 +276,7 @@ Consumers pass their own prefix (e.g. `MEGATRON_OTEL`) and fall back to
 
 Read **without** a prefix: `OTEL_SERVICE_NAME`, `WANDB_ENTITY`,
 `WANDB_PROJECT`, `DEPLOYMENT_ENV`/`ENVIRONMENT`, `OTEL_METRIC_EXPORT_INTERVAL`,
-`SLURM_JOB_ID`, `NO_VCS_VERSION`.
+`SLURM_JOB_ID`.
 Everything `OTEL_EXPORTER_OTLP_*` is the SDK's business — don't reimplement it.
 
 `OTEL_RESOURCE_ATTRIBUTES` is the SDK's too, but `providers.py` reads it back via
@@ -349,8 +349,8 @@ and CI gates: `docs/developer/building-docs.mdx`.
   deliberate exception — it holds two comment lines and nothing else.
 - CI runs against `pull-request/NNN` mirror branches created by NVIDIA's
   copy-pr-bot, not against the PR branch directly.
-- Do not hand-edit the version in `package_info.py` — the code-freeze and
-  release workflows own it.
+- Package versions come from Git tags through `setuptools-scm`. Do not edit
+  the generated `src/nemo/lens/_version.py` or add hard-coded version constants.
 
 ## Gotchas
 
