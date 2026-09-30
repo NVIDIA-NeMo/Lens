@@ -4,7 +4,7 @@ description: ""
 ---
 **NeMo Lens** (`nemo.lens`) is a shared [OpenTelemetry](https://opentelemetry.io/) instrumentation library for the NVIDIA NeMo ecosystem. It provides unified tracing, metrics, and optional log bridging across distributed training, inference, and RL workloads. NeMo Lens keeps hot-path overhead low with span-group gating, where disabled groups use a fast `frozenset` lookup and create no span objects. Consumer projects can integrate it as an optional dependency through canonical no-op fallbacks.
 
-## Key Features
+## Key features
 
 * **Low overhead when disabled**: span group gating is a `frozenset` lookup; no span objects are allocated when a group is off
 * **Distributed-training aware**: caller-supplied `nv.dl.rank` / `nv.dl.world_size` resource attributes, cross-rank trace correlation
