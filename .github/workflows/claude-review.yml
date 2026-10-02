@@ -13,43 +13,43 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Claude Code Review
+name: Review command migration
 
 on:
   issue_comment:
     types: [created]
 
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
-  id-token: write
+permissions: {}
 
 jobs:
-  claude-review:
-    if: github.event.issue.pull_request != null && contains(fromJson('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_claude_review.yml@1fc7b2f024bac423b1825a57182f3628c5fcb1f1 # v1.7.0
-    with:
-      model: ${{ vars.CLAUDE_MODEL }}
-      prompt: |
-        Read `skills/lens-review/SKILL.md` in this repository and follow it.
-        That file is the review procedure and the single source of truth; it is
-        shared with every harness, so do not substitute your own checklist for
-        it. Read `AGENTS.md` too — the review enforces the invariants it states.
+  redirect-to-review:
+    name: Redirect to /review
+    if: |
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+      (github.event.comment.body == '/claude review' ||
+       github.event.comment.body == '/claude strict-review')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.issue.number }}
+      RETIRED_COMMAND: ${{ github.event.comment.body == '/claude strict-review' && '/claude strict-review' || '/claude review' }}
+      REVIEW_COMMAND: ${{ github.event.comment.body == '/claude strict-review' && '/review mode=strict' || '/review' }}
+    steps:
+      - name: Explain the replacement command
+        env:
+          NOTICE: |
+            @${{ github.event.comment.user.login }} `${{ env.RETIRED_COMMAND }}` has been retired. Pull-request reviews now run through `/review`; comment this instead:
 
-        If `skills/lens-review/SKILL.md` is not present in the checkout (an old
-        branch, or the repo was not checked out), fall back to a light review of
-        critical bugs, typos, missing test coverage, and documentation the diff
-        made inaccurate — and say in your comment that the skill was unavailable.
+            ```
+            ${{ env.REVIEW_COMMAND }}
+            ```
 
-        Delivery constraints for this CI context, on top of the skill:
-        - Keep it concise and actionable. This is a bot comment on someone's PR.
-        - Use inline comments for specific code suggestions; use a top-level
-          comment for general observations.
-        - Do not comment on style, formatting, or naming polish — ruff and
-          pre-commit own those, and the skill's "Out of scope" section applies.
-        - Having nothing to report is a perfectly good outcome. Do not
-          manufacture findings. If the change is clean, post "LGTM".
-    secrets:
-      NVIDIA_INFERENCE_URL: ${{ secrets.NVIDIA_INFERENCE_URL }}
-      NVIDIA_INFERENCE_KEY: ${{ secrets.NVIDIA_INFERENCE_KEY }}
+            Add `model=claude` to keep a Claude reviewer (the default is `model=codex`). `mode=light|strict` selects the review depth. Comment `/review help` for all options.
+        run: gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file - <<< "$NOTICE"
