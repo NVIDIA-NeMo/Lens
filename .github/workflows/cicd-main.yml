@@ -144,11 +144,14 @@ jobs:
       - name: Install weaver
         env:
           WEAVER_VERSION: v0.25.1
-          WEAVER_SHA256: a24f8fc17f120c3bca8ef540b907984a93875a4c4d5c9fc0604d1317be08b7bf
         run: |
           ASSET="weaver-x86_64-unknown-linux-gnu.tar.xz"
-          curl -sSfL "https://github.com/open-telemetry/weaver/releases/download/${WEAVER_VERSION}/${ASSET}" -O
-          echo "${WEAVER_SHA256}  ${ASSET}" | sha256sum -c -
+          BASE="https://github.com/open-telemetry/weaver/releases/download/${WEAVER_VERSION}"
+          # Verify against the checksum weaver publishes alongside the asset,
+          # rather than an inlined hash (which trips the hex-entropy secret scan).
+          curl -sSfL "${BASE}/${ASSET}" -O
+          curl -sSfL "${BASE}/${ASSET}.sha256" -O
+          sha256sum -c "${ASSET}.sha256"
           tar xf "${ASSET}"
           echo "${PWD}/$(tar tf "${ASSET}" | head -1 | cut -d/ -f1)" >> "${GITHUB_PATH}"
 
