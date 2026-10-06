@@ -417,6 +417,39 @@ class TestOtlpProtocolSelection:
         cfg = NemoLensConfig(enabled=True, exporter="otlp")
         assert isinstance(_build_span_exporter(cfg), Http)
 
+    def test_default_log_exporter_is_grpc(self, monkeypatch):
+        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter as Grpc
+
+        from nemo.lens.providers import _build_log_exporter
+
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_PROTOCOL", raising=False)
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", raising=False)
+
+        cfg = NemoLensConfig(enabled=True, exporter="otlp")
+        assert isinstance(_build_log_exporter(cfg), Grpc)
+
+    def test_http_protocol_selects_http_log_exporter(self, monkeypatch):
+        from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter as Http
+
+        from nemo.lens.providers import _build_log_exporter
+
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", raising=False)
+
+        cfg = NemoLensConfig(enabled=True, exporter="otlp")
+        assert isinstance(_build_log_exporter(cfg), Http)
+
+    def test_logs_protocol_overrides_general_for_log_exporter(self, monkeypatch):
+        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter as Grpc
+
+        from nemo.lens.providers import _build_log_exporter
+
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "grpc")
+
+        cfg = NemoLensConfig(enabled=True, exporter="otlp")
+        assert isinstance(_build_log_exporter(cfg), Grpc)
+
     def test_http_protocol_selects_http_metric_exporter(self, monkeypatch):
         from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
             OTLPMetricExporter as HttpMetric,
