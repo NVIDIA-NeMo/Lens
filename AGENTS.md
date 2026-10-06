@@ -217,9 +217,12 @@ place. Three destinations, no overlap:
 | Span attribute | Categorical, answers "which one?" per span (iteration, algorithm, backend) | `span.set_attribute()` / `managed_span` kwargs |
 | Metric | A number that moves over time (loss, grad norm, throughput, reward, KL) | a `record_*_metrics()` in `instruments/` |
 
-Time-series numbers never go on spans. Attribute *names* come from `semconv.py`
-(`dl.*`, `rl.*`, `gym.*`, `nemo.*`, `slurm.*`, plus upstream `k8s.*`,
-`gen_ai.*`) — add the constant there rather than inlining a string. Metric
+Time-series numbers never go on spans. Attribute *names* are imported from
+`nemo.lens.semconv` (`nv.dl.*`, `nv.gpu.*`, `dl.*`, `rl.*`, `gym.*`, `nemo.*`,
+`slurm.*`, `wandb.*`, `inverted.*`, plus upstream `k8s.*`, `gen_ai.*`, `host.*`).
+The constants are **generated** from `semconv/model/`: add or change a name there
+and regenerate (`semconv/model/README.md`) — never inline a string, and never
+hand-edit `semconv/attributes.py` (a shim) or `semconv/_generated/`. Metric
 *names* use application scope (`rl.*`, `gym.*`, `gen_ai.*`); consumer-specific
 training metrics like `megatron.training.loss` live in the consumer, not here.
 

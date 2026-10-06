@@ -1,0 +1,33 @@
+groups:
+- id: registry.gen_ai
+  type: attribute_group
+  brief: gen_ai.* attribute names.
+  attributes:
+  - id: gen_ai.operation.name
+    type: string
+    stability: development
+    brief: Upstream OpenTelemetry semantic convention. Defined by OTel (tracked at the version in SEMCONV_VERSION),
+      not here.
+    annotations:
+      constant: GENAI_OPERATION_NAME
+  - id: gen_ai.provider.name
+    type: string
+    stability: development
+    brief: Upstream OpenTelemetry semantic convention. Defined by OTel (tracked at the version in SEMCONV_VERSION),
+      not here.
+    annotations:
+      constant: GENAI_PROVIDER_NAME
+  - id: gen_ai.request.model
+    type: string
+    stability: development
+    brief: Upstream OpenTelemetry semantic convention. Defined by OTel (tracked at the version in SEMCONV_VERSION),
+      not here.
+    annotations:
+      constant: GENAI_REQUEST_MODEL
+  - id: gen_ai.token.type
+    type: string
+    stability: development
+    brief: Upstream OpenTelemetry semantic convention. Defined by OTel (tracked at the version in SEMCONV_VERSION),
+      not here.
+    annotations:
+      constant: GENAI_TOKEN_TYPE

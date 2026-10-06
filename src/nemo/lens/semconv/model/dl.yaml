@@ -1,0 +1,95 @@
+groups:
+- id: registry.dl
+  type: attribute_group
+  brief: dl.* attribute names.
+  attributes:
+  - id: dl.data_parallel.rank
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_DATA_PARALLEL_RANK
+  - id: dl.data_parallel.size
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_DATA_PARALLEL_SIZE
+  - id: dl.tensor_parallel.rank
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_TENSOR_PARALLEL_RANK
+  - id: dl.tensor_parallel.size
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_TENSOR_PARALLEL_SIZE
+  - id: dl.pipeline_parallel.rank
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_PIPELINE_PARALLEL_RANK
+  - id: dl.pipeline_parallel.size
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_PIPELINE_PARALLEL_SIZE
+  - id: dl.iteration
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_ITERATION
+  - id: dl.loss
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_LOSS
+  - id: dl.grad_norm
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_GRAD_NORM
+  - id: dl.learning_rate
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_LEARNING_RATE
+  - id: dl.throughput_tflops
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_THROUGHPUT_TFLOPS
+  - id: dl.throughput_tokens_per_sec
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_THROUGHPUT_TOKENS_PER_SEC
+  - id: dl.batch_size
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_BATCH_SIZE
+  - id: dl.sequence_length
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_SEQUENCE_LENGTH
+  - id: dl.microbatch_id
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: DL_MICROBATCH_ID

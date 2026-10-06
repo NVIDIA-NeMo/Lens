@@ -1,0 +1,23 @@
+groups:
+- id: registry.nemo
+  type: attribute_group
+  brief: nemo.* attribute names.
+  attributes:
+  - id: nemo.run.id
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: NEMO_RUN_ID
+  - id: nemo.user.id
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: NEMO_USER_ID
+  - id: nemo.span.truncated
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: NEMO_SPAN_TRUNCATED
