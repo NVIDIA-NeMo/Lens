@@ -140,10 +140,13 @@ Watch for two regressions specifically:
 
 ### 6. Naming
 
-- Attribute names: constants in `semconv.py`, not string literals at the use
-  site. Namespace must be `nv.dl.*`, `dl.*`, `rl.*`, `gym.*`, `nemo.*`,
-  `slurm.*`, `wandb.*`, or upstream (`k8s.*`, `gen_ai.*`). A new namespace is a design
-  decision, not a detail — flag it as one.
+- Attribute names: use the generated constants (import from `nemo.lens.semconv`),
+  not string literals at the use site. A new or changed name is edited in
+  `semconv/model/*.yaml` and regenerated (`semconv/model/README.md`), not added
+  to `semconv/attributes.py` (a shim) or `semconv/_generated/` (generated).
+  Namespace must be `nv.dl.*`, `nv.gpu.*`, `dl.*`, `rl.*`, `gym.*`, `nemo.*`,
+  `slurm.*`, `wandb.*`, `inverted.*`, or upstream (`k8s.*`, `gen_ai.*`,
+  `host.*`). A new namespace is a design decision, not a detail — flag it as one.
 - Metric names: application scope (`rl.*`, `gym.*`, `gen_ai.*`), never `dl.*`.
   Unit and description set on the instrument.
 - Span names: `<library>.<operation>[.<sub_operation>]`, snake_case after the

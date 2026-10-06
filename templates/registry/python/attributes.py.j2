@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# GENERATED FILE - DO NOT EDIT.
+# ruff: noqa: E501  (registry ids set the line length; not ours to wrap)
+#
+# Regenerate after any model/ edit:
+#   weaver registry generate -r src/nemo/lens/semconv/model -t templates \
+#     python <out>   &&   cp <out>/attributes.py src/nemo/lens/semconv/_generated/
+#
+# tests/test_semconv_generated.py fails if this drifts from model/.
+"""Attribute-name constants, generated from ``semconv/model/``.
+
+``semconv/attributes.py`` re-exports these and owns the non-attribute
+``SEMCONV_VERSION``. Edit the model, not this file.
+"""
+{% for a in ctx | sort(attribute="name") %}
+{{ a.annotations.constant }} = "{{ a.name }}"
+{%- endfor %}
+{{ "\n" if false }}

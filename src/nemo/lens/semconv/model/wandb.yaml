@@ -1,0 +1,17 @@
+groups:
+- id: registry.wandb
+  type: attribute_group
+  brief: wandb.* attribute names.
+  attributes:
+  - id: wandb.entity
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: WANDB_ENTITY
+  - id: wandb.project
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: WANDB_PROJECT

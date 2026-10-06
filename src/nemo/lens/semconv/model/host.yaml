@@ -1,0 +1,12 @@
+groups:
+- id: registry.host
+  type: attribute_group
+  brief: host.* attribute names.
+  attributes:
+  - id: host.name
+    type: string
+    stability: development
+    brief: Upstream OpenTelemetry semantic convention. Defined by OTel (tracked at the version in SEMCONV_VERSION),
+      not here.
+    annotations:
+      constant: HOST_NAME

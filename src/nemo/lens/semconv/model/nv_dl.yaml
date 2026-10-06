@@ -1,0 +1,162 @@
+groups:
+- id: registry.nv.dl
+  type: attribute_group
+  brief: nv.dl.* attribute names.
+  attributes:
+  - id: nv.dl.rank
+    type: int
+    stability: development
+    brief: This participant's global rank in the training world.
+    annotations:
+      constant: NV_DL_RANK
+  - id: nv.dl.world_size
+    type: int
+    stability: development
+    brief: Total number of participants in the training world.
+    annotations:
+      constant: NV_DL_WORLD_SIZE
+  - id: nv.dl.local_rank
+    type: int
+    stability: development
+    brief: This participant's rank within its node.
+    annotations:
+      constant: NV_DL_LOCAL_RANK
+  - id: nv.dl.role
+    type: string
+    stability: development
+    brief: What kind of process this is.
+    examples:
+    - trainer
+    - ckpt_worker
+    - launcher
+    - generator
+    annotations:
+      constant: NV_DL_ROLE
+  - id: nv.dl.provider.name
+    type: string
+    stability: development
+    brief: The execution engine running the workload, not the framework wrapping it.
+    examples:
+    - mcore
+    - vllm
+    - sglang
+    annotations:
+      constant: NV_DL_PROVIDER_NAME
+  - id: nv.dl.topology.size.tp
+    type: int
+    stability: development
+    brief: 'Tensor-parallel degree: the number of ranks the model''s tensors are sharded across.'
+    annotations:
+      constant: NV_DL_TOPOLOGY_SIZE_TP
+  - id: nv.dl.topology.size.pp
+    type: int
+    stability: development
+    brief: 'Pipeline-parallel degree: the number of pipeline stages the model is split into.'
+    annotations:
+      constant: NV_DL_TOPOLOGY_SIZE_PP
+  - id: nv.dl.topology.size.dp
+    type: int
+    stability: development
+    brief: 'Data-parallel degree: the number of model replicas trained in parallel.'
+    annotations:
+      constant: NV_DL_TOPOLOGY_SIZE_DP
+  - id: nv.dl.training.config.global_batch_size
+    type: int
+    stability: development
+    brief: Configured global batch size, in samples.
+    annotations:
+      constant: NV_DL_TRAINING_CONFIG_GLOBAL_BATCH_SIZE
+  - id: nv.dl.training.config.micro_batch_size
+    type: int
+    stability: development
+    brief: Configured micro-batch size, in samples (the per-pipeline-micro-step batch). Lens spells this
+      `micro_batch_size`; the standalone registry spells it `microbatch_size`. The Lens spelling is recorded
+      here as-is; reconciling the two is deferred (see model/README.md).
+    annotations:
+      constant: NV_DL_TRAINING_CONFIG_MICRO_BATCH_SIZE
+  - id: nv.dl.training.config.sequence_length
+    type: int
+    stability: development
+    brief: Sequence length, in tokens.
+    annotations:
+      constant: NV_DL_TRAINING_CONFIG_SEQUENCE_LENGTH
+  - id: nv.dl.training.config.optimizer
+    type: string
+    stability: development
+    brief: Optimizer type.
+    examples:
+    - adam
+    - muon
+    annotations:
+      constant: NV_DL_TRAINING_CONFIG_OPTIMIZER
+  - id: nv.dl.training.config.recompute_granularity
+    type: string
+    stability: development
+    brief: Activation recomputation granularity.
+    examples:
+    - full
+    - selective
+    annotations:
+      constant: NV_DL_TRAINING_CONFIG_RECOMPUTE_GRANULARITY
+  - id: nv.dl.training.target.train_iters
+    type: int
+    stability: development
+    brief: Target number of training iterations. Lens spells this `train_iters`; the standalone registry
+      spells it `train_iterations`. The Lens spelling is recorded here as-is; reconciling the two is deferred
+      (see model/README.md).
+    annotations:
+      constant: NV_DL_TRAINING_TARGET_TRAIN_ITERS
+  - id: nv.dl.training.target.train_samples
+    type: int
+    stability: development
+    brief: Target number of training samples.
+    annotations:
+      constant: NV_DL_TRAINING_TARGET_TRAIN_SAMPLES
+  - id: nv.dl.training.target.train_tokens
+    type: int
+    stability: development
+    brief: Target number of training tokens.
+    annotations:
+      constant: NV_DL_TRAINING_TARGET_TRAIN_TOKENS
+  - id: nv.dl.software.torch
+    type: string
+    stability: development
+    brief: PyTorch version.
+    annotations:
+      constant: NV_DL_SOFTWARE_TORCH
+  - id: nv.dl.software.cuda
+    type: string
+    stability: development
+    brief: CUDA version PyTorch was built against.
+    annotations:
+      constant: NV_DL_SOFTWARE_CUDA
+  - id: nv.dl.software.nccl
+    type: string
+    stability: development
+    brief: NCCL version.
+    annotations:
+      constant: NV_DL_SOFTWARE_NCCL
+  - id: nv.dl.software.transformer_engine
+    type: string
+    stability: development
+    brief: TransformerEngine version.
+    annotations:
+      constant: NV_DL_SOFTWARE_TRANSFORMER_ENGINE
+  - id: nv.dl.launch.container.image
+    type: string
+    stability: development
+    brief: Container image name, tag and digest.
+    annotations:
+      constant: NV_DL_LAUNCH_CONTAINER_IMAGE
+  - id: nv.dl.job.uuid
+    type: string
+    stability: development
+    brief: The training effort as submitted. Stable across every restart and requeue.
+    annotations:
+      constant: NV_DL_JOB_UUID
+  - id: nv.dl.run.uuid
+    type: string
+    stability: development
+    brief: One incarnation of the job. Changes on every restart.
+    annotations:
+      constant: NV_DL_RUN_UUID

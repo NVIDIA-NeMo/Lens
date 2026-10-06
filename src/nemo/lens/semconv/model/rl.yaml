@@ -1,0 +1,29 @@
+groups:
+- id: registry.rl
+  type: attribute_group
+  brief: rl.* attribute names.
+  attributes:
+  - id: rl.algorithm
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: RL_ALGORITHM
+  - id: rl.reward
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: RL_REWARD
+  - id: rl.generation.backend
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: RL_GENERATION_BACKEND
+  - id: rl.num_rollouts
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: RL_NUM_ROLLOUTS

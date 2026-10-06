@@ -1,0 +1,47 @@
+groups:
+- id: registry.k8s
+  type: attribute_group
+  brief: k8s.* attribute names.
+  attributes:
+  - id: k8s.namespace.name
+    type: string
+    stability: development
+    brief: Upstream OpenTelemetry semantic convention. Defined by OTel (tracked at the version in SEMCONV_VERSION),
+      not here.
+    annotations:
+      constant: K8S_NAMESPACE_NAME
+  - id: k8s.pod.name
+    type: string
+    stability: development
+    brief: Upstream OpenTelemetry semantic convention. Defined by OTel (tracked at the version in SEMCONV_VERSION),
+      not here.
+    annotations:
+      constant: K8S_POD_NAME
+  - id: k8s.pod.uid
+    type: string
+    stability: development
+    brief: Upstream OpenTelemetry semantic convention. Defined by OTel (tracked at the version in SEMCONV_VERSION),
+      not here.
+    annotations:
+      constant: K8S_POD_UID
+  - id: k8s.node.name
+    type: string
+    stability: development
+    brief: Upstream OpenTelemetry semantic convention. Defined by OTel (tracked at the version in SEMCONV_VERSION),
+      not here.
+    annotations:
+      constant: K8S_NODE_NAME
+  - id: k8s.container.name
+    type: string
+    stability: development
+    brief: Upstream OpenTelemetry semantic convention. Defined by OTel (tracked at the version in SEMCONV_VERSION),
+      not here.
+    annotations:
+      constant: K8S_CONTAINER_NAME
+  - id: k8s.job.name
+    type: string
+    stability: development
+    brief: Upstream OpenTelemetry semantic convention. Defined by OTel (tracked at the version in SEMCONV_VERSION),
+      not here.
+    annotations:
+      constant: K8S_JOB_NAME
