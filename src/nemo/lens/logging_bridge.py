@@ -42,9 +42,13 @@ def setup_logging_bridge(logger_name: str = "", level: int = logging.INFO) -> No
         if not isinstance(logger_provider, LoggerProvider):
             return
 
+        logger = logging.getLogger(logger_name)
+        if any(isinstance(h, LoggingHandler) for h in logger.handlers):
+            return
+
         handler = LoggingHandler(logger_provider=logger_provider)
         handler.setLevel(level)
-        logging.getLogger(logger_name).addHandler(handler)
+        logger.addHandler(handler)
     except ImportError:
         # OTel logs SDK not installed; silently skip
         pass
