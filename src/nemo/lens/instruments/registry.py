@@ -50,6 +50,24 @@ Instruments are created lazily the first time a group is recorded against a
 meter and cached per meter, matching the behaviour of the built-in modules. As
 with every instrument path, recording never raises into the caller: failures are
 logged and swallowed so instrumentation cannot take down a training loop.
+
+A series whose *attributes* change during a run needs an ``observable_*`` kind
+rather than a synchronous one. A synchronous gauge keeps its last value per
+attribute set and re-exports it every cycle, with no way to say that a set no
+longer applies — so a point first reported under one label and later under
+another is exported under *both*, forever, and any aggregation over the label
+counts it twice. An observable instrument is rebuilt from its callback's return
+each cycle, so a label the callback stops yielding simply ends::
+
+    def _hosts(options):
+        return [Observation(used, {"host.name": h}) for h, used in sample().items()]
+
+    register_metric_group(
+        "rl",
+        [MetricSpec("host_mem", "rl.host.memory.used", "observable_gauge",
+                    unit="By", callback=_hosts)],
+    )
+    create_metric_instruments(meter, "rl")  # observables need this; see below
 """
 
 from __future__ import annotations
@@ -58,15 +76,15 @@ import logging
 import os
 import threading
 import weakref
-from collections.abc import Iterable, Mapping
+from collections.abc import Generator, Iterable, Mapping
 from dataclasses import dataclass, field
 
 from opentelemetry import metrics
 
 _logger = logging.getLogger(__name__)
 
-#: How each supported kind is created on a ``Meter`` and how a value is emitted.
-#: Maps ``kind`` -> (meter factory method, instrument emit method).
+#: How each supported synchronous kind is created on a ``Meter`` and how a value
+#: is emitted. Maps ``kind`` -> (meter factory method, instrument emit method).
 _KIND_METHODS: dict[str, tuple[str, str]] = {
     "gauge": ("create_gauge", "set"),
     "histogram": ("create_histogram", "record"),
@@ -74,8 +92,19 @@ _KIND_METHODS: dict[str, tuple[str, str]] = {
     "up_down_counter": ("create_up_down_counter", "add"),
 }
 
+#: How each observable (asynchronous) kind is created. These take a callback at
+#: creation and are never emitted to, so there is no second method to record.
+_OBSERVABLE_KIND_FACTORIES: dict[str, str] = {
+    "observable_gauge": "create_observable_gauge",
+    "observable_counter": "create_observable_counter",
+    "observable_up_down_counter": "create_observable_up_down_counter",
+}
+
 #: Kinds a :class:`MetricSpec` may declare.
-METRIC_KINDS: frozenset[str] = frozenset(_KIND_METHODS)
+METRIC_KINDS: frozenset[str] = frozenset(_KIND_METHODS) | frozenset(_OBSERVABLE_KIND_FACTORIES)
+
+#: Kinds whose points come from a callback rather than from :func:`record_metrics`.
+OBSERVABLE_METRIC_KINDS: frozenset[str] = frozenset(_OBSERVABLE_KIND_FACTORIES)
 
 
 @dataclass(frozen=True)
@@ -91,9 +120,27 @@ class MetricSpec:
             inlining literals across call sites.
         kind: One of :data:`METRIC_KINDS`. ``gauge`` for a level that is set
             outright, ``histogram`` for a distribution, ``counter`` /
-            ``up_down_counter`` for an additive series.
+            ``up_down_counter`` for an additive series. The ``observable_*``
+            kinds are reported by ``callback`` instead of by
+            :func:`record_metrics` — see :data:`OBSERVABLE_METRIC_KINDS`.
         unit: UCUM unit string (e.g. ``ms``, ``{token}/s``). Empty when unitless.
         description: Human-readable description attached to the instrument.
+        callback: Required for an ``observable_*`` kind, rejected otherwise.
+            Invoked by the SDK once per collection cycle, and what it returns is
+            the complete set of points for that cycle. Keep it cheap and
+            non-blocking: it runs on the exporter's collection path, so work
+            done here delays every metric the process exports.
+
+            The two counter kinds want a running total rather than the change
+            since the last cycle: the SDK derives deltas by subtracting
+            consecutive readings, so a callback that returns deltas itself is
+            wrong under either temporality.
+
+            A callback that raises is logged once and the series then reports
+            nothing, rather than raising into the collection path. Note that the
+            SDK holds the instrument -- and through it the callback -- for the
+            life of the meter provider, so a bound method keeps its object alive
+            for just as long.
     """
 
     key: str
@@ -101,16 +148,30 @@ class MetricSpec:
     kind: str = "gauge"
     unit: str = ""
     description: str = ""
+    callback: metrics.CallbackT | None = None
 
     def __post_init__(self) -> None:
         if not self.key:
             raise ValueError("MetricSpec.key must be a non-empty string.")
         if not self.name:
             raise ValueError(f"MetricSpec.name must be a non-empty string (key={self.key!r}).")
-        if self.kind not in _KIND_METHODS:
+        if self.kind not in METRIC_KINDS:
             raise ValueError(
-                f"MetricSpec.kind {self.kind!r} is not one of {sorted(_KIND_METHODS)} "
+                f"MetricSpec.kind {self.kind!r} is not one of {sorted(METRIC_KINDS)} "
                 f"(key={self.key!r})."
+            )
+        # Both directions are rejected, because both are silent otherwise: an
+        # observable without a callback reports nothing at all, and a callback
+        # on a synchronous kind is simply never called.
+        if self.kind in _OBSERVABLE_KIND_FACTORIES and self.callback is None:
+            raise ValueError(
+                f"MetricSpec.kind {self.kind!r} requires a callback, which is the only "
+                f"way an observable instrument reports a value (key={self.key!r})."
+            )
+        if self.kind not in _OBSERVABLE_KIND_FACTORIES and self.callback is not None:
+            raise ValueError(
+                f"MetricSpec.callback is only used by the {sorted(_OBSERVABLE_KIND_FACTORIES)} "
+                f"kinds; {self.kind!r} records through record_metrics (key={self.key!r})."
             )
 
 
@@ -162,7 +223,11 @@ def register_metric_group(
         specs: The series in this group. Keys must be unique within the group.
         allow_override: If ``False`` (default), raise :class:`ValueError` when
             ``group`` is already registered. If ``True``, replace it and drop any
-            instruments already created for the old definition.
+            instruments already created for the old definition. Synchronous
+            instruments are rebuilt on the next record; observable ones cannot
+            be, because OTel offers no way to detach a callback from a meter. An
+            override after they were created is warned about, and the previous
+            callbacks go on reporting -- replacing one needs a new metric name.
 
     Raises:
         ValueError: If ``group`` is empty, ``specs`` is empty, a key is
@@ -181,14 +246,36 @@ def register_metric_group(
         raise ValueError(f"Metric group {group!r} must declare at least one MetricSpec.")
 
     with _REGISTRY_LOCK:
-        if group in _REGISTRY and not allow_override:
+        previous = _REGISTRY.get(group)
+        if previous is not None and not allow_override:
             raise ValueError(
                 f"Metric group {group!r} is already registered. "
                 "Pass allow_override=True to replace it."
             )
+        # Only worth reporting once the instruments exist: before that an
+        # override is clean, and after it the old callbacks are stuck on their
+        # meters while the replacements are dropped as duplicate names -- which
+        # the SDK does silently, at any log level.
+        stranded: list[str] = []
+        if previous is not None and len(previous.instruments):
+            stranded = sorted(
+                spec.name
+                for spec in previous.specs.values()
+                if spec.kind in _OBSERVABLE_KIND_FACTORIES
+            )
         _REGISTRY[group] = _Group(specs=by_key)
     # A fresh definition should warn afresh (keys may have changed).
     _clear_group_warnings(group)
+    if stranded:
+        # After the clear, or it would drop the warning it has just emitted.
+        _warn_once(
+            ("observable_override", group),
+            "Metric group %r was overridden after its observable instruments were "
+            "created, so %s keep reporting through the previous callback and the new "
+            "one is ignored. Replacing an observable series needs a new metric name.",
+            group,
+            ", ".join(stranded),
+        )
 
 
 def unregister_metric_group(group: str) -> None:
@@ -209,6 +296,59 @@ def registered_metric_groups() -> dict[str, tuple[MetricSpec, ...]]:
         return {name: tuple(g.specs.values()) for name, g in _REGISTRY.items()}
 
 
+def _guarded_callback(group: str, key: str, spec: MetricSpec) -> metrics.CallbackT:
+    """Wrap a consumer callback so a failure is reported once, not every cycle.
+
+    The SDK already catches a raising callback, so nothing here is about keeping
+    the process up. It is about volume: the SDK re-logs the exception with a
+    traceback on every collection, which at a 60s interval is a traceback an
+    hour for the rest of the run, and it is the one path in this module where
+    consumer code runs outside the warn-once rule the rest of it follows. A
+    failed callback is logged once and the series then goes quiet.
+    """
+    callback = spec.callback
+
+    if isinstance(callback, Generator):
+        # A generator callback is primed with next() and then driven with
+        # send(). The SDK does that itself, but only for something it can see is
+        # a generator -- and what it gets from here is a plain function.
+        # Priming is deferred into the call so a generator that raises on the
+        # way to its first yield is caught by the guard below like any other.
+        generator = callback
+        primed = False
+
+        def invoke(options: metrics.CallbackOptions) -> Iterable[metrics.Observation]:
+            nonlocal primed
+            if not primed:
+                next(generator)
+                primed = True
+            try:
+                return generator.send(options)
+            except StopIteration:
+                return ()
+    else:
+        invoke = callback
+
+    def guarded(options: metrics.CallbackOptions) -> Iterable[metrics.Observation]:
+        try:
+            # Materialised inside the guard rather than handed over lazily: the
+            # SDK consumes the result itself, so a generator expression that
+            # raises part-way through would otherwise fail outside this try.
+            return list(invoke(options))
+        except Exception:
+            _warn_once(
+                ("callback", group, key),
+                "Callback for metric %r in group %r failed; the series will report "
+                "nothing until it succeeds again. Logged once per key.",
+                key,
+                group,
+                exc_info=True,
+            )
+            return ()
+
+    return guarded
+
+
 def _instruments_for(meter: metrics.Meter, group: str, entry: _Group) -> dict[str, object] | None:
     """Return this group's instruments for ``meter``, creating them once.
 
@@ -221,6 +361,19 @@ def _instruments_for(meter: metrics.Meter, group: str, entry: _Group) -> dict[st
         if instruments is None:
             instruments = {}
             for key, spec in entry.specs.items():
+                observable_factory = _OBSERVABLE_KIND_FACTORIES.get(spec.kind)
+                if observable_factory is not None:
+                    # Handed over once, and from here the SDK pulls. The SDK also
+                    # holds the instrument itself, so this cache only spares us
+                    # building a second one -- it is not what keeps the callback
+                    # alive, which is why unregistering cannot stop it.
+                    instruments[key] = getattr(meter, observable_factory)(
+                        name=spec.name,
+                        callbacks=[_guarded_callback(group, key, spec)],
+                        unit=spec.unit,
+                        description=spec.description,
+                    )
+                    continue
                 factory, _ = _KIND_METHODS[spec.kind]
                 instruments[key] = getattr(meter, factory)(
                     name=spec.name,
@@ -238,6 +391,45 @@ def _instruments_for(meter: metrics.Meter, group: str, entry: _Group) -> dict[st
         )
         return None
     return instruments
+
+
+def create_metric_instruments(meter: metrics.Meter, group: str) -> None:
+    """Materialise ``group``'s instruments on ``meter`` without recording anything.
+
+    Required for a group containing any ``observable_*`` spec, and a no-op to
+    call twice. Synchronous instruments are created lazily on the first
+    :func:`record_metrics`, but an observable one is never recorded against, so
+    without this call it would never be created and its callback would never
+    run. Call it once, after ``setup_telemetry`` has produced the meter.
+
+    Nothing here raises into the caller, on the same grounds as
+    :func:`record_metrics`: an unregistered group and a failed instrument
+    creation are logged once and skipped.
+
+    Note:
+        OTel offers no way to remove an observable instrument from a meter, so
+        :func:`unregister_metric_group` cannot stop a callback that is already
+        installed. A consumer that needs a callback to go quiet should return no
+        observations from it rather than unregistering the group.
+
+    Args:
+        meter: The meter to create the instruments on (e.g. ``handle.meter``).
+        group: A group previously passed to :func:`register_metric_group`.
+    """
+    with _REGISTRY_LOCK:
+        entry = _REGISTRY.get(group)
+    if entry is None:
+        # Keyed apart from record_metrics' own unregistered-group warning: they
+        # are different mistakes, and sharing a key let the first silence the
+        # second. The group stays at index 1 so _clear_group_warnings finds it.
+        _warn_once(
+            ("unregistered_create", group),
+            "create_metric_instruments called for unregistered group %r; call "
+            "register_metric_group first.",
+            group,
+        )
+        return
+    _instruments_for(meter, group, entry)
 
 
 def record_metrics(
@@ -331,6 +523,19 @@ def record_metrics(
                 "Unknown metric key %r for group %r; skipping.",
                 key,
                 group,
+            )
+            continue
+        if spec.kind in _OBSERVABLE_KIND_FACTORIES:
+            # Reported by its callback, so there is nothing to push. Warned
+            # about rather than ignored: the value would otherwise vanish with
+            # no sign that the caller had the wrong idea of how the series works.
+            _warn_once(
+                ("observable_key", group, key),
+                "Metric key %r in group %r is %s, which reports through its callback; "
+                "the value passed to record_metrics is dropped.",
+                key,
+                group,
+                spec.kind,
             )
             continue
         _, emit = _KIND_METHODS[spec.kind]
