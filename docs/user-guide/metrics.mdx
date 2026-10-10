@@ -58,8 +58,9 @@ has to carry — and NeMo-RL never has to import, extend, or override — a
 per-consumer `rl.py`.
 
 A `MetricSpec` declares one series: the `key` the caller records under, the
-`name` actually emitted, the `kind` (`gauge`, `histogram`, `counter`, or
-`up_down_counter`), and an optional `unit` and `description`. The consumer owns
+`name` actually emitted, the `kind` (`gauge`, `histogram`, `counter`,
+`up_down_counter`, or one of the [observable kinds](#observable-series-whose-attributes-change)),
+and an optional `unit` and `description`. The consumer owns
 its own names; keep them in one module in the consumer's tree (as NeMo-RL does
 for `rl.*`) rather than scattering literals.
 
@@ -113,6 +114,81 @@ the one reserved keyword — if one of your series is genuinely called
 ```python
 record_metrics(handle.meter, "mygroup", {"attributes": 7.0})
 ```
+
+### Observable series whose attributes change
+
+A synchronous instrument is pushed to and the SDK remembers what it was given.
+That is wrong for a series whose *attribute set* changes during a run. A gauge
+keeps its last value per attribute set and re-exports it on every cycle, and
+nothing in the API can say that a set no longer applies — so a point first
+reported under one label and later under another is exported under **both**,
+indefinitely, and any aggregation over that label double-counts it.
+
+The three `observable_*` kinds invert the direction: the SDK calls your callback
+once per collection cycle and treats what it returns as the complete set of
+points for that cycle. A label the callback stops yielding simply ends.
+
+| Kind | Meter factory |
+|---|---|
+| `observable_gauge` | `create_observable_gauge` |
+| `observable_counter` | `create_observable_counter` |
+| `observable_up_down_counter` | `create_observable_up_down_counter` |
+
+```python
+from opentelemetry.metrics import Observation
+
+from nemo.lens.instruments import (
+    MetricSpec,
+    create_metric_instruments,
+    register_metric_group,
+)
+
+def _host_memory(options):
+    # Returns one point per host, with the label resolved now rather than when
+    # the value was sampled, so a host that changes role is relabelled at once.
+    return [
+        Observation(sample.used_bytes, {"host.name": host, "role": role_of(host)})
+        for host, sample in latest_samples().items()
+    ]
+
+register_metric_group(
+    "rl",
+    [
+        MetricSpec(
+            "host_memory_used",
+            "rl.host.memory.used",
+            "observable_gauge",
+            unit="By",
+            callback=_host_memory,
+        )
+    ],
+)
+
+# Required for observable series, and harmless on a purely synchronous group.
+create_metric_instruments(handle.meter, "rl")
+```
+
+`create_metric_instruments` exists because the lazy path does not reach these.
+Synchronous instruments are created on the first `record_metrics` against a
+meter, but an observable one is never recorded against, so without an explicit
+call it would never be created and its callback would never run. Call it once,
+after `setup_telemetry` has produced the meter; calling it twice is a no-op, and
+the callback is registered exactly once per meter.
+
+Two constraints worth knowing before you reach for these:
+
+- **The callback runs on the exporter's collection path.** Keep it cheap and
+  non-blocking — reading a snapshot that some other thread maintains, not doing
+  I/O. Work done here delays every metric the process exports.
+- **An installed callback cannot be removed.** OTel offers no way to detach an
+  observable instrument from a meter, so `unregister_metric_group` will not stop
+  one. A callback that should go quiet must return no observations.
+
+A `MetricSpec` is rejected at construction if an `observable_*` kind has no
+`callback`, or if a synchronous kind has one. Both mistakes are otherwise
+silent: the first reports nothing, and the second is never called. Passing an
+observable key to `record_metrics` is logged once and dropped, since its value
+comes from the callback.
 
 ## NeMo Gym with `instruments/gym.py`
 
