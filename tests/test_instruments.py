@@ -475,3 +475,22 @@ class TestRecordGymMetrics:
         assert "gym.verify.duration_ms" in metric_names
         assert "gym.verify.success_rate" in metric_names
         assert "gym.servers.active" in metric_names
+
+    def test_duration_histograms_resolve_minutes_not_just_seconds(self, meter_and_reader):
+        """A 20-minute rollout lands in a real bucket, not the SDK default's +Inf above 10 s."""
+        from nemo.lens.instruments.gym import GYM_DURATION_BOUNDARIES_MS
+
+        meter, reader = meter_and_reader
+        record_gym_metrics(meter, rollout_duration_ms=20 * 60_000.0, verify_duration_ms=90_000.0)
+        points = {
+            m.name: m.data.data_points[0]
+            for rm in reader.get_metrics_data().resource_metrics
+            for sm in rm.scope_metrics
+            for m in sm.metrics
+            if m.name in ("gym.rollout.duration_ms", "gym.verify.duration_ms")
+        }
+        for name, point in points.items():
+            assert list(point.explicit_bounds) == list(GYM_DURATION_BOUNDARIES_MS), name
+            assert point.bucket_counts[-1] == 0, f"{name} fell into the overflow bucket"
+        rollout = points["gym.rollout.duration_ms"]
+        assert rollout.bucket_counts[list(rollout.explicit_bounds).index(1_200_000)] == 1

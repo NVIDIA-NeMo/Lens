@@ -1096,3 +1096,29 @@ class TestConsoleExporterJsonl:
         assert formatted.endswith("\n")
         assert "\n" not in formatted[:-1]
         assert json.loads(formatted)["name"] == "formatted"
+
+
+class TestHttpDurationViews:
+    def test_http_server_duration_resolves_minutes(self):
+        """A FastAPI ``/run`` lasting 20 minutes lands in a real bucket, not the default +Inf above 10 s."""
+        from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+
+        from nemo.lens.instruments.gym import GYM_DURATION_BOUNDARIES_MS
+
+        reader = InMemoryMetricReader()
+        build_providers(NemoLensConfig(enabled=True, exporter="console"), metric_reader=reader)
+        meter = metrics.get_meter("test")
+        meter.create_histogram("http.server.duration", unit="ms").record(20 * 60_000.0)
+        meter.create_histogram("http.server.request.duration", unit="s").record(20 * 60.0)
+        points = {
+            m.name: m.data.data_points[0]
+            for rm in reader.get_metrics_data().resource_metrics
+            for sm in rm.scope_metrics
+            for m in sm.metrics
+        }
+        ms, seconds = points["http.server.duration"], points["http.server.request.duration"]
+        assert list(ms.explicit_bounds) == list(GYM_DURATION_BOUNDARIES_MS)
+        assert list(seconds.explicit_bounds) == [b / 1000 for b in GYM_DURATION_BOUNDARIES_MS]
+        for point in (ms, seconds):
+            assert point.bucket_counts[-1] == 0
+            assert sum(point.bucket_counts) == 1

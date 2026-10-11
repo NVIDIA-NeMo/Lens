@@ -25,25 +25,51 @@ from opentelemetry import metrics
 _logger = logging.getLogger(__name__)
 _GYM_INSTRUMENTS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
+GYM_DURATION_BOUNDARIES_MS: tuple[float, ...] = (
+    100,
+    250,
+    500,
+    1_000,
+    2_500,
+    5_000,
+    10_000,
+    30_000,
+    60_000,
+    120_000,
+    300_000,
+    600_000,
+    1_200_000,
+    1_800_000,
+    3_600_000,
+)
+
+
+def _duration_histogram(meter: metrics.Meter, name: str, description: str):
+    try:
+        return meter.create_histogram(
+            name=name,
+            unit="ms",
+            description=description,
+            explicit_bucket_boundaries_advisory=list(GYM_DURATION_BOUNDARIES_MS),
+        )
+    except TypeError:  # opentelemetry-api < 1.25 has no advisory parameter
+        return meter.create_histogram(name=name, unit="ms", description=description)
+
 
 def _get_gym_instruments(meter: metrics.Meter) -> dict:
     instruments = _GYM_INSTRUMENTS.get(meter)
     if instruments is None:
         instruments = {
-            "server_request_duration_ms": meter.create_histogram(
-                name="gym.server.request_duration_ms",
-                unit="ms",
-                description="Gym server request duration in milliseconds.",
+            "server_request_duration_ms": _duration_histogram(
+                meter,
+                "gym.server.request_duration_ms",
+                "Gym server request duration in milliseconds.",
             ),
-            "rollout_duration_ms": meter.create_histogram(
-                name="gym.rollout.duration_ms",
-                unit="ms",
-                description="Rollout collection duration in milliseconds.",
+            "rollout_duration_ms": _duration_histogram(
+                meter, "gym.rollout.duration_ms", "Rollout collection duration in milliseconds."
             ),
-            "verify_duration_ms": meter.create_histogram(
-                name="gym.verify.duration_ms",
-                unit="ms",
-                description="Verification endpoint duration in milliseconds.",
+            "verify_duration_ms": _duration_histogram(
+                meter, "gym.verify.duration_ms", "Verification endpoint duration in milliseconds."
             ),
             "verify_success_rate": meter.create_gauge(
                 name="gym.verify.success_rate",
