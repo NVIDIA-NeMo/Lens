@@ -1,0 +1,33 @@
+groups:
+- id: registry.inverted
+  type: attribute_group
+  brief: inverted.* attribute names.
+  attributes:
+  - id: inverted.skew
+    type: boolean
+    stability: development
+    brief: True on a span whose supplied end_epoch_seconds was earlier than its start_epoch_seconds. Marks
+      that the interval was clamped to zero duration because of probable clock skew.
+    annotations:
+      constant: INVERTED_SKEW
+  - id: inverted.start_epoch_seconds
+    type: string
+    stability: development
+    brief: The original start_epoch_seconds supplied by the caller, before clamping, in seconds since
+      the Unix epoch. Serialized as a string.
+    annotations:
+      constant: INVERTED_START_EPOCH_SECONDS
+  - id: inverted.end_epoch_seconds
+    type: string
+    stability: development
+    brief: The original end_epoch_seconds supplied by the caller, before clamping, in seconds since the
+      Unix epoch. Serialized as a string.
+    annotations:
+      constant: INVERTED_END_EPOCH_SECONDS
+  - id: inverted.delta_seconds
+    type: string
+    stability: development
+    brief: The inversion amount, start_epoch_seconds - end_epoch_seconds, in seconds (always positive).
+      Serialized as a string.
+    annotations:
+      constant: INVERTED_DELTA_SECONDS

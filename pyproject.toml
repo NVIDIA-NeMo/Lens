@@ -51,16 +51,28 @@ dev = [
     "pytest-cov>=4.0",
     "pre-commit>=3.0",
     "ruff>=0.15.0,<0.16",
+    "pyyaml>=6.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["nemo.lens", "nemo.lens.*"]
 
+[tool.setuptools.package-data]
+# Ship the semantic-convention model so it is available in a built wheel, not
+# only in an editable/source checkout. tests/test_semconv_model_parity.py reads
+# these relative to the installed attributes.py.
+"nemo.lens.semconv" = ["model/*.yaml", "model/*.md"]
+
 [tool.ruff]
 target-version = "py310"
 line-length = 100
 src = ["src", "tests"]
+# Generated from semconv/model/ by weaver; its byte layout is weaver's, not
+# ruff's — formatting it would break tests/test_semconv_generated.py. force-exclude
+# makes pre-commit honour this even when it passes the file explicitly.
+extend-exclude = ["src/nemo/lens/semconv/_generated"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = [
@@ -88,6 +100,7 @@ testpaths = ["tests"]
 [tool.coverage.run]
 omit = [
     "src/nemo/lens/semconv/attributes.py",
+    "src/nemo/lens/semconv/_generated/attributes.py",
 ]
 
 [tool.uv]

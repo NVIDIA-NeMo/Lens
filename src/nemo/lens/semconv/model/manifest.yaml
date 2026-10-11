@@ -1,0 +1,12 @@
+# Weaver registry manifest. Without it, weaver resolves records against
+# `https://unknown/unknown`.
+#
+# `semconv_version` is THIS registry's version (independent of SEMCONV_VERSION in
+# attributes.py, which tracks the upstream OTel semconv the standard namespaces
+# follow). `schema_url` names which version of this vocabulary a record was
+# emitted against; it is PROVISIONAL — an identifier first, a served location
+# later, and must become an immutable served path before any external adopter
+# depends on it.
+name: nemo-lens-semconv
+semconv_version: 0.1.0
+schema_url: https://docs.nvidia.com/nemo/lens/semconv/0.1.0/model

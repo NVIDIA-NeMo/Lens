@@ -1,0 +1,56 @@
+groups:
+- id: registry.nv.gpu
+  type: attribute_group
+  brief: nv.gpu.* attribute names.
+  attributes:
+  - id: nv.gpu.uuid
+    type: string
+    stability: development
+    brief: The GPU's NVML UUID.
+    annotations:
+      constant: NV_GPU_UUID
+  - id: nv.gpu.index
+    type: int
+    stability: development
+    brief: The GPU's physical index on its host.
+    annotations:
+      constant: NV_GPU_INDEX
+  - id: nv.gpu.pci_bus_id
+    type: string
+    stability: development
+    brief: The GPU's PCI bus id.
+    annotations:
+      constant: NV_GPU_PCI_BUS_ID
+  - id: nv.gpu.serial
+    type: string
+    stability: development
+    brief: The GPU's serial number.
+    annotations:
+      constant: NV_GPU_SERIAL
+  - id: nv.gpu.model
+    type: string
+    stability: development
+    brief: The GPU model name.
+    annotations:
+      constant: NV_GPU_MODEL
+  - id: nv.gpu.compute_capability
+    type: string
+    stability: development
+    brief: CUDA compute capability, as `major.minor`.
+    examples:
+    - '9.0'
+    - '10.0'
+    annotations:
+      constant: NV_GPU_COMPUTE_CAPABILITY
+  - id: nv.gpu.memory_total
+    type: int
+    stability: development
+    brief: Total GPU memory, in bytes.
+    annotations:
+      constant: NV_GPU_MEMORY_TOTAL
+  - id: nv.gpu.driver_version
+    type: string
+    stability: development
+    brief: NVIDIA driver version.
+    annotations:
+      constant: NV_GPU_DRIVER_VERSION

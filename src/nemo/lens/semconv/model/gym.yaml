@@ -1,0 +1,35 @@
+groups:
+- id: registry.gym
+  type: attribute_group
+  brief: gym.* attribute names.
+  attributes:
+  - id: gym.server.name
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: GYM_SERVER_NAME
+  - id: gym.server.type
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: GYM_SERVER_TYPE
+  - id: gym.num_servers
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: GYM_NUM_SERVERS
+  - id: gym.rollout.batch_size
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: GYM_ROLLOUT_BATCH_SIZE
+  - id: gym.verify.success_rate
+    type: string
+    stability: development
+    brief: TODO
+    annotations:
+      constant: GYM_VERIFY_SUCCESS_RATE

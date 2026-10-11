@@ -1,0 +1,173 @@
+groups:
+- id: registry.slurm
+  type: attribute_group
+  brief: slurm.* attribute names.
+  attributes:
+  - id: slurm.job.id
+    type: string
+    stability: development
+    brief: The SLURM job id. For an array job this is the per-element id.
+    examples:
+    - '12345'
+    - '12345_7'
+    annotations:
+      constant: SLURM_JOB_ID
+  - id: slurm.job.id.raw
+    type: string
+    stability: development
+    brief: The raw `$SLURM_JOB_ID` as reported by the scheduler, before array normalization. For an array
+      element this is the element's own job id; `slurm.job.id` is the normalized `<array_job_id>_<task_id>`
+      form. Live (emitted by the resource deriver).
+    annotations:
+      constant: SLURM_JOB_ID_RAW
+  - id: slurm.array.job_id
+    type: string
+    stability: development
+    brief: The shared base array job id.
+    examples:
+    - '12345'
+    annotations:
+      constant: SLURM_ARRAY_JOB_ID
+  - id: slurm.array.task_id
+    type: string
+    stability: development
+    brief: The array element index within the array job.
+    examples:
+    - '0'
+    - '7'
+    annotations:
+      constant: SLURM_ARRAY_TASK_ID
+  - id: slurm.array.count
+    type: int
+    stability: development
+    brief: How many elements the array has — 1 for a plain job.
+    examples:
+    - 1
+    - 64
+    annotations:
+      constant: SLURM_ARRAY_COUNT
+  - id: slurm.sluid
+    type: string
+    stability: development
+    brief: Execution-episode key — unique per (array element x requeue attempt).
+    annotations:
+      constant: SLURM_SLUID
+  - id: slurm.array.sluid
+    type: string
+    stability: development
+    brief: The sluid of the array job as a whole.
+    annotations:
+      constant: SLURM_ARRAY_SLUID
+  - id: slurm.job.name
+    type: string
+    stability: development
+    brief: The job name given at submission.
+    annotations:
+      constant: SLURM_JOB_NAME
+  - id: slurm.cluster.name
+    type: string
+    stability: development
+    brief: 'The cluster the job ran on. This is the live, canonical cluster key: the resource deriver
+      emits it and nv.dl.job.uuid is seeded from it. Prefer this over the retired `slurm.cluster`.'
+    annotations:
+      constant: SLURM_CLUSTER_NAME
+  - id: slurm.partition
+    type: string
+    stability: development
+    brief: The scheduler partition the job ran in.
+    annotations:
+      constant: SLURM_PARTITION
+  - id: slurm.head_node.name
+    type: string
+    stability: development
+    brief: The node SLURM ran the batch script on.
+    examples:
+    - nvl72d072-T12
+    annotations:
+      constant: SLURM_HEAD_NODE_NAME
+  - id: slurm.nnodes
+    type: int
+    stability: development
+    brief: Number of nodes allocated.
+    annotations:
+      constant: SLURM_NNODES
+  - id: slurm.ntasks
+    type: int
+    stability: development
+    brief: Number of tasks allocated.
+    annotations:
+      constant: SLURM_NTASKS
+  - id: slurm.restart_count
+    type: int
+    stability: development
+    brief: How many times this job element has been requeued.
+    annotations:
+      constant: SLURM_RESTART_COUNT
+  - id: slurm.job.user
+    type: string
+    stability: development
+    brief: The submitting user.
+    annotations:
+      constant: SLURM_JOB_USER
+  - id: slurm.job.account
+    type: string
+    stability: development
+    brief: The account the job is billed to.
+    annotations:
+      constant: SLURM_JOB_ACCOUNT
+  - id: slurm.job.qos
+    type: string
+    stability: development
+    brief: The quality-of-service class.
+    annotations:
+      constant: SLURM_JOB_QOS
+  - id: slurm.job.reservation
+    type: string
+    stability: development
+    brief: The reservation this job ran under, if any.
+    annotations:
+      constant: SLURM_JOB_RESERVATION
+  - id: slurm.segment
+    type: string
+    stability: development
+    brief: The sbatch `--segment` directive.
+    annotations:
+      constant: SLURM_SEGMENT
+  - id: slurm.topology.addr
+    type: string
+    stability: development
+    brief: The node's topology address as the scheduler reports it.
+    annotations:
+      constant: SLURM_TOPOLOGY_ADDR
+  - id: slurm.topology.addr_pattern
+    type: string
+    stability: development
+    brief: The pattern describing how to parse `slurm.topology.addr`.
+    examples:
+    - block.node
+    annotations:
+      constant: SLURM_TOPOLOGY_ADDR_PATTERN
+  - id: slurm.nodelist
+    type: string
+    stability: development
+    brief: RETIRED. The scheduler's compressed nodelist expression for the allocation (e.g. `node[01-08]`).
+      Kept in SLURM_RETIRED_RESOURCE_ATTRIBUTE_KEYS; not emitted today.
+    annotations:
+      constant: SLURM_NODELIST
+  - id: slurm.cluster
+    type: string
+    stability: development
+    brief: RETIRED alias for the cluster name. Use `slurm.cluster.name` (SLURM_CLUSTER_NAME) instead —
+      that is the live key the resource deriver emits and the seed for nv.dl.job.uuid. `slurm.cluster`
+      is kept in SLURM_RETIRED_RESOURCE_ATTRIBUTE_KEYS only for back-reference; both are retained deliberately,
+      do not delete either.
+    annotations:
+      constant: SLURM_CLUSTER
+  - id: slurm.torchelastic.restart_count
+    type: int
+    stability: development
+    brief: RETIRED. Count of torchelastic (in-job elastic-agent) restarts, distinct from scheduler requeues
+      (`slurm.restart_count`). Kept in SLURM_RETIRED_RESOURCE_ATTRIBUTE_KEYS; the torchelastic restart
+      count now feeds nv.dl.run.uuid derivation directly rather than being emitted as its own attribute.
+    annotations:
+      constant: SLURM_TORCHELASTIC_RESTART_COUNT

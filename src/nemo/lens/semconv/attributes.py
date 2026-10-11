@@ -15,212 +15,31 @@
 
 """Semantic convention attribute name constants for the NeMo ecosystem.
 
-Follows OTel semconv naming: ``<namespace>.<entity>.<attribute>``.
+The attribute-name constants are **generated** from ``semconv/model/`` and live
+in ``_generated/attributes.py``; this module re-exports them and owns the one
+piece of non-attribute state, ``SEMCONV_VERSION``.
+
+To add, rename, or re-type a name you edit the model and regenerate — never this
+file or the generated one. See ``semconv/model/README.md``. Follows OTel semconv
+naming: ``<namespace>.<entity>.<attribute>``.
 """
 
+# The names are the generated registry output — one place, machine-written.
+from nemo.lens.semconv._generated.attributes import *  # noqa: F403
+
 # ------------------------------------------------------------------ #
-# Version tracking
+# Version tracking (non-attribute state; hand-maintained here)
 # ------------------------------------------------------------------ #
-# Tracks which upstream OTel semconv version these constants are based
-# on. Update when syncing with a new semconv release.
-#
+# Tracks which upstream OTel semconv version these constants align with. Update
+# when syncing with a new semconv release.
 # Reference: https://github.com/open-telemetry/semantic-conventions
 # ------------------------------------------------------------------ #
 
 SEMCONV_VERSION = "1.29.0"
 """OTel semantic conventions version these constants are aligned with.
 
-Standard namespaces (gen_ai.*, host.*, k8s.*) follow the upstream spec at this
-version. Custom namespaces (nv.dl.*, dl.*, rl.*, gym.*, slurm.*, nemo.*, wandb.*)
-are NeMo-specific extensions that do not exist upstream.
+Standard namespaces (``gen_ai.*``, ``host.*``, ``k8s.*``) follow the upstream
+spec at this version. Custom namespaces (``nv.dl.*``, ``nv.gpu.*``, ``dl.*``,
+``rl.*``, ``gym.*``, ``slurm.*``, ``nemo.*``, ``wandb.*``, ``inverted.*``) are
+NeMo-specific extensions that do not exist upstream.
 """
-
-# ------------------------------------------------------------------ #
-# Stability markers
-# ------------------------------------------------------------------ #
-# gen_ai.*  — Experimental (upstream, stabilising in semconv 1.30+)
-# host.*    — Stable (upstream)
-# k8s.*     — Stable (upstream)
-# nv.dl.*   — NeMo custom (stable within NeMo ecosystem)
-# dl.*      — NeMo custom (stable within NeMo ecosystem)
-# rl.*      — NeMo custom (stable within NeMo ecosystem)
-# gym.*     — NeMo custom (stable within NeMo ecosystem)
-# slurm.*   — NeMo custom (stable within NeMo ecosystem)
-# nemo.*    — NeMo custom (stable within NeMo ecosystem)
-# wandb.*   — NeMo custom (stable within NeMo ecosystem)
-
-# ------------------------------------------------------------------ #
-# Host resources (host.*) — standard OTel
-# ------------------------------------------------------------------ #
-
-HOST_NAME = "host.name"
-
-# ------------------------------------------------------------------ #
-# Corrected explicit span intervals (inverted.*) — NeMo custom
-# ------------------------------------------------------------------ #
-
-INVERTED_SKEW = "inverted.skew"
-INVERTED_START_EPOCH_SECONDS = "inverted.start_epoch_seconds"
-INVERTED_END_EPOCH_SECONDS = "inverted.end_epoch_seconds"
-INVERTED_DELTA_SECONDS = "inverted.delta_seconds"
-
-# ------------------------------------------------------------------ #
-# Distributed learning participant resources (nv.dl.*)
-# ------------------------------------------------------------------ #
-
-NV_DL_RANK = "nv.dl.rank"
-NV_DL_WORLD_SIZE = "nv.dl.world_size"
-NV_DL_LOCAL_RANK = "nv.dl.local_rank"
-NV_DL_ROLE = "nv.dl.role"
-NV_DL_PROVIDER_NAME = "nv.dl.provider.name"
-NV_DL_TOPOLOGY_SIZE_TP = "nv.dl.topology.size.tp"
-NV_DL_TOPOLOGY_SIZE_PP = "nv.dl.topology.size.pp"
-NV_DL_TOPOLOGY_SIZE_DP = "nv.dl.topology.size.dp"
-NV_DL_TRAINING_CONFIG_GLOBAL_BATCH_SIZE = "nv.dl.training.config.global_batch_size"
-NV_DL_TRAINING_CONFIG_MICRO_BATCH_SIZE = "nv.dl.training.config.micro_batch_size"
-NV_DL_TRAINING_CONFIG_SEQUENCE_LENGTH = "nv.dl.training.config.sequence_length"
-NV_DL_TRAINING_CONFIG_OPTIMIZER = "nv.dl.training.config.optimizer"
-NV_DL_TRAINING_CONFIG_RECOMPUTE_GRANULARITY = "nv.dl.training.config.recompute_granularity"
-NV_DL_TRAINING_TARGET_TRAIN_ITERS = "nv.dl.training.target.train_iters"
-NV_DL_TRAINING_TARGET_TRAIN_SAMPLES = "nv.dl.training.target.train_samples"
-NV_DL_TRAINING_TARGET_TRAIN_TOKENS = "nv.dl.training.target.train_tokens"
-NV_DL_SOFTWARE_TORCH = "nv.dl.software.torch"
-NV_DL_SOFTWARE_CUDA = "nv.dl.software.cuda"
-NV_DL_SOFTWARE_NCCL = "nv.dl.software.nccl"
-NV_DL_SOFTWARE_TRANSFORMER_ENGINE = "nv.dl.software.transformer_engine"
-
-# ------------------------------------------------------------------ #
-# Distributed learning launch resources (nv.dl.launch.*)
-# ------------------------------------------------------------------ #
-
-NV_DL_LAUNCH_CONTAINER_IMAGE = "nv.dl.launch.container.image"
-
-# ------------------------------------------------------------------ #
-# Distributed learning attributes (dl.*)
-# ------------------------------------------------------------------ #
-DL_DATA_PARALLEL_RANK = "dl.data_parallel.rank"
-DL_DATA_PARALLEL_SIZE = "dl.data_parallel.size"
-DL_TENSOR_PARALLEL_RANK = "dl.tensor_parallel.rank"
-DL_TENSOR_PARALLEL_SIZE = "dl.tensor_parallel.size"
-DL_PIPELINE_PARALLEL_RANK = "dl.pipeline_parallel.rank"
-DL_PIPELINE_PARALLEL_SIZE = "dl.pipeline_parallel.size"
-DL_ITERATION = "dl.iteration"
-DL_LOSS = "dl.loss"
-DL_GRAD_NORM = "dl.grad_norm"
-DL_LEARNING_RATE = "dl.learning_rate"
-DL_THROUGHPUT_TFLOPS = "dl.throughput_tflops"
-DL_THROUGHPUT_TOKENS_PER_SEC = "dl.throughput_tokens_per_sec"
-DL_BATCH_SIZE = "dl.batch_size"
-DL_SEQUENCE_LENGTH = "dl.sequence_length"
-DL_MICROBATCH_ID = "dl.microbatch_id"
-
-# ------------------------------------------------------------------ #
-# GenAI semconv (gen_ai.*) — standard OTel
-# ------------------------------------------------------------------ #
-
-GENAI_OPERATION_NAME = "gen_ai.operation.name"
-GENAI_PROVIDER_NAME = "gen_ai.provider.name"
-GENAI_REQUEST_MODEL = "gen_ai.request.model"
-GENAI_TOKEN_TYPE = "gen_ai.token.type"
-
-# ------------------------------------------------------------------ #
-# Reinforcement learning (rl.*)
-# ------------------------------------------------------------------ #
-# Span-attribute names only. RL *metric* series (rl.reward.mean, rl.kl_divergence,
-# rl.policy_loss, rl.value_loss, rl.entropy, rl.response_length.mean, rl.grad_norm,
-# rl.learning_rate, rl.throughput.tokens_per_sec) are owned by the NeMo-RL
-# consumer and declared through the metric registry (register_metric_group) in
-# its own tree — deliberately not defined here. See docs/design/semconv.mdx.
-
-RL_ALGORITHM = "rl.algorithm"
-RL_REWARD = "rl.reward"
-RL_GENERATION_BACKEND = "rl.generation.backend"
-RL_NUM_ROLLOUTS = "rl.num_rollouts"
-
-# ------------------------------------------------------------------ #
-# Gym (gym.*)
-# ------------------------------------------------------------------ #
-
-GYM_SERVER_NAME = "gym.server.name"
-GYM_SERVER_TYPE = "gym.server.type"
-GYM_NUM_SERVERS = "gym.num_servers"
-GYM_ROLLOUT_BATCH_SIZE = "gym.rollout.batch_size"
-GYM_VERIFY_SUCCESS_RATE = "gym.verify.success_rate"
-
-# ------------------------------------------------------------------ #
-# SLURM (slurm.*)
-# ------------------------------------------------------------------ #
-
-SLURM_JOB_ID = "slurm.job.id"
-SLURM_JOB_ID_RAW = "slurm.job.id.raw"
-SLURM_ARRAY_JOB_ID = "slurm.array.job_id"
-SLURM_ARRAY_TASK_ID = "slurm.array.task_id"
-SLURM_ARRAY_COUNT = "slurm.array.count"
-SLURM_SLUID = "slurm.sluid"
-SLURM_ARRAY_SLUID = "slurm.array.sluid"
-SLURM_JOB_NAME = "slurm.job.name"
-SLURM_CLUSTER_NAME = "slurm.cluster.name"
-SLURM_PARTITION = "slurm.partition"
-SLURM_HEAD_NODE_NAME = "slurm.head_node.name"
-SLURM_NNODES = "slurm.nnodes"
-SLURM_NTASKS = "slurm.ntasks"
-SLURM_RESTART_COUNT = "slurm.restart_count"
-SLURM_JOB_USER = "slurm.job.user"
-SLURM_JOB_ACCOUNT = "slurm.job.account"
-SLURM_JOB_QOS = "slurm.job.qos"
-SLURM_JOB_RESERVATION = "slurm.job.reservation"
-SLURM_SEGMENT = "slurm.segment"
-SLURM_TOPOLOGY_ADDR = "slurm.topology.addr"
-SLURM_TOPOLOGY_ADDR_PATTERN = "slurm.topology.addr_pattern"
-SLURM_NODELIST = "slurm.nodelist"
-SLURM_CLUSTER = "slurm.cluster"
-SLURM_TORCHELASTIC_RESTART_COUNT = "slurm.torchelastic.restart_count"
-
-# ------------------------------------------------------------------ #
-# Distributed learning identity (nv.dl.*)
-# ------------------------------------------------------------------ #
-
-NV_DL_JOB_UUID = "nv.dl.job.uuid"
-NV_DL_RUN_UUID = "nv.dl.run.uuid"
-
-# ------------------------------------------------------------------ #
-# GPU identity (nv.gpu.*)
-# ------------------------------------------------------------------ #
-
-NV_GPU_UUID = "nv.gpu.uuid"
-NV_GPU_INDEX = "nv.gpu.index"
-NV_GPU_PCI_BUS_ID = "nv.gpu.pci_bus_id"
-NV_GPU_SERIAL = "nv.gpu.serial"
-NV_GPU_MODEL = "nv.gpu.model"
-NV_GPU_COMPUTE_CAPABILITY = "nv.gpu.compute_capability"
-NV_GPU_MEMORY_TOTAL = "nv.gpu.memory_total"
-NV_GPU_DRIVER_VERSION = "nv.gpu.driver_version"
-
-# ------------------------------------------------------------------ #
-# Run identification (nemo.*)
-# ------------------------------------------------------------------ #
-
-NEMO_RUN_ID = "nemo.run.id"
-NEMO_USER_ID = "nemo.user.id"
-
-# Set on a span that was still open at telemetry shutdown and was force-closed:
-# its end time is the shutdown time, not when the work actually finished.
-NEMO_SPAN_TRUNCATED = "nemo.span.truncated"
-
-# ------------------------------------------------------------------ #
-# W&B Weave (wandb.*)
-# ------------------------------------------------------------------ #
-
-WANDB_ENTITY = "wandb.entity"
-WANDB_PROJECT = "wandb.project"
-
-# ------------------------------------------------------------------ #
-# Kubernetes (k8s.*)  — standard OTel semconv
-# ------------------------------------------------------------------ #
-
-K8S_NAMESPACE_NAME = "k8s.namespace.name"
-K8S_POD_NAME = "k8s.pod.name"
-K8S_POD_UID = "k8s.pod.uid"
-K8S_NODE_NAME = "k8s.node.name"
-K8S_CONTAINER_NAME = "k8s.container.name"
-K8S_JOB_NAME = "k8s.job.name"
