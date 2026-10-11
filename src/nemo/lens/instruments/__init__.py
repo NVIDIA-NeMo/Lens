@@ -25,7 +25,9 @@ rather than shipped as a per-consumer module here.
 from nemo.lens.instruments.inference import record_inference_metrics
 from nemo.lens.instruments.registry import (
     METRIC_KINDS,
+    OBSERVABLE_METRIC_KINDS,
     MetricSpec,
+    create_metric_instruments,
     record_metrics,
     register_metric_group,
     registered_metric_groups,
@@ -36,8 +38,10 @@ __all__ = [
     "record_inference_metrics",
     "MetricSpec",
     "METRIC_KINDS",
+    "OBSERVABLE_METRIC_KINDS",
     "register_metric_group",
     "unregister_metric_group",
     "registered_metric_groups",
+    "create_metric_instruments",
     "record_metrics",
 ]

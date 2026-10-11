@@ -24,7 +24,10 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 
 from nemo.lens.instruments import (
+    METRIC_KINDS,
+    OBSERVABLE_METRIC_KINDS,
     MetricSpec,
+    create_metric_instruments,
     record_metrics,
     register_metric_group,
     registered_metric_groups,
@@ -395,6 +398,339 @@ class TestMetricRegistry:
             for m in sm.metrics
         }
         assert {s.name for s in specs} <= emitted
+
+
+def _points(reader):
+    """``{metric name: last point value}`` for one collected batch."""
+    data = reader.get_metrics_data()
+    if data is None:
+        return {}
+    return {
+        m.name: list(m.data.data_points)[-1].value
+        for rm in data.resource_metrics
+        for sm in rm.scope_metrics
+        for m in sm.metrics
+        if m.data.data_points
+    }
+
+
+def _raises(options):
+    """A consumer callback with a bug in it."""
+    raise RuntimeError("callback blew up")
+
+
+def _points_by_attribute(reader, name, attribute):
+    """``{attribute value: point value}`` for ``name`` in one collected batch."""
+    return {
+        p.attributes[attribute]: p.value
+        for rm in reader.get_metrics_data().resource_metrics
+        for sm in rm.scope_metrics
+        for m in sm.metrics
+        if m.name == name
+        for p in m.data.data_points
+    }
+
+
+class TestObservableMetrics:
+    """Observable kinds, whose points come from a callback rather than a push."""
+
+    def test_a_callback_reports_the_series(self, meter_and_reader):
+        meter, reader = meter_and_reader
+        register_metric_group(
+            "rl",
+            [
+                MetricSpec(
+                    "host_mem",
+                    "rl.host.memory.used",
+                    "observable_gauge",
+                    unit="By",
+                    callback=lambda options: [metrics.Observation(100.0, {"host.name": "dgx-0"})],
+                )
+            ],
+        )
+        create_metric_instruments(meter, "rl")
+
+        assert _points_by_attribute(reader, "rl.host.memory.used", "host.name") == {"dgx-0": 100.0}
+
+    def test_a_label_the_callback_stops_reporting_stops_being_exported(self, meter_and_reader):
+        """The reason these kinds exist: a synchronous gauge cannot retract a label.
+
+        A gauge keeps its last value per attribute set and re-exports it every
+        cycle, so a host first reported with one label and later with another is
+        exported under both forever, and summing over the label double-counts it.
+        """
+        meter, reader = meter_and_reader
+        state = {"group": "none", "value": 100.0}
+        register_metric_group(
+            "rl",
+            [
+                MetricSpec(
+                    "host_mem",
+                    "rl.host.memory.used",
+                    "observable_gauge",
+                    unit="By",
+                    callback=lambda options: [
+                        metrics.Observation(state["value"], {"rl.worker_groups": state["group"]})
+                    ],
+                )
+            ],
+        )
+        create_metric_instruments(meter, "rl")
+
+        first = _points_by_attribute(reader, "rl.host.memory.used", "rl.worker_groups")
+        state.update(group="lm_policy", value=220.0)
+        second = _points_by_attribute(reader, "rl.host.memory.used", "rl.worker_groups")
+
+        assert first == {"none": 100.0}
+        # The stale label is gone rather than carried alongside the new one.
+        assert second == {"lm_policy": 220.0}
+
+    def test_observable_counter_and_up_down_counter_are_supported(self, meter_and_reader):
+        meter, reader = meter_and_reader
+        register_metric_group(
+            "rl",
+            [
+                MetricSpec(
+                    "served",
+                    "rl.served",
+                    "observable_counter",
+                    callback=lambda options: [metrics.Observation(7)],
+                ),
+                MetricSpec(
+                    "queued",
+                    "rl.queued",
+                    "observable_up_down_counter",
+                    callback=lambda options: [metrics.Observation(-2)],
+                ),
+            ],
+        )
+        create_metric_instruments(meter, "rl")
+
+        points = {
+            m.name: list(m.data.data_points)[-1].value
+            for rm in reader.get_metrics_data().resource_metrics
+            for sm in rm.scope_metrics
+            for m in sm.metrics
+        }
+        assert points["rl.served"] == 7
+        assert points["rl.queued"] == -2
+
+    def test_an_observable_spec_without_a_callback_is_rejected(self):
+        """It would register cleanly and then report nothing at all."""
+        with pytest.raises(ValueError, match="requires a callback"):
+            MetricSpec("host_mem", "rl.host.memory.used", "observable_gauge")
+
+    def test_a_callback_on_a_synchronous_kind_is_rejected(self):
+        """It would never be called, and the author would have no way to tell."""
+        with pytest.raises(ValueError, match="only used by"):
+            MetricSpec("reward", "rl.reward", "gauge", callback=lambda options: [])
+
+    def test_recording_against_an_observable_key_is_logged_not_raised(
+        self, meter_and_reader, caplog
+    ):
+        meter, reader = meter_and_reader
+        register_metric_group(
+            "rl",
+            [
+                MetricSpec(
+                    "host_mem",
+                    "rl.host.memory.used",
+                    "observable_gauge",
+                    callback=lambda options: [metrics.Observation(100.0)],
+                )
+            ],
+        )
+        create_metric_instruments(meter, "rl")
+
+        with caplog.at_level(logging.WARNING):
+            record_metrics(meter, "rl", host_mem=999.0)
+
+        assert "reports through its callback" in caplog.text
+        # The callback's value stands; the pushed one is dropped.
+        points = [
+            p.value
+            for rm in reader.get_metrics_data().resource_metrics
+            for sm in rm.scope_metrics
+            for m in sm.metrics
+            for p in m.data.data_points
+        ]
+        assert points == [100.0]
+
+    def test_creating_instruments_twice_does_not_register_a_second_callback(self, meter_and_reader):
+        """Instruments are cached per meter, so the callback runs once per cycle."""
+        meter, reader = meter_and_reader
+        calls = []
+
+        def _callback(options):
+            calls.append(1)
+            return [metrics.Observation(1.0)]
+
+        register_metric_group(
+            "rl", [MetricSpec("x", "rl.x", "observable_gauge", callback=_callback)]
+        )
+        create_metric_instruments(meter, "rl")
+        create_metric_instruments(meter, "rl")
+
+        reader.get_metrics_data()
+        assert len(calls) == 1
+
+    def test_creating_instruments_for_an_unregistered_group_is_logged_not_raised(self, caplog):
+        meter = metrics.get_meter("test")
+        with caplog.at_level(logging.WARNING):
+            create_metric_instruments(meter, "never_registered")
+
+        assert "unregistered group" in caplog.text
+
+    def test_a_synchronous_group_can_be_materialised_early(self, meter_and_reader):
+        """Harmless on a group with no observable spec, so callers need no branch."""
+        meter, reader = meter_and_reader
+        register_metric_group("rl", _rl_group_specs())
+        create_metric_instruments(meter, "rl")
+        record_metrics(meter, "rl", reward_mean=0.85)
+
+        points = {
+            m.name: list(m.data.data_points)[-1].value
+            for rm in reader.get_metrics_data().resource_metrics
+            for sm in rm.scope_metrics
+            for m in sm.metrics
+        }
+        assert points["rl.reward.mean"] == 0.85
+
+
+class TestObservableFailureModes:
+    """The ways an observable series can go wrong once its callback is installed."""
+
+    def test_a_failing_callback_is_logged_once_not_once_per_cycle(self, meter_and_reader, caplog):
+        """The SDK re-logs a raising callback with a traceback on every collect.
+
+        Left alone that is a traceback per export interval for the rest of the
+        run. The guard reports it once and lets the series go quiet, which is
+        the rule every other failure path in the registry follows.
+        """
+        meter, reader = meter_and_reader
+        register_metric_group(
+            "rl",
+            [
+                MetricSpec("x", "rl.x", "observable_gauge", callback=_raises),
+                MetricSpec(
+                    "y", "rl.y", "observable_gauge", callback=lambda o: [metrics.Observation(2.0)]
+                ),
+            ],
+        )
+        create_metric_instruments(meter, "rl")
+
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.instruments.registry"):
+            for _ in range(5):
+                reader.get_metrics_data()
+
+        failures = [r for r in caplog.records if "Callback for metric" in r.getMessage()]
+        assert len(failures) == 1
+        # The healthy sibling in the same group is unaffected.
+        assert _points(reader).get("rl.y") == 2.0
+
+    def test_a_generator_callback_is_still_driven_correctly(self, meter_and_reader):
+        """The SDK primes generators itself, but only ones it can see; the guard
+        hands it a plain function, so priming has to happen here instead."""
+        meter, reader = meter_and_reader
+
+        def _generator():
+            yield  # consumed by priming; send() resumes from here each cycle
+            while True:
+                yield [metrics.Observation(42.0)]
+
+        register_metric_group(
+            "rl", [MetricSpec("g", "rl.g", "observable_gauge", callback=_generator())]
+        )
+        create_metric_instruments(meter, "rl")
+
+        assert _points(reader).get("rl.g") == 42.0
+
+    def test_a_generator_callback_that_finishes_ends_the_series_quietly(
+        self, meter_and_reader, caplog
+    ):
+        """Exhaustion is how a generator says it is done, not a failure."""
+        meter, reader = meter_and_reader
+
+        def _generator():
+            yield
+            yield [metrics.Observation(1.0)]
+
+        register_metric_group(
+            "rl", [MetricSpec("g", "rl.g", "observable_gauge", callback=_generator())]
+        )
+        create_metric_instruments(meter, "rl")
+
+        assert _points(reader).get("rl.g") == 1.0
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.instruments.registry"):
+            after = _points(reader)
+        assert "rl.g" not in after
+        assert caplog.text == ""
+
+    def test_overriding_a_group_after_its_observables_exist_warns(self, meter_and_reader, caplog):
+        """OTel drops the replacement as a duplicate name without a word, so the
+        old callback would otherwise keep reporting invisibly."""
+        meter, reader = meter_and_reader
+        register_metric_group(
+            "rl",
+            [
+                MetricSpec(
+                    "x", "rl.x", "observable_gauge", callback=lambda o: [metrics.Observation(1.0)]
+                )
+            ],
+        )
+        create_metric_instruments(meter, "rl")
+
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.instruments.registry"):
+            register_metric_group(
+                "rl",
+                [
+                    MetricSpec(
+                        "x",
+                        "rl.x",
+                        "observable_gauge",
+                        callback=lambda o: [metrics.Observation(999.0)],
+                    )
+                ],
+                allow_override=True,
+            )
+            create_metric_instruments(meter, "rl")
+
+        assert "keep reporting through the previous callback" in caplog.text
+        assert "rl.x" in caplog.text
+        # And the warning is honest about what happened.
+        assert _points(reader).get("rl.x") == 1.0
+
+    def test_overriding_before_the_instruments_exist_is_silent(self, caplog):
+        """Nothing is stranded yet, so there is nothing to warn about."""
+        register_metric_group(
+            "rl",
+            [MetricSpec("x", "rl.x", "observable_gauge", callback=lambda o: [])],
+        )
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.instruments.registry"):
+            register_metric_group(
+                "rl",
+                [MetricSpec("x", "rl.x", "observable_gauge", callback=lambda o: [])],
+                allow_override=True,
+            )
+        assert caplog.text == ""
+
+    def test_create_and_record_warn_separately_for_an_unregistered_group(self, caplog):
+        """Two different mistakes; one must not silence the other."""
+        meter = metrics.get_meter("test")
+        with caplog.at_level(logging.WARNING, logger="nemo.lens.instruments.registry"):
+            create_metric_instruments(meter, "ghost")
+            record_metrics(meter, "ghost", a=1.0)
+
+        assert "create_metric_instruments called for unregistered group" in caplog.text
+        assert "record_metrics called for unregistered group" in caplog.text
+
+    def test_observable_metric_kinds_names_exactly_the_callback_driven_kinds(self):
+        assert sorted(OBSERVABLE_METRIC_KINDS) == [
+            "observable_counter",
+            "observable_gauge",
+            "observable_up_down_counter",
+        ]
+        assert OBSERVABLE_METRIC_KINDS < METRIC_KINDS
 
 
 class TestForkSafety:
