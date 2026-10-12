@@ -160,3 +160,43 @@ groups:
     brief: One incarnation of the job. Changes on every restart.
     annotations:
       constant: NV_DL_RUN_UUID
+
+  # GPU sniff-test (nv.dl.resiliency.gpu_sniff.*): an on-GPU micro-benchmark run
+  # at startup and on an interval; these attributes tag its per-run measurement
+  # event, not a long-lived span. Parked under nv.dl.* (neutral) rather than
+  # nv.nvrx.* so fault-tolerance can consume it without importing the trainer's
+  # vocabulary. The sniff-test spans/events themselves are consumer-emitted
+  # (Megatron) and modeled in the nv-training-semconv registry; Lens's registry
+  # generates attribute-name constants only, so it defines just these four.
+  - id: nv.dl.resiliency.gpu_sniff.benchmark
+    type: string
+    stability: development
+    brief: Which benchmark this measurement is from.
+    examples: ['gemm', 'all_reduce', 'reduce_scatter', 'all_to_all', 'send_recv']
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_BENCHMARK
+  - id: nv.dl.resiliency.gpu_sniff.value
+    type: double
+    stability: development
+    brief: The measured value.
+    note: >-
+      Carries no unit annotation, deliberately — the unit varies by benchmark, so
+      it travels as data in `nv.dl.resiliency.gpu_sniff.unit` rather than as
+      schema metadata.
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_VALUE
+  - id: nv.dl.resiliency.gpu_sniff.unit
+    type: string
+    stability: development
+    brief: The unit of `nv.dl.resiliency.gpu_sniff.value`, as a runtime value.
+    examples: ['TFLOP/s', 'GB/s']
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_UNIT
+  - id: nv.dl.resiliency.gpu_sniff.tag
+    type: string
+    stability: development
+    brief: Free-text label for which invocation of the sniff test this is.
+    note: Unstructured free-text; carried because a producer exists today.
+    examples: ['before training', 'iteration    1000']
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_TAG
