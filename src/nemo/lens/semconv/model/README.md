@@ -75,7 +75,7 @@ The template is `templates/registry/python/attributes.py.j2` (+ `weaver.yaml`).
 
 ## Inventory
 
-Twelve namespaces, **99 records** across 12 files (+ `manifest.yaml`, which carries
+Twelve namespaces, **103 records** across 12 files (+ `manifest.yaml`, which carries
 the registry `schema_url` and version).
 
 - **Authored (`nv.dl.*`, `nv.gpu.*`, `slurm.*`, `inverted.*`):** no `TODO` remains.
