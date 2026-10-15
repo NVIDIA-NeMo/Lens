@@ -100,9 +100,15 @@ the registry `schema_url` and version).
 
 ## Deliberately deferred
 
-- **Spelling conflicts.** Lens spells some names one way, the standalone registry
-  or Megatron another (`micro_batch_size` vs `microbatch_size`, `train_iters` vs
-  `train_iterations`, `nv.dl.training.iter_block` vs `loop_pass`, `nv.nvrx.ckpt.*`
-  vs `nv.nvrx.checkpoint.*`). The registry records **Lens's current spelling**;
-  choosing the winner is an owner conversation held against these files. Resolving
-  one is a rename — see rule 3.
+- **Spelling conflicts.** Across the ecosystem a concept is sometimes spelled one
+  way here, another by the standalone registry, a third by the producer. **Two**
+  Lens emits today (`micro_batch_size` vs canonical `microbatch_size`,
+  `train_iters` vs `train_iterations`) — resolving either is a rename here.
+  **Eleven more** are registry-vs-producer forks Lens has not adopted yet
+  (`nv.dl.training.step`, `loop_pass`, the nine-span `nv.nvrx.ckpt.*` →
+  `nv.nvrx.checkpoint.*` split); deciding those now is free, deciding them after
+  adoption is a rename. This registry records **Lens's current spelling**;
+  choosing a winner is a cross-repo owner conversation. The full reviewable
+  register — tiers, producer locations, and the span-vs-attribute resolution
+  protocol — is [`CONFLICTS.md`](CONFLICTS.md). Resolving a *span* rename also
+  touches the lens-monitor map (rule 3).
