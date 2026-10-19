@@ -327,6 +327,26 @@ def _select_id_generator(config: NemoLensConfig):
     return SeedIndependentIdGenerator()
 
 
+def _http_duration_views() -> list:
+    """Minute-scale buckets for the FastAPI HTTP server duration histograms."""
+    from opentelemetry.sdk.metrics.view import ExplicitBucketHistogramAggregation, View
+
+    from nemo.lens.instruments.gym import GYM_DURATION_BOUNDARIES_MS
+
+    return [
+        View(
+            instrument_name="http.server.duration",
+            aggregation=ExplicitBucketHistogramAggregation(boundaries=GYM_DURATION_BOUNDARIES_MS),
+        ),
+        View(
+            instrument_name="http.server.request.duration",
+            aggregation=ExplicitBucketHistogramAggregation(
+                boundaries=tuple(b / 1000 for b in GYM_DURATION_BOUNDARIES_MS)
+            ),
+        ),
+    ]
+
+
 def build_providers(
     config: NemoLensConfig,
     resource_attributes: dict | None = None,
@@ -467,7 +487,9 @@ def build_providers(
             _reader = PeriodicExportingMetricReader(
                 metric_exporter, export_interval_millis=_export_interval
             )
-        meter_provider = MeterProvider(resource=resource, metric_readers=[_reader])
+        meter_provider = MeterProvider(
+            resource=resource, metric_readers=[_reader], views=_http_duration_views()
+        )
         metrics.set_meter_provider(meter_provider)
 
     # ------------------------------------------------------------------
