@@ -238,4 +238,4 @@ See [Custom Exporters](../user-guide/custom-exporters.mdx).
 
 ### Check `traces_enabled`
 
-If `config.traces_enabled=False` (or `NEMO_LENS_TRACES_ENABLED=0`), the TracerProvider is a no-op regardless of what exporter you passed in; metrics toggle independently.
+If `config.traces_enabled=False` (or `NEMO_LENS_TRACES_ENABLED=0`), the TracerProvider is a no-op regardless of what exporter you passed in; metrics toggle independently. No span group is enabled either, so `enabled_span_groups()` is empty and every gated span site skips its work.

@@ -156,7 +156,14 @@ def setup_telemetry(
             span_exporter=span_exporter,
             metric_reader=metric_reader,
         )
-        set_span_group_spec(config.span_groups)
+        if config.traces_enabled:
+            set_span_group_spec(config.span_groups)
+        else:
+            # With traces off, every span would be discarded.
+            # No group is enabled, so each gated site returns before touching OpenTelemetry.
+            # Pinning the empty set drops the stored spec.
+            # A library that registers its groups after setup therefore cannot enable one.
+            set_enabled_span_groups(frozenset())
         _INITIALIZED = True
     else:
         build_noop_providers()
