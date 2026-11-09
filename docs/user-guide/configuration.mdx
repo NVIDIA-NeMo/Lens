@@ -76,7 +76,7 @@ one of these in place multiplies your span volume by the world size.
 
 | Field | Default | Description |
 |---|---|---|
-| `traces_enabled` | `True` | Enable trace spans. |
+| `traces_enabled` | `True` | Enable trace spans. When `False`, no span group is enabled, so every `managed_span` and `trace_fn` site is a no-op whatever `span_groups` says. |
 | `metrics_enabled` | `True` | Enable metric instruments. |
 | `logs_enabled` | `False` | Enable the OTel log bridge. See [Logging Bridge](../user-guide/logging-bridge.mdx). |
 

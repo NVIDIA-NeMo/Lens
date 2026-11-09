@@ -198,6 +198,28 @@ class TestSetupTelemetrySpanGroups:
         handle = setup_telemetry(cfg)
         assert handle.is_exporting is True
 
+    def test_traces_off_enables_no_group(self, demo_groups):
+        """Metrics-only telemetry must not pay for spans that no exporter will receive."""
+        from nemo.lens.helpers import managed_span
+
+        cfg = NemoLensConfig(
+            enabled=True, traces_enabled=False, span_groups="all", exporter="console"
+        )
+        handle = setup_telemetry(cfg)
+        assert handle.is_exporting is True
+        for group in SpanRegistry.groups():
+            assert not is_span_group_enabled(group)
+        with managed_span("job", "train.job") as span:
+            assert span is None
+
+    def test_traces_off_stays_off_after_a_late_registration(self, demo_groups):
+        cfg = NemoLensConfig(
+            enabled=True, traces_enabled=False, span_groups="all", exporter="console"
+        )
+        setup_telemetry(cfg)
+        SpanRegistry.register("late", {"extra"}, {"default": {"extra"}})
+        assert is_span_group_enabled("extra") is False
+
     def test_a_disabled_process_stays_disabled_after_a_late_registration(self):
         cfg = NemoLensConfig(enabled=False, span_groups="all")
         setup_telemetry(cfg)
