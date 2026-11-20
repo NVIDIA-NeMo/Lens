@@ -26,8 +26,9 @@ The launch pattern is:
    with `nemo-lens emit-spans`, runs the workload, then gives the collector a
    short drain window before terminating it.
 
-The mock workload emits `nv.dl.training.python_startup` and
-`nv.dl.training.python_imports` spans. They stand in for training-process costs;
+The mock workload emits `nv.dl.training.startup.python` and
+`nv.dl.training.startup.imports` spans, named from `nemo.lens.semconv.spans`.
+They stand in for training-process costs;
 NVRx-specific startup spans should be emitted by NVRx itself.
 
 `otel_minimal.sbatch` is the plain SLURM example. The `nvrx_*.sbatch` examples
