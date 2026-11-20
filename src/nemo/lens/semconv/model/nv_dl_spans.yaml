@@ -1,0 +1,381 @@
+# nv.dl.* span and event names. Framework-neutral: any trainer can emit them.
+# Spelled as producers emit them today (Megatron, the launch scripts); the
+# attributes they reference are defined in nv_dl.yaml. lens-monitor buckets
+# time by these names, so a rename lowers measured goodput without an error
+# (README rule 3).
+groups:
+- id: span.nv.dl.launch
+  type: span
+  span_kind: internal
+  stability: development
+  brief: >-
+    Scheduler job start until the workload process launches: the whole delay between asking
+    for the job and the workload starting.
+  annotations:
+    constant: NV_DL_LAUNCH
+- id: span.nv.dl.launch.scheduler_delay
+  type: span
+  span_kind: internal
+  stability: development
+  brief: Prolog, from scheduler job start to launch-script start.
+  annotations:
+    constant: NV_DL_LAUNCH_SCHEDULER_DELAY
+- id: span.nv.dl.launch.sbatch_script
+  type: span
+  span_kind: internal
+  stability: development
+  brief: The sbatch script, from its first line to just before the main srun.
+  annotations:
+    constant: NV_DL_LAUNCH_SBATCH_SCRIPT
+- id: span.nv.dl.launch.workload_step_start
+  type: span
+  span_kind: internal
+  stability: development
+  brief: Starting the workload job step.
+  annotations:
+    constant: NV_DL_LAUNCH_WORKLOAD_STEP_START
+- id: span.nv.dl.launch.container_load
+  type: span
+  span_kind: internal
+  stability: development
+  brief: 'Getting the container up and running on this node: srun dispatch plus bringup.'
+  annotations:
+    constant: NV_DL_LAUNCH_CONTAINER_LOAD
+- id: span.nv.dl.launch.collector_start
+  type: span
+  span_kind: internal
+  stability: development
+  brief: Bringing the telemetry collector up from the srun task context.
+  annotations:
+    constant: NV_DL_LAUNCH_COLLECTOR_START
+- id: span.nv.dl.training.startup
+  type: span
+  span_kind: internal
+  stability: development
+  brief: The whole trainer startup sequence; the root span of this area.
+  annotations:
+    constant: NV_DL_TRAINING_STARTUP
+- id: span.nv.dl.training.startup.python
+  type: span
+  span_kind: internal
+  stability: development
+  brief: Interpreter bootstrap, from process creation to the start of user code.
+  annotations:
+    constant: NV_DL_TRAINING_STARTUP_PYTHON
+- id: span.nv.dl.training.startup.imports
+  type: span
+  span_kind: internal
+  stability: development
+  brief: Heavy imports, up to entry into the main module.
+  annotations:
+    constant: NV_DL_TRAINING_STARTUP_IMPORTS
+- id: span.nv.dl.training.startup.arg_parse
+  type: span
+  span_kind: internal
+  stability: development
+  brief: Argument parsing.
+  annotations:
+    constant: NV_DL_TRAINING_STARTUP_ARG_PARSE
+- id: span.nv.dl.training.startup.in_job_setup
+  type: span
+  span_kind: internal
+  stability: development
+  brief: In-job fault-tolerance setup.
+  annotations:
+    constant: NV_DL_TRAINING_STARTUP_IN_JOB_SETUP
+- id: span.nv.dl.training.startup.initialize_megatron
+  type: span
+  span_kind: internal
+  stability: development
+  brief: Distributed initialisation and parallel state.
+  note: Megatron-specific startup phase; slated to move to `nv.mlm.*`.
+  annotations:
+    constant: NV_DL_TRAINING_STARTUP_INITIALIZE_MEGATRON
+- id: span.nv.dl.training.startup.jit_fusion_options
+  type: span
+  span_kind: internal
+  stability: development
+  brief: JIT fusion setup.
+  note: Megatron-specific startup phase; slated to move to `nv.mlm.*`.
+  annotations:
+    constant: NV_DL_TRAINING_STARTUP_JIT_FUSION_OPTIONS
+- id: span.nv.dl.training.startup.model_init
+  type: span
+  span_kind: internal
+  stability: development
+  brief: Model and optimizer setup.
+  annotations:
+    constant: NV_DL_TRAINING_STARTUP_MODEL_INIT
+- id: span.nv.dl.training.startup.dataloader
+  type: span
+  span_kind: internal
+  stability: development
+  brief: Data loader construction.
+  annotations:
+    constant: NV_DL_TRAINING_STARTUP_DATALOADER
+- id: span.nv.dl.training.startup.weight_hash_check
+  type: span
+  span_kind: internal
+  stability: development
+  brief: Verifying initial weights match across ranks.
+  note: Megatron-specific startup phase; slated to move to `nv.mlm.*`.
+  annotations:
+    constant: NV_DL_TRAINING_STARTUP_WEIGHT_HASH_CHECK
+- id: span.nv.dl.training.iter_block
+  type: span
+  span_kind: internal
+  stability: development
+  brief: One pass of the training loop; the root span, opened fresh each pass.
+  note: >-
+    lens-monitor treats a completed pass without an iteration span as the iteration span group
+    being off, so a framework that emits iterations must also emit this.
+  attributes:
+  - ref: nv.dl.training.step
+    requirement_level: required
+  annotations:
+    constant: NV_DL_TRAINING_ITER_BLOCK
+- id: span.nv.dl.training.iteration
+  type: span
+  span_kind: internal
+  stability: development
+  brief: One training iteration on one rank; a child of the loop-pass root.
+  note: Its time is what lens-monitor counts as productive work.
+  attributes:
+  - ref: nv.dl.training.step
+    requirement_level: required
+  - ref: nv.dl.training.iteration.is_first
+    requirement_level: required
+  - ref: nv.dl.training.iteration.skipped
+    requirement_level: required
+  annotations:
+    constant: NV_DL_TRAINING_ITERATION
+- id: span.nv.dl.training.iteration.forward_backward
+  type: span
+  span_kind: internal
+  stability: development
+  brief: The forward and backward pass for all microbatches of one iteration.
+  annotations:
+    constant: NV_DL_TRAINING_ITERATION_FORWARD_BACKWARD
+- id: span.nv.dl.training.iteration.optimizer_step
+  type: span
+  span_kind: internal
+  stability: development
+  brief: The optimizer update for one iteration.
+  attributes:
+  - ref: nv.dl.training.optimizer.update_successful
+    requirement_level: required
+  annotations:
+    constant: NV_DL_TRAINING_ITERATION_OPTIMIZER_STEP
+- id: span.nv.dl.training.checkpoint.exposed_save
+  type: span
+  span_kind: internal
+  stability: development
+  brief: 'What the trainer actually pays for a checkpoint: the exposed portion.'
+  attributes:
+  - ref: nv.dl.training.step
+    requirement_level: required
+  annotations:
+    constant: NV_DL_TRAINING_CHECKPOINT_EXPOSED_SAVE
+- id: span.nv.dl.training.checkpoint.save
+  type: span
+  span_kind: internal
+  stability: development
+  brief: 'The trainer-side save call: state-dict assembly plus the write handoff.'
+  attributes:
+  - ref: nv.dl.training.step
+    requirement_level: required
+  annotations:
+    constant: NV_DL_TRAINING_CHECKPOINT_SAVE
+- id: span.nv.dl.training.checkpoint.save.state_dict
+  type: span
+  span_kind: internal
+  stability: development
+  brief: State-dict assembly.
+  annotations:
+    constant: NV_DL_TRAINING_CHECKPOINT_SAVE_STATE_DICT
+- id: span.nv.dl.training.checkpoint.save.io_write
+  type: span
+  span_kind: internal
+  stability: development
+  brief: The trainer-side write, including its synchronous device-to-host slice.
+  annotations:
+    constant: NV_DL_TRAINING_CHECKPOINT_SAVE_IO_WRITE
+- id: span.nv.dl.training.checkpoint.save.finalize
+  type: span
+  span_kind: internal
+  stability: development
+  brief: Finalizing previously scheduled asynchronous saves, once per loop pass.
+  note: >-
+    Emitted on every loop pass while checkpointing is instrumented, whether or not a save
+    completes; lens-monitor uses its presence to tell checkpoint instrumentation is on. When
+    the pass commits an asynchronous save, the span carries nv.dl.training.checkpoint.last_iteration_step,
+    which is what makes that checkpoint count as durable.
+  attributes:
+  - ref: nv.dl.training.step
+    requirement_level: recommended
+  - ref: nv.dl.training.checkpoint.last_iteration_step
+    requirement_level:
+      conditionally_required: When this pass committed an asynchronous save.
+  annotations:
+    constant: NV_DL_TRAINING_CHECKPOINT_SAVE_FINALIZE
+- id: span.nv.dl.training.checkpoint.load
+  type: span
+  span_kind: internal
+  stability: development
+  brief: Loading a checkpoint at startup.
+  attributes:
+  - ref: nv.dl.training.checkpoint.source_iteration
+    requirement_level: recommended
+  - ref: nv.dl.training.checkpoint.source_path
+    requirement_level:
+      conditionally_required: When the checkpoint has a shared path (not node-local).
+  - ref: nv.dl.training.resume_iteration
+    requirement_level: recommended
+  annotations:
+    constant: NV_DL_TRAINING_CHECKPOINT_LOAD
+- id: span.nv.dl.training.checkpoint.load.io_read
+  type: span
+  span_kind: internal
+  stability: development
+  brief: The read from storage inside a checkpoint load.
+  annotations:
+    constant: NV_DL_TRAINING_CHECKPOINT_LOAD_IO_READ
+- id: span.nv.dl.training.evaluate
+  type: span
+  span_kind: internal
+  stability: development
+  brief: One evaluation pass.
+  attributes:
+  - ref: nv.dl.training.step
+    requirement_level: recommended
+  - ref: nv.dl.training.evaluate.iteration_count
+    requirement_level: recommended
+  annotations:
+    constant: NV_DL_TRAINING_EVALUATE
+- id: span.nv.dl.training.evaluate.step
+  type: span
+  span_kind: internal
+  stability: development
+  brief: One iteration of an evaluation pass.
+  attributes:
+  - ref: nv.dl.training.evaluate.iteration
+    requirement_level: required
+  annotations:
+    constant: NV_DL_TRAINING_EVALUATE_STEP
+- id: span.nv.dl.resiliency.gpu_sniff.startup
+  type: span
+  span_kind: internal
+  stability: development
+  brief: The GPU sniff test, run once during startup.
+  attributes:
+  - ref: nv.dl.resiliency.gpu_sniff.tag
+    requirement_level: required
+  annotations:
+    constant: NV_DL_RESILIENCY_GPU_SNIFF_STARTUP
+- id: span.nv.dl.resiliency.gpu_sniff.periodic
+  type: span
+  span_kind: internal
+  stability: development
+  brief: The GPU sniff test, run on an interval during training.
+  attributes:
+  - ref: nv.dl.resiliency.gpu_sniff.tag
+    requirement_level: required
+  - ref: nv.dl.training.step
+    requirement_level: required
+  annotations:
+    constant: NV_DL_RESILIENCY_GPU_SNIFF_PERIODIC
+- id: event.nv.dl.training.objective
+  type: event
+  name: nv.dl.training.objective
+  stability: development
+  brief: The value of one training objective at one step.
+  note: >-
+    N objectives produce N events at the same step. Not called loss: the same shape carries
+    rewards, penalties and regularizers.
+  attributes:
+  - ref: nv.dl.training.step
+    requirement_level: required
+  - ref: nv.dl.training.objective.name
+    requirement_level: required
+  - ref: nv.dl.training.objective.value
+    requirement_level: required
+  - ref: nv.dl.measurement.domain
+    requirement_level: required
+  - ref: nv.dl.training.objective.weight
+    requirement_level: recommended
+  annotations:
+    constant: NV_DL_TRAINING_OBJECTIVE
+- id: event.nv.dl.training.numerics
+  type: event
+  name: nv.dl.training.numerics
+  stability: development
+  brief: Numerics-health values for one step.
+  attributes:
+  - ref: nv.dl.training.step
+    requirement_level: required
+  - ref: nv.dl.training.learning_rate
+    requirement_level: recommended
+  - ref: nv.dl.training.global_batch_size
+    requirement_level: recommended
+  - ref: nv.dl.training.consumed_samples
+    requirement_level: recommended
+  - ref: nv.dl.training.grad_zeros
+    requirement_level: recommended
+  - ref: nv.dl.training.params_norm
+    requirement_level: recommended
+  - ref: nv.dl.training.skipped_iterations
+    requirement_level: recommended
+  - ref: nv.dl.training.nan_iterations
+    requirement_level: recommended
+  - ref: nv.dl.training.loss_scale
+    requirement_level: recommended
+  - ref: nv.dl.measurement.domain
+    requirement_level: recommended
+  annotations:
+    constant: NV_DL_TRAINING_NUMERICS
+- id: event.nv.dl.resiliency.gpu_sniff.measurement
+  type: event
+  name: nv.dl.resiliency.gpu_sniff.measurement
+  stability: development
+  brief: One benchmark measurement on one rank.
+  attributes:
+  - ref: nv.dl.resiliency.gpu_sniff.benchmark
+    requirement_level: required
+  - ref: nv.dl.resiliency.gpu_sniff.value
+    requirement_level: required
+  - ref: nv.dl.resiliency.gpu_sniff.unit
+    requirement_level: required
+  - ref: nv.dl.measurement.domain
+    requirement_level: required
+  - ref: nv.dl.training.step
+    requirement_level:
+      conditionally_required: When the measurement comes from the periodic sniff test.
+  - ref: nv.dl.resiliency.gpu_sniff.gemm.m
+    requirement_level:
+      conditionally_required: When the benchmark is a GEMM.
+  - ref: nv.dl.resiliency.gpu_sniff.gemm.n
+    requirement_level:
+      conditionally_required: When the benchmark is a GEMM.
+  - ref: nv.dl.resiliency.gpu_sniff.gemm.k
+    requirement_level:
+      conditionally_required: When the benchmark is a GEMM.
+  - ref: nv.dl.resiliency.gpu_sniff.gemm.dtype
+    requirement_level:
+      conditionally_required: When the benchmark is a GEMM.
+  - ref: nv.dl.resiliency.gpu_sniff.gemm.label
+    requirement_level:
+      conditionally_required: When the benchmark is a GEMM.
+  - ref: nv.dl.resiliency.gpu_sniff.message_size
+    requirement_level:
+      conditionally_required: When the benchmark is a collective or send/recv.
+  - ref: nv.dl.resiliency.gpu_sniff.group_size
+    requirement_level:
+      conditionally_required: When the benchmark is a collective.
+  - ref: nv.dl.resiliency.gpu_sniff.peer_stride
+    requirement_level:
+      conditionally_required: When the benchmark is send/recv.
+  - ref: nv.dl.resiliency.gpu_sniff.peer_rank
+    requirement_level:
+      conditionally_required: When the benchmark is send/recv.
+  annotations:
+    constant: NV_DL_RESILIENCY_GPU_SNIFF_MEASUREMENT

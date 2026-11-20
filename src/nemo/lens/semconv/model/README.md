@@ -1,8 +1,9 @@
-# `model/` — the semantic-convention registry (source of truth for attribute names)
+# `model/` — the semantic-convention registry (source of truth for attribute, span and event names)
 
-This directory **is** the definition of every attribute name Lens exposes. One
-YAML record per name; the Python constants in `../attributes.py` are **generated
-from here** by [weaver](https://github.com/open-telemetry/weaver). Editing a name
+This directory **is** the definition of every attribute, span and event name Lens
+exposes. One YAML record per name; the Python constants in `../attributes.py`,
+`../spans.py` and `../events.py` are **generated from here** by
+[weaver](https://github.com/open-telemetry/weaver). Editing a name
 is a reviewable diff against the registry, not an untracked edit to a Python
 module nobody reviews.
 
@@ -12,16 +13,24 @@ pins the Python constant it generates via `annotations.constant`, so the emitted
 name is exact (e.g. `gen_ai.operation.name` → `GENAI_OPERATION_NAME`, which a
 mechanical `screaming_snake_case` would get wrong).
 
+Span and event names live in `nv_dl_spans.yaml` as `type: span` / `type: event`
+groups (`id: span.<name>` / `id: event.<name>`), each with its own
+`annotations.constant`. Their `attributes:` are `ref`s to attributes defined in
+the attribute groups, so a span can only carry names this registry defines.
+They generate into separate modules (`nemo.lens.semconv.spans`,
+`nemo.lens.semconv.events`), not into the `nemo.lens.semconv` star-export.
+
 ## Where the names live now
 
 ```
 model/*.yaml                     ← source of truth (this dir)
   │  weaver registry generate
   ▼
-_generated/attributes.py         ← GENERATED constants (do not edit)
-  │  from ._generated.attributes import *
+_generated/{attributes,spans,events}.py   ← GENERATED constants (do not edit)
+  │  from ._generated.<kind> import *
   ▼
 attributes.py                    ← thin shim: re-exports + owns SEMCONV_VERSION
+spans.py, events.py              ← thin shims: re-export + ALL_SPANS / ALL_EVENTS
 ```
 
 ## The rules
@@ -68,15 +77,23 @@ curl -sL https://github.com/open-telemetry/weaver/releases/download/v0.25.1/weav
 
 # regenerate after ANY model edit, then commit the result
 weaver registry generate -r src/nemo/lens/semconv/model -t templates python /tmp/gen
-cp /tmp/gen/attributes.py src/nemo/lens/semconv/_generated/attributes.py
+cp /tmp/gen/*.py src/nemo/lens/semconv/_generated/
 ```
 
-The template is `templates/registry/python/attributes.py.j2` (+ `weaver.yaml`).
+The templates are `templates/registry/python/{attributes,spans,events}.py.j2`
+(+ `weaver.yaml`).
 
 ## Inventory
 
 Twelve namespaces, **137 records** across 12 files (+ `manifest.yaml`, which carries
-the registry `schema_url` and version).
+the registry `schema_url` and version), plus **31 spans and 3 events** in
+`nv_dl_spans.yaml`.
+
+- **Spans and events (`nv_dl_spans.yaml`)** are spelled as producers emit them
+  today (Megatron and the launch scripts), verified against production traces.
+  Three startup spans (`initialize_megatron`, `jit_fusion_options`,
+  `weight_hash_check`) are Megatron-specific; their notes say so, and they are
+  slated to move to `nv.mlm.*`.
 
 - **Authored (`nv.dl.*`, `nv.gpu.*`, `slurm.*`, `inverted.*`):** no `TODO` remains.
 - **Upstream (`gen_ai.*`, `k8s.*`, `host.*`):** standard OTel names, not Lens
@@ -102,7 +119,7 @@ the registry `schema_url` and version).
 
 - **Spelling conflicts.** Lens spells some names one way, the standalone registry
   or Megatron another (`micro_batch_size` vs `microbatch_size`, `train_iters` vs
-  `train_iterations`, `nv.dl.training.iter_block` vs `loop_pass`, `nv.nvrx.ckpt.*`
+  `train_iterations`, `nv.nvrx.ckpt.*`
   vs `nv.nvrx.checkpoint.*`). The registry records **Lens's current spelling**;
   choosing the winner is an owner conversation held against these files. Resolving
   one is a rename — see rule 3.

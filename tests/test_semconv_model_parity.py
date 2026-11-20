@@ -63,6 +63,8 @@ def _model_records() -> list[tuple[str, str, str]]:
             continue
         for group in doc.get("groups", []):
             for attr in group.get("attributes", []):
+                if "id" not in attr:
+                    continue  # a span's or event's `ref` to an attribute defined elsewhere
                 constant = attr.get("annotations", {}).get("constant")
                 records.append((attr["id"], constant, path.name))
     return records

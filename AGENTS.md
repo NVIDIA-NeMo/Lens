@@ -55,7 +55,7 @@ src/nemo/lens/
 ├── distributed.py     broadcast_trace_context, create_linked_span
 ├── propagation.py     inject_context / extract_context (W3C)
 ├── logging_bridge.py  Python logging → OTel logs
-├── semconv.py         attribute-name constants (single source)
+├── semconv/          attribute, span and event name constants (generated from model/)
 ├── package_info.py    version (bumped by release automation, not by hand)
 ├── instruments/       metric instruments: inference, rl, gym
 ├── resources/         detection plus OTEL resource-attribute helpers
@@ -220,6 +220,8 @@ place. Three destinations, no overlap:
 Time-series numbers never go on spans. Attribute *names* are imported from
 `nemo.lens.semconv` (`nv.dl.*`, `nv.gpu.*`, `dl.*`, `rl.*`, `gym.*`, `nemo.*`,
 `slurm.*`, `wandb.*`, `inverted.*`, plus upstream `k8s.*`, `gen_ai.*`, `host.*`).
+Span and event *names* come from `nemo.lens.semconv.spans` and
+`nemo.lens.semconv.events` (`nv.dl.*`), never from string literals.
 The constants are **generated** from `semconv/model/`: add or change a name there
 and regenerate (`semconv/model/README.md`) — never inline a string, and never
 hand-edit `semconv/attributes.py` (a shim) or `semconv/_generated/`. Metric

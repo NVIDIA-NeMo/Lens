@@ -42,7 +42,8 @@ import pytest
 _ROOT = Path(__file__).resolve().parent.parent
 _MODEL = _ROOT / "src" / "nemo" / "lens" / "semconv" / "model"
 _TEMPLATES = _ROOT / "templates"
-_GENERATED = _ROOT / "src" / "nemo" / "lens" / "semconv" / "_generated" / "attributes.py"
+_GENERATED_DIR = _ROOT / "src" / "nemo" / "lens" / "semconv" / "_generated"
+_GENERATED_MODULES = ("attributes.py", "spans.py", "events.py")
 
 
 def _weaver() -> str | None:
@@ -66,7 +67,7 @@ def _require_weaver() -> str:
 
 
 def test_generated_is_current() -> None:
-    """Regenerate into a temp dir; the generated module must be byte-identical."""
+    """Regenerate into a temp dir; every generated module must be byte-identical."""
     exe = _require_weaver()
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "gen"
@@ -87,16 +88,19 @@ def test_generated_is_current() -> None:
             text=True,
         )
         assert proc.returncode == 0, f"weaver generate failed:\n{proc.stderr}"
-        fresh = out / "attributes.py"
-        assert fresh.is_file(), "weaver did not produce attributes.py"
-        assert _GENERATED.is_file(), "_generated/attributes.py is missing"
-        assert filecmp.cmp(fresh, _GENERATED, shallow=False), (
-            "_generated/attributes.py is stale relative to model/. Regenerate and commit:\n"
-            "  weaver registry generate -r src/nemo/lens/semconv/model -t templates "
-            "python <out> && cp <out>/attributes.py src/nemo/lens/semconv/_generated/"
-        )
+        for name in _GENERATED_MODULES:
+            fresh = out / name
+            committed = _GENERATED_DIR / name
+            assert fresh.is_file(), f"weaver did not produce {name}"
+            assert committed.is_file(), f"_generated/{name} is missing"
+            assert filecmp.cmp(fresh, committed, shallow=False), (
+                f"_generated/{name} is stale relative to model/. Regenerate and commit:\n"
+                "  weaver registry generate -r src/nemo/lens/semconv/model -t templates "
+                "python <out> && cp <out>/*.py src/nemo/lens/semconv/_generated/"
+            )
 
 
-def test_generated_module_is_valid_python() -> None:
+@pytest.mark.parametrize("name", _GENERATED_MODULES)
+def test_generated_module_is_valid_python(name: str) -> None:
     """A template can emit text that is not valid Python; parse, do not count."""
-    ast.parse(_GENERATED.read_text())
+    ast.parse((_GENERATED_DIR / name).read_text())

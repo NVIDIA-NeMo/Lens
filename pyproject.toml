@@ -100,7 +100,9 @@ testpaths = ["tests"]
 [tool.coverage.run]
 omit = [
     "src/nemo/lens/semconv/attributes.py",
-    "src/nemo/lens/semconv/_generated/attributes.py",
+    "src/nemo/lens/semconv/spans.py",
+    "src/nemo/lens/semconv/events.py",
+    "src/nemo/lens/semconv/_generated/*.py",
 ]
 
 [tool.uv]
