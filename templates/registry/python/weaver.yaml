@@ -1,7 +1,14 @@
-# Weaver codegen: attribute-name constants from the registry.
-# Weaver ships no Python template — this is ours. Constants only: emission is
-# Lens's job; this registry's job is to be the one place a name is spelled.
+# Weaver codegen: name constants from the registry.
+# Weaver ships no Python template — these are ours. Constants only: emission is
+# Lens's job (and its consumers'); this registry's job is to be the one place a
+# name is spelled.
 templates:
   - template: "attributes.py.j2"
     filter: semconv_attributes
+    application_mode: single
+  - template: "spans.py.j2"
+    filter: '.groups | map(select(.type == "span"))'
+    application_mode: single
+  - template: "events.py.j2"
+    filter: '.groups | map(select(.type == "event"))'
     application_mode: single

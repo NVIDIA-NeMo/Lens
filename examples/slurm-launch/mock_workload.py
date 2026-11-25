@@ -33,12 +33,15 @@ def _import_runtime_dependencies():
     context_module = import_module("opentelemetry.context")
     lens_module = import_module("nemo.lens")
     span_utilities_module = import_module("nemo.lens.span_utilities")
+    spans_module = import_module("nemo.lens.semconv.spans")
     return (
         context_module.Context,
         lens_module.NemoLensConfig,
         lens_module.setup_telemetry,
         span_utilities_module.emit_span,
         span_utilities_module.linux_process_create_time,
+        spans_module.NV_DL_TRAINING_STARTUP_PYTHON,
+        spans_module.NV_DL_TRAINING_STARTUP_IMPORTS,
     )
 
 
@@ -48,13 +51,13 @@ def _import_runtime_dependencies():
     setup_telemetry,
     emit_span,
     linux_process_create_time,
+    STARTUP_SPAN,
+    IMPORTS_SPAN,
 ) = _import_runtime_dependencies()
 
 _IMPORTS_FINISHED = time.time()
 
 SERVICE = "nv.dl.training"
-STARTUP_SPAN = "nv.dl.training.python_startup"
-IMPORTS_SPAN = "nv.dl.training.python_imports"
 
 
 def main():

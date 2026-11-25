@@ -74,6 +74,25 @@ From `semconv/attributes.py`:
 
 "Experimental" for `gen_ai.*` matches upstream; OTel considers them stable-in-practice but reserves the right to tweak until the full semconv 1.30 stabilization.
 
+## Span and Event Names
+
+Span and event names are defined in the same registry as attributes and
+generated into their own modules:
+
+```python
+from nemo.lens.semconv.spans import NV_DL_TRAINING_ITERATION
+from nemo.lens.semconv.attributes import NV_DL_TRAINING_STEP
+
+with managed_span("step", NV_DL_TRAINING_ITERATION) as span:
+    if span:
+        span.set_attribute(NV_DL_TRAINING_STEP, step)
+```
+
+`ALL_SPANS` and `ALL_EVENTS` hold the full sets, for consumers that check the
+names they read. The `nv.dl.*` spans are framework-neutral and spelled as
+producers emit them today. Goodput scoring buckets time by these names, so
+renaming one is a cross-repository change (see `semconv/model/README.md`).
+
 ## Namespace Conventions
 
 NeMo Lens organizes attributes into standard upstream namespaces and NeMo-specific custom namespaces.

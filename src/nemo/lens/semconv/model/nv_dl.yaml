@@ -160,14 +160,36 @@ groups:
     brief: One incarnation of the job. Changes on every restart.
     annotations:
       constant: NV_DL_RUN_UUID
+  - id: nv.dl.campaign.stage
+    type: string
+    stability: development
+    brief: The phase of the model's training campaign this job belongs to.
+    note: >-
+      Set by the job script as a resource attribute. Separates RL from pretraining
+      without inferring it from the job name.
+    examples: ['pre-train', 'mid-train', 'sft', 'distillation', 'rl']
+    annotations:
+      constant: NV_DL_CAMPAIGN_STAGE
+  - id: nv.dl.launch.nnodes.active
+    type: int
+    stability: development
+    brief: The number of nodes meant to run the workload, excluding spares.
+    annotations:
+      constant: NV_DL_LAUNCH_NNODES_ACTIVE
+  - id: nv.dl.launch.nnodes.spare
+    type: int
+    stability: development
+    brief: Allocated nodes held back from the workload (allocation minus active).
+    annotations:
+      constant: NV_DL_LAUNCH_NNODES_SPARE
 
   # GPU sniff-test (nv.dl.resiliency.gpu_sniff.*): an on-GPU micro-benchmark run
   # at startup and on an interval; these attributes tag its per-run measurement
   # event, not a long-lived span. Parked under nv.dl.* (neutral) rather than
   # nv.nvrx.* so fault-tolerance can consume it without importing the trainer's
-  # vocabulary. The sniff-test spans/events themselves are consumer-emitted
-  # (Megatron) and modeled in the nv-training-semconv registry; Lens's registry
-  # generates attribute-name constants only, so it defines just these four.
+  # vocabulary. The sniff-test spans and measurement event are emitted by
+  # Megatron; the workload-shape attributes below say which benchmark
+  # configuration a measurement came from.
   - id: nv.dl.resiliency.gpu_sniff.benchmark
     type: string
     stability: development
@@ -200,3 +222,210 @@ groups:
     examples: ['before training', 'iteration    1000']
     annotations:
       constant: NV_DL_RESILIENCY_GPU_SNIFF_TAG
+  - id: nv.dl.resiliency.gpu_sniff.gemm.m
+    type: int
+    stability: development
+    brief: GEMM M dimension of the benchmarked matmul.
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_GEMM_M
+  - id: nv.dl.resiliency.gpu_sniff.gemm.n
+    type: int
+    stability: development
+    brief: GEMM N dimension of the benchmarked matmul.
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_GEMM_N
+  - id: nv.dl.resiliency.gpu_sniff.gemm.k
+    type: int
+    stability: development
+    brief: GEMM K dimension of the benchmarked matmul.
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_GEMM_K
+  - id: nv.dl.resiliency.gpu_sniff.gemm.dtype
+    type: string
+    stability: development
+    brief: Data type of the benchmarked matmul.
+    examples: ['bf16']
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_GEMM_DTYPE
+  - id: nv.dl.resiliency.gpu_sniff.gemm.label
+    type: string
+    stability: development
+    brief: Human-readable name of the benchmarked matmul shape.
+    examples: ['up-proj/fc1', 'down-proj/fc2']
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_GEMM_LABEL
+  - id: nv.dl.resiliency.gpu_sniff.message_size
+    type: int
+    stability: development
+    brief: Message size of a communication benchmark.
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_MESSAGE_SIZE
+  - id: nv.dl.resiliency.gpu_sniff.group_size
+    type: int
+    stability: development
+    brief: Number of ranks taking part in a communication benchmark.
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_GROUP_SIZE
+  - id: nv.dl.resiliency.gpu_sniff.peer_stride
+    type: int
+    stability: development
+    brief: Rank distance to the peer in a send/recv benchmark.
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_PEER_STRIDE
+  - id: nv.dl.resiliency.gpu_sniff.peer_rank
+    type: int
+    stability: development
+    brief: The peer rank in a send/recv benchmark.
+    annotations:
+      constant: NV_DL_RESILIENCY_GPU_SNIFF_PEER_RANK
+
+  # Per-span and per-event training attributes, carried on the spans and events
+  # Megatron emits. lens-monitor reads several of them to number iterations and
+  # to find the last durable checkpoint, so a rename lowers measured goodput
+  # without an error (README rule 3).
+  - id: nv.dl.training.step
+    type: int
+    stability: development
+    brief: Global training step, monotonic within a job across restarts.
+    annotations:
+      constant: NV_DL_TRAINING_STEP
+  - id: nv.dl.training.iteration.is_first
+    type: boolean
+    stability: development
+    brief: Whether this is the first iteration this process executed.
+    annotations:
+      constant: NV_DL_TRAINING_ITERATION_IS_FIRST
+  - id: nv.dl.training.iteration.skipped
+    type: boolean
+    stability: development
+    brief: Whether this iteration's optimizer update was skipped.
+    annotations:
+      constant: NV_DL_TRAINING_ITERATION_SKIPPED
+  - id: nv.dl.training.optimizer.update_successful
+    type: boolean
+    stability: development
+    brief: Whether the optimizer step applied its update.
+    annotations:
+      constant: NV_DL_TRAINING_OPTIMIZER_UPDATE_SUCCESSFUL
+  - id: nv.dl.training.resume_iteration
+    type: int
+    stability: development
+    brief: The step training resumes from after a checkpoint load.
+    annotations:
+      constant: NV_DL_TRAINING_RESUME_ITERATION
+  - id: nv.dl.training.checkpoint.last_iteration_step
+    type: int
+    stability: development
+    brief: The step of the checkpoint that became durable during this finalize.
+    note: >-
+      Set only on the finalize span whose pass committed an asynchronous save,
+      and carries the step that save started at, not the current step. A save
+      is durable only once this is recorded; a completed save span is not enough.
+    annotations:
+      constant: NV_DL_TRAINING_CHECKPOINT_LAST_ITERATION_STEP
+  - id: nv.dl.training.checkpoint.source_iteration
+    type: int
+    stability: development
+    brief: The step of the checkpoint a load read.
+    annotations:
+      constant: NV_DL_TRAINING_CHECKPOINT_SOURCE_ITERATION
+  - id: nv.dl.training.checkpoint.source_path
+    type: string
+    stability: development
+    brief: The path of the checkpoint a load read.
+    note: >-
+      Absent for node-local checkpoints, which have no shared path.
+    examples: ['/checkpoints/my-run']
+    annotations:
+      constant: NV_DL_TRAINING_CHECKPOINT_SOURCE_PATH
+  - id: nv.dl.training.evaluate.iteration
+    type: int
+    stability: development
+    brief: The evaluation iteration within the current evaluation pass.
+    annotations:
+      constant: NV_DL_TRAINING_EVALUATE_ITERATION
+  - id: nv.dl.training.evaluate.iteration_count
+    type: int
+    stability: development
+    brief: The number of iterations in this evaluation pass.
+    annotations:
+      constant: NV_DL_TRAINING_EVALUATE_ITERATION_COUNT
+  - id: nv.dl.measurement.domain
+    type: string
+    stability: development
+    brief: The reduction a reported value represents.
+    note: >-
+      `dp_mean` is averaged across data-parallel ranks; `local` is this rank's own value.
+    examples: ['dp_mean', 'local']
+    annotations:
+      constant: NV_DL_MEASUREMENT_DOMAIN
+  - id: nv.dl.training.objective.name
+    type: string
+    stability: development
+    brief: Which training objective this value belongs to.
+    examples: ['lm loss', 'load_balancing_loss']
+    annotations:
+      constant: NV_DL_TRAINING_OBJECTIVE_NAME
+  - id: nv.dl.training.objective.value
+    type: double
+    stability: development
+    brief: The reported value of this objective at this step.
+    annotations:
+      constant: NV_DL_TRAINING_OBJECTIVE_VALUE
+  - id: nv.dl.training.objective.weight
+    type: double
+    stability: development
+    brief: Coefficient this objective carries in the combined loss.
+    annotations:
+      constant: NV_DL_TRAINING_OBJECTIVE_WEIGHT
+  - id: nv.dl.training.learning_rate
+    type: double
+    stability: development
+    brief: Learning rate applied at this step.
+    annotations:
+      constant: NV_DL_TRAINING_LEARNING_RATE
+  - id: nv.dl.training.global_batch_size
+    type: int
+    stability: development
+    brief: Global batch size in effect at this step.
+    note: >-
+      Can change during training (batch-size ramp-up), unlike the resource
+      attribute `nv.dl.training.config.global_batch_size`.
+    annotations:
+      constant: NV_DL_TRAINING_GLOBAL_BATCH_SIZE
+  - id: nv.dl.training.consumed_samples
+    type: int
+    stability: development
+    brief: Cumulative samples consumed by the job up to and including this step.
+    annotations:
+      constant: NV_DL_TRAINING_CONSUMED_SAMPLES
+  - id: nv.dl.training.grad_zeros
+    type: int
+    stability: development
+    brief: Count of zero entries in the gradient at this step.
+    annotations:
+      constant: NV_DL_TRAINING_GRAD_ZEROS
+  - id: nv.dl.training.params_norm
+    type: double
+    stability: development
+    brief: Global parameter norm at this step.
+    annotations:
+      constant: NV_DL_TRAINING_PARAMS_NORM
+  - id: nv.dl.training.skipped_iterations
+    type: int
+    stability: development
+    brief: Number of iterations skipped, e.g. for non-finite gradients.
+    annotations:
+      constant: NV_DL_TRAINING_SKIPPED_ITERATIONS
+  - id: nv.dl.training.nan_iterations
+    type: int
+    stability: development
+    brief: Number of iterations that produced a non-finite loss.
+    annotations:
+      constant: NV_DL_TRAINING_NAN_ITERATIONS
+  - id: nv.dl.training.loss_scale
+    type: double
+    stability: development
+    brief: Mixed-precision gradient loss scale at this step.
+    annotations:
+      constant: NV_DL_TRAINING_LOSS_SCALE
