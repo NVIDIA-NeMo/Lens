@@ -54,6 +54,36 @@ def test_setup_logging_bridge_adds_handler_for_sdk_provider(monkeypatch):
     logger.handlers.clear()
 
 
+def test_setup_logging_bridge_is_idempotent(monkeypatch):
+    """Verify repeated setup does not stack duplicate OTel handlers."""
+    logs_module = types.ModuleType("opentelemetry._logs")
+    sdk_logs_module = types.ModuleType("opentelemetry.sdk._logs")
+
+    class LoggerProvider:
+        pass
+
+    class LoggingHandler(logging.Handler):
+        def __init__(self, logger_provider):
+            super().__init__()
+            self.logger_provider = logger_provider
+
+    provider = LoggerProvider()
+    logs_module.get_logger_provider = lambda: provider
+    sdk_logs_module.LoggerProvider = LoggerProvider
+    sdk_logs_module.LoggingHandler = LoggingHandler
+    monkeypatch.setitem(sys.modules, logs_module.__name__, logs_module)
+    monkeypatch.setitem(sys.modules, sdk_logs_module.__name__, sdk_logs_module)
+
+    logger = logging.getLogger("nemo.lens.test.logging_bridge.idempotent")
+    logger.handlers.clear()
+
+    setup_logging_bridge(logger.name)
+    setup_logging_bridge(logger.name)
+
+    assert len(logger.handlers) == 1
+    logger.handlers.clear()
+
+
 def test_setup_logging_bridge_skips_non_sdk_provider(monkeypatch):
     """Verify non-SDK logger providers are ignored without adding handlers."""
     logs_module = types.ModuleType("opentelemetry._logs")
